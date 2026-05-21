@@ -1,5 +1,6 @@
 import type { ComponentManifest, AutodetectResult } from './types';
 import type { Column } from '../../pipeline-types';
+import { synthesizeManifest } from './manifest-synth';
 
 const CSV_SAMPLE_SCHEMA: Column[] = [
     { name: 'order_id', type: 'int64', nullable: false, primaryKey: true },
@@ -721,7 +722,7 @@ export const MANIFESTS: Record<string, ComponentManifest> = {
 
 export function getManifest(componentId: string | undefined): ComponentManifest | undefined {
     if (!componentId) return undefined;
-    return MANIFESTS[componentId];
+    return MANIFESTS[componentId] ?? synthesizeManifest(componentId);
 }
 
 export function getDefaults(manifest: ComponentManifest): Record<string, unknown> {

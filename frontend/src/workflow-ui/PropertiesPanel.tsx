@@ -158,13 +158,7 @@ export default function PropertiesPanel({
                             <span className="properties-manifest-desc">{manifest.description}</span>
                         ) : null}
                     </div>
-                ) : (
-                    <div className="properties-manifest-row">
-                        <span className="properties-manifest-warn">
-                            No manifest registered for <code>{data.componentId ?? 'untyped'}</code>
-                        </span>
-                    </div>
-                )}
+                ) : null}
             </div>
 
             <div className="properties-tabs" role="tablist">
@@ -206,9 +200,8 @@ export default function PropertiesPanel({
                                 ))
                             ) : (
                                 <div className="properties-hint">
-                                    This component has no registered manifest. Configure
-                                    component-specific properties by registering a manifest in{' '}
-                                    <code>component-manifests.ts</code>.
+                                    Generic component. Add a note in the field above to describe
+                                    what this node should do.
                                 </div>
                             )}
                         </div>
