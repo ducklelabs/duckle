@@ -105,7 +105,7 @@ export default function PropertiesPanel({
         if (!manifest?.autodetect) return;
         setAutodetecting(true);
         try {
-            const result = await manifest.autodetect();
+            const result = await manifest.autodetect(data.properties ?? {});
             onUpdate(selected.id, {
                 schema: result.columns,
                 sampleRows: result.sampleRows,

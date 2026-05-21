@@ -1,7 +1,8 @@
-import type { ComponentManifest, AutodetectResult } from './types';
+import type { ComponentManifest, AutodetectResult, AutodetectFn } from './types';
 import type { Column } from '../../pipeline-types';
 import { synthesizeManifest, portsForComponent } from './manifest-synth';
 import { PALETTE } from '../palette-data';
+import { tauriAutodetect } from '../../tauri-bridge';
 
 const CSV_SAMPLE_SCHEMA: Column[] = [
     { name: 'order_id', type: 'int64', nullable: false, primaryKey: true },
@@ -45,10 +46,26 @@ const JSON_SAMPLE_SCHEMA: Column[] = [
     { name: 'received_at', type: 'timestamp', nullable: false },
 ];
 
-function mockAutodetect(schema: Column[], rows?: Record<string, unknown>[]): () => Promise<AutodetectResult> {
+function mockAutodetect(schema: Column[], rows?: Record<string, unknown>[]): AutodetectFn {
     return async () => {
         await new Promise(r => setTimeout(r, 300));
         return { columns: schema, sampleRows: rows };
+    };
+}
+
+function realOrMockAutodetect(
+    format: string,
+    mockColumns: Column[],
+    mockRows: Record<string, unknown>[] = [],
+): AutodetectFn {
+    return async (props: Record<string, unknown>) => {
+        const path = typeof props.path === 'string' ? props.path.trim() : '';
+        if (path) {
+            const real = await tauriAutodetect(format, props);
+            if (real) return { columns: real.columns, sampleRows: real.sampleRows };
+        }
+        await new Promise(r => setTimeout(r, 250));
+        return { columns: mockColumns, sampleRows: mockRows };
     };
 }
 
@@ -59,7 +76,7 @@ export const MANIFESTS: Record<string, ComponentManifest> = {
         label: 'CSV',
         description: 'Read delimited text files.',
         schemaSource: 'autodetect',
-        autodetect: mockAutodetect(CSV_SAMPLE_SCHEMA, CSV_SAMPLE_ROWS),
+        autodetect: realOrMockAutodetect('csv', CSV_SAMPLE_SCHEMA, CSV_SAMPLE_ROWS),
         sections: [
             {
                 label: 'Source file',

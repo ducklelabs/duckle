@@ -23,8 +23,21 @@ function findPaletteEntry(componentId: string): PaletteEntry | null {
     return null;
 }
 
-function placeholderAutodetect(): () => Promise<AutodetectResult> {
-    return async () => {
+import { tauriAutodetect } from '../../tauri-bridge';
+
+function placeholderAutodetect(format?: string): (
+    props: Record<string, unknown>,
+) => Promise<AutodetectResult> {
+    return async (props: Record<string, unknown>) => {
+        // If we know the format and a path is set, try the real Rust
+        // autodetect command via Tauri; fall back to a placeholder.
+        if (format) {
+            const path = typeof props.path === 'string' ? props.path.trim() : '';
+            if (path) {
+                const real = await tauriAutodetect(format, props);
+                if (real) return { columns: real.columns, sampleRows: real.sampleRows };
+            }
+        }
         await new Promise(r => setTimeout(r, 250));
         return {
             columns: [
@@ -211,10 +224,21 @@ function base(
         label: comp.label,
         description: comp.summary ?? defaultDescription(comp),
         schemaSource,
-        autodetect: schemaSource === 'autodetect' ? placeholderAutodetect() : undefined,
+        autodetect:
+            schemaSource === 'autodetect'
+                ? placeholderAutodetect(formatFromComponent(comp.id))
+                : undefined,
         sections,
         ports: portsForComponent(comp),
     };
+}
+
+/// Map a component id to the autodetect format the runtime understands.
+function formatFromComponent(componentId: string): string | undefined {
+    const part = componentId.split('.')[1];
+    if (!part) return undefined;
+    // src.csv -> csv, snk.parquet -> parquet, etc.
+    return part;
 }
 
 // Port topology per component ----------------------------------------------

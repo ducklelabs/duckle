@@ -28,3 +28,6 @@ serde_json = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 duckle-runtime = { workspace = true }
+duckle-metadata = { workspace = true }
+duckle-plugin-sdk = { workspace = true }
+duckle-connectors = { workspace = true }

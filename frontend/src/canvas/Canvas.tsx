@@ -208,8 +208,16 @@ function CanvasInner({
     const handleDrop = useCallback(
         (e: React.DragEvent) => {
             e.preventDefault();
+            e.stopPropagation();
             const raw = e.dataTransfer.getData('application/duckle-component');
-            if (!raw) return;
+            if (!raw) {
+                // Helpful when debugging: types should include our MIME.
+                console.warn(
+                    'Drop received but application/duckle-component data is missing',
+                    Array.from(e.dataTransfer.types),
+                );
+                return;
+            }
             try {
                 const component = JSON.parse(raw) as ComponentDef;
                 const position = screenToFlowPosition({ x: e.clientX, y: e.clientY });

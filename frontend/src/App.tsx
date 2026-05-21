@@ -565,7 +565,7 @@ export default function App() {
             // so downstream nodes inherit immediately. The mock returns sample
             // columns; real autodetect lands when the runtime can read files.
             if (manifest?.autodetect) {
-                void manifest.autodetect().then(result => {
+                void manifest.autodetect(newNode.data.properties ?? {}).then(result => {
                     setNodes(ns =>
                         ns.map(n =>
                             n.id === id
@@ -639,7 +639,7 @@ export default function App() {
                 case 'autodetect': {
                     const manifest = getManifest(node.data.componentId);
                     if (!manifest?.autodetect) return;
-                    void manifest.autodetect().then(result => {
+                    void manifest.autodetect(node.data.properties ?? {}).then(result => {
                         setNodes(ns =>
                             ns.map(n =>
                                 n.id === nodeId
