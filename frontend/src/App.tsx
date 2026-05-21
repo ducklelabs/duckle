@@ -18,6 +18,7 @@ import LeftSidebar from './workflow-ui/LeftSidebar';
 import PropertiesPanel from './workflow-ui/PropertiesPanel';
 import BottomPanel from './workflow-ui/BottomPanel';
 import StatusBar from './workflow-ui/StatusBar';
+import NewPipelineModal, { type PipelineTemplate } from './workflow-ui/NewPipelineModal';
 import type { ComponentDef, NodeKind as PaletteKind } from './workflow-ui/palette-data';
 import { getDefaults, getManifest } from './workflow-ui/fields/component-manifests';
 import type { DuckleNodeData } from './pipeline-types';
@@ -26,7 +27,12 @@ import type { RepoItem } from './repo-types';
 
 type RuntimeState = 'connecting' | 'ready' | 'offline';
 
-const INITIAL_NODES: Node<DuckleNodeData>[] = [
+type PipelineState = {
+    nodes: Node<DuckleNodeData>[];
+    edges: Edge[];
+};
+
+const SAMPLE_NODES: Node<DuckleNodeData>[] = [
     {
         id: 's1',
         type: 'source',
@@ -66,12 +72,16 @@ const INITIAL_NODES: Node<DuckleNodeData>[] = [
     },
 ];
 
-const INITIAL_EDGES: Edge[] = [
+const SAMPLE_EDGES: Edge[] = [
     { id: 'e1', source: 's1', target: 't1' },
     { id: 'e2', source: 't1', target: 'k1' },
 ];
 
 const INITIAL_JOBS: Job[] = [{ id: 'j1', name: 'orders_etl', dirty: false }];
+
+const INITIAL_PIPELINE_DATA: Record<string, PipelineState> = {
+    j1: { nodes: SAMPLE_NODES, edges: SAMPLE_EDGES },
+};
 
 const INITIAL_REPO: RepoItem[] = [
     { id: 'root', name: 'Duckle Project', type: 'project' },
@@ -97,17 +107,38 @@ function paletteKindToFlowType(kind: PaletteKind): string {
     }
 }
 
+function freshId(prefix: string): string {
+    return prefix + '_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 7);
+}
+
+function seedTemplate(template: PipelineTemplate): PipelineState {
+    if (template === 'sample-csv-to-parquet') {
+        return { nodes: SAMPLE_NODES, edges: SAMPLE_EDGES };
+    }
+    return { nodes: [], edges: [] };
+}
+
+const EMPTY_PIPELINE: PipelineState = { nodes: [], edges: [] };
+
 export default function App() {
     const [runtime, setRuntime] = useState<RuntimeState>('connecting');
     const [engine, setEngine] = useState<EngineId>('duckdb');
-    const [nodes, setNodes] = useState<Node<DuckleNodeData>[]>(INITIAL_NODES);
-    const [edges, setEdges] = useState<Edge[]>(INITIAL_EDGES);
+    const [pipelineData, setPipelineData] =
+        useState<Record<string, PipelineState>>(INITIAL_PIPELINE_DATA);
     const [selectedId, setSelectedId] = useState<string | null>(null);
     const [jobs, setJobs] = useState<Job[]>(INITIAL_JOBS);
     const [activeJobId, setActiveJobId] = useState<string>('j1');
     const [isRunning, setIsRunning] = useState<boolean>(false);
     const [renameRequest, setRenameRequest] = useState<number>(0);
     const [repo, setRepo] = useState<RepoItem[]>(INITIAL_REPO);
+    const [newPipelineModal, setNewPipelineModal] = useState<{
+        open: boolean;
+        defaultParent: string;
+    }>({ open: false, defaultParent: 'pipelines' });
+
+    const activePipeline = pipelineData[activeJobId] ?? EMPTY_PIPELINE;
+    const nodes = activePipeline.nodes;
+    const edges = activePipeline.edges;
 
     useEffect(() => {
         let cancelled = false;
@@ -123,44 +154,100 @@ export default function App() {
         };
     }, []);
 
-    const handleNodesChange = useCallback((changes: NodeChange[]) => {
-        setNodes(ns => applyNodeChanges(changes, ns) as Node<DuckleNodeData>[]);
-    }, []);
+    // Switching active pipeline resets node selection.
+    useEffect(() => {
+        setSelectedId(null);
+    }, [activeJobId]);
 
-    const handleEdgesChange = useCallback((changes: EdgeChange[]) => {
-        setEdges(es => applyEdgeChanges(changes, es));
-    }, []);
+    const updateActive = useCallback(
+        (updater: (s: PipelineState) => PipelineState) => {
+            setPipelineData(d => ({
+                ...d,
+                [activeJobId]: updater(d[activeJobId] ?? EMPTY_PIPELINE),
+            }));
+        },
+        [activeJobId],
+    );
 
-    const handleConnect = useCallback((connection: Connection) => {
-        setEdges(es => addEdge(connection, es));
-    }, []);
+    const setNodes = useCallback(
+        (updater: Node<DuckleNodeData>[] | ((ns: Node<DuckleNodeData>[]) => Node<DuckleNodeData>[])) => {
+            updateActive(s => ({
+                ...s,
+                nodes: typeof updater === 'function' ? (updater as (ns: Node<DuckleNodeData>[]) => Node<DuckleNodeData>[])(s.nodes) : updater,
+            }));
+        },
+        [updateActive],
+    );
+
+    const setEdges = useCallback(
+        (updater: Edge[] | ((es: Edge[]) => Edge[])) => {
+            updateActive(s => ({
+                ...s,
+                edges: typeof updater === 'function' ? (updater as (es: Edge[]) => Edge[])(s.edges) : updater,
+            }));
+        },
+        [updateActive],
+    );
+
+    const markDirty = useCallback(() => {
+        setJobs(js => js.map(j => (j.id === activeJobId ? { ...j, dirty: true } : j)));
+    }, [activeJobId]);
+
+    const handleNodesChange = useCallback(
+        (changes: NodeChange[]) => {
+            setNodes(ns => applyNodeChanges(changes, ns) as Node<DuckleNodeData>[]);
+        },
+        [setNodes],
+    );
+
+    const handleEdgesChange = useCallback(
+        (changes: EdgeChange[]) => {
+            setEdges(es => applyEdgeChanges(changes, es));
+        },
+        [setEdges],
+    );
+
+    const handleConnect = useCallback(
+        (connection: Connection) => {
+            setEdges(es => addEdge(connection, es));
+            markDirty();
+        },
+        [setEdges, markDirty],
+    );
 
     const handleSelectionChange = useCallback((params: OnSelectionChangeParams) => {
         setSelectedId(params.nodes[0]?.id ?? null);
     }, []);
 
-    const handleUpdateNode = useCallback((id: string, patch: Partial<DuckleNodeData>) => {
-        setNodes(ns =>
-            ns.map(n => (n.id === id ? { ...n, data: { ...n.data, ...patch } } : n)),
-        );
-    }, []);
+    const handleUpdateNode = useCallback(
+        (id: string, patch: Partial<DuckleNodeData>) => {
+            setNodes(ns =>
+                ns.map(n => (n.id === id ? { ...n, data: { ...n.data, ...patch } } : n)),
+            );
+            markDirty();
+        },
+        [setNodes, markDirty],
+    );
 
     const selectedNode = useMemo(
         () => nodes.find(n => n.id === selectedId) ?? null,
         [nodes, selectedId],
     );
 
+    const openNewPipelineModal = useCallback((parentId: string = 'pipelines') => {
+        setNewPipelineModal({ open: true, defaultParent: parentId });
+    }, []);
+
     const handleNewJob = useCallback(() => {
-        const id = 'j' + (jobs.length + 1);
-        setJobs(js => [...js, { id, name: 'untitled-' + (js.length + 1), dirty: false }]);
-        setActiveJobId(id);
-    }, [jobs.length]);
+        openNewPipelineModal('pipelines');
+    }, [openNewPipelineModal]);
 
     const handleCloseJob = useCallback(
         (id: string) => {
             setJobs(js => js.filter(j => j.id !== id));
             if (activeJobId === id) {
-                setActiveJobId(jobs[0]?.id ?? '');
+                const remaining = jobs.filter(j => j.id !== id);
+                setActiveJobId(remaining[0]?.id ?? '');
             }
         },
         [activeJobId, jobs],
@@ -168,7 +255,6 @@ export default function App() {
 
     const handleRun = useCallback(() => {
         setIsRunning(true);
-        // Real execution wires up in Option C.
         setTimeout(() => setIsRunning(false), 2000);
     }, []);
 
@@ -183,18 +269,17 @@ export default function App() {
     }, []);
 
     const handleAutoLayout = useCallback(() => {
-        // Real layout solver lands later; basic horizontal stack for now.
         setNodes(ns =>
             ns.map((n, i) => ({
                 ...n,
                 position: { x: 60 + i * 280, y: 140 },
             })),
         );
-    }, []);
+    }, [setNodes]);
 
     const handleDropComponent = useCallback(
         (component: ComponentDef, position: DropPosition) => {
-            const id = 'n_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 7);
+            const id = freshId('n');
             const manifest = getManifest(component.id);
             const flowType = paletteKindToFlowType(component.kind);
             const newNode: Node<DuckleNodeData> = {
@@ -210,14 +295,10 @@ export default function App() {
             };
             setNodes(ns => [...ns, newNode]);
             setSelectedId(id);
-            setJobs(js => js.map(j => (j.id === activeJobId ? { ...j, dirty: true } : j)));
+            markDirty();
         },
-        [activeJobId],
+        [setNodes, markDirty],
     );
-
-    const markDirty = useCallback(() => {
-        setJobs(js => js.map(j => (j.id === activeJobId ? { ...j, dirty: true } : j)));
-    }, [activeJobId]);
 
     const nodeAutodetectAvailable = useCallback(
         (nodeId: string) => {
@@ -241,8 +322,7 @@ export default function App() {
                     break;
 
                 case 'duplicate': {
-                    const dupId =
-                        'n_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 7);
+                    const dupId = freshId('n');
                     const copy: Node<DuckleNodeData> = {
                         ...node,
                         id: dupId,
@@ -294,7 +374,6 @@ export default function App() {
                 }
 
                 case 'run-from-here':
-                    // Real partial-graph execution lands with the runtime.
                     break;
 
                 case 'copy-id':
@@ -309,7 +388,7 @@ export default function App() {
                     break;
             }
         },
-        [nodes, selectedId, markDirty],
+        [nodes, selectedId, setNodes, setEdges, markDirty],
     );
 
     const handlePaneAction = useCallback(
@@ -325,7 +404,7 @@ export default function App() {
                     break;
             }
         },
-        [handleAutoLayout],
+        [handleAutoLayout, setNodes],
     );
 
     // Repository handlers ---------------------------------------------------
@@ -333,22 +412,10 @@ export default function App() {
         (id: string) => {
             const item = repo.find(i => i.id === id);
             if (!item || item.type !== 'pipeline') return;
-            setJobs(js => (js.find(j => j.id === id) ? js : [...js, { id, name: item.name, dirty: false }]));
-            setActiveJobId(id);
-        },
-        [repo],
-    );
-
-    const handleNewPipelineInRepo = useCallback(
-        (parentId: string) => {
-            const id = 'p_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 6);
-            const pipelineCount = repo.filter(i => i.type === 'pipeline').length;
-            const name = 'untitled_' + (pipelineCount + 1);
-            const realParent = repo.find(i => i.id === parentId && (i.type === 'folder' || i.type === 'project'))
-                ? parentId
-                : 'pipelines';
-            setRepo(r => [...r, { id, name, type: 'pipeline', parentId: realParent }]);
-            setJobs(js => [...js, { id, name, dirty: false }]);
+            setJobs(js =>
+                js.find(j => j.id === id) ? js : [...js, { id, name: item.name, dirty: false }],
+            );
+            setPipelineData(d => (d[id] ? d : { ...d, [id]: EMPTY_PIPELINE }));
             setActiveJobId(id);
         },
         [repo],
@@ -359,7 +426,9 @@ export default function App() {
             const id = 'f_' + Date.now().toString(36);
             const count = repo.filter(i => i.type === 'folder' && i.parentId === parentId).length;
             const name = 'new_folder' + (count > 0 ? '_' + (count + 1) : '');
-            const realParent = repo.find(i => i.id === parentId && (i.type === 'folder' || i.type === 'project'))
+            const realParent = repo.find(
+                i => i.id === parentId && (i.type === 'folder' || i.type === 'project'),
+            )
                 ? parentId
                 : 'root';
             setRepo(r => [...r, { id, name, type: 'folder', parentId: realParent }]);
@@ -378,6 +447,9 @@ export default function App() {
             if (!item) return;
             const newId = item.type[0] + '_' + Date.now().toString(36);
             setRepo(r => [...r, { ...item, id: newId, name: item.name + '_copy' }]);
+            if (item.type === 'pipeline') {
+                setPipelineData(d => ({ ...d, [newId]: d[id] ?? EMPTY_PIPELINE }));
+            }
         },
         [repo],
     );
@@ -398,12 +470,35 @@ export default function App() {
             addDescendants(id);
             setRepo(r => r.filter(i => !toDelete.has(i.id)));
             setJobs(js => js.filter(j => !toDelete.has(j.id)));
+            setPipelineData(d => {
+                const next = { ...d };
+                for (const did of toDelete) delete next[did];
+                return next;
+            });
             if (toDelete.has(activeJobId)) {
                 const remaining = jobs.filter(j => !toDelete.has(j.id));
                 setActiveJobId(remaining[0]?.id ?? '');
             }
         },
         [repo, jobs, activeJobId],
+    );
+
+    const handleCreatePipeline = useCallback(
+        (rawName: string, parentId: string, template: PipelineTemplate) => {
+            const id = freshId('p');
+            const realParent = repo.find(
+                i => i.id === parentId && (i.type === 'folder' || i.type === 'project'),
+            )
+                ? parentId
+                : 'pipelines';
+            const seed = seedTemplate(template);
+            setRepo(r => [...r, { id, name: rawName, type: 'pipeline', parentId: realParent }]);
+            setPipelineData(d => ({ ...d, [id]: seed }));
+            setJobs(js => [...js, { id, name: rawName, dirty: false }]);
+            setActiveJobId(id);
+            setNewPipelineModal({ open: false, defaultParent: 'pipelines' });
+        },
+        [repo],
     );
 
     const openJobIds = useMemo(() => new Set(jobs.map(j => j.id)), [jobs]);
@@ -428,7 +523,7 @@ export default function App() {
                     activeJobId={activeJobId}
                     openJobIds={openJobIds}
                     onOpenPipeline={handleOpenPipeline}
-                    onNewPipeline={handleNewPipelineInRepo}
+                    onNewPipeline={openNewPipelineModal}
                     onNewFolder={handleNewFolderInRepo}
                     onRenameRepoItem={handleRenameRepoItem}
                     onDuplicateRepoItem={handleDuplicateRepoItem}
@@ -478,6 +573,16 @@ export default function App() {
                 runtime={runtime}
                 nodeCount={nodes.length}
                 edgeCount={edges.length}
+            />
+
+            <NewPipelineModal
+                open={newPipelineModal.open}
+                defaultParentId={newPipelineModal.defaultParent}
+                repoItems={repo}
+                onCancel={() =>
+                    setNewPipelineModal({ open: false, defaultParent: 'pipelines' })
+                }
+                onCreate={handleCreatePipeline}
             />
         </div>
     );

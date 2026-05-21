@@ -2586,6 +2586,90 @@ select.schema-input {
     max-width: 560px;
 }
 
+.modal-new-pipeline {
+    max-width: 560px;
+}
+
+.modal-field-hint {
+    margin-top: 4px;
+    font-size: 11px;
+    color: var(--text-3);
+}
+
+.modal-field-hint code {
+    background: var(--bg-3);
+    padding: 1px 5px;
+    border-radius: 3px;
+    color: var(--accent);
+    font-family: ui-monospace, 'SF Mono', 'Cascadia Code', Consolas, monospace;
+    font-size: 10px;
+}
+
+.modal-select {
+    appearance: none;
+    background-image: linear-gradient(45deg, transparent 50%, var(--text-3) 50%),
+        linear-gradient(135deg, var(--text-3) 50%, transparent 50%);
+    background-position:
+        calc(100% - 14px) 50%,
+        calc(100% - 9px) 50%;
+    background-size:
+        5px 5px,
+        5px 5px;
+    background-repeat: no-repeat;
+    padding-right: 28px;
+}
+
+.template-grid {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.template-card {
+    text-align: left;
+    background: var(--bg-2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px 12px;
+    cursor: pointer;
+    color: var(--text-1);
+    font-family: inherit;
+    transition: border-color 80ms ease, background 80ms ease;
+}
+
+.template-card:hover:not(.is-disabled) {
+    background: var(--bg-3);
+    border-color: var(--border-strong);
+}
+
+.template-card.is-active {
+    background: rgba(88, 166, 255, 0.08);
+    border-color: var(--accent);
+    box-shadow: 0 0 0 1px var(--accent);
+}
+
+.template-card.is-disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.template-card-title {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-1);
+    margin-bottom: 4px;
+}
+
+.template-card.is-active .template-card-title {
+    color: var(--accent);
+}
+
+.template-card-desc {
+    font-size: 11px;
+    color: var(--text-3);
+    line-height: 1.5;
+}
+
 .modal-header {
     display: flex;
     align-items: center;
