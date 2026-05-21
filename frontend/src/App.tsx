@@ -21,6 +21,11 @@ import BottomPanel from './workflow-ui/BottomPanel';
 import StatusBar from './workflow-ui/StatusBar';
 import NewPipelineModal, { type PipelineTemplate } from './workflow-ui/NewPipelineModal';
 import EdgeEditorModal from './canvas/EdgeEditorModal';
+import VisualMapperModal, {
+    type MapperState,
+    type MappingRow,
+} from './canvas/VisualMapperModal';
+import type { Column } from './pipeline-types';
 import type { ComponentDef, NodeKind as PaletteKind } from './workflow-ui/palette-data';
 import { getDefaults, getManifest } from './workflow-ui/fields/component-manifests';
 import type { DuckleNodeData } from './pipeline-types';
@@ -266,6 +271,41 @@ export default function App() {
             markDirty();
         },
         [setEdges, markDirty],
+    );
+
+    const [mapperNodeId, setMapperNodeId] = useState<string | null>(null);
+    const mapperNode = useMemo(
+        () => (mapperNodeId ? nodes.find(n => n.id === mapperNodeId) ?? null : null),
+        [mapperNodeId, nodes],
+    );
+    const handleOpenMapper = useCallback((nodeId: string) => {
+        setMapperNodeId(nodeId);
+    }, []);
+    const handleMapperSave = useCallback(
+        (state: MapperState, derivedSchema: Column[]) => {
+            if (!mapperNodeId) return;
+            setNodes(ns =>
+                ns.map(n =>
+                    n.id === mapperNodeId
+                        ? {
+                              ...n,
+                              data: {
+                                  ...n.data,
+                                  properties: {
+                                      ...(n.data.properties ?? {}),
+                                      mapper: state as unknown as Record<string, unknown>,
+                                      mode: 'visual',
+                                  },
+                                  schema: derivedSchema,
+                              },
+                          }
+                        : n,
+                ),
+            );
+            setMapperNodeId(null);
+            markDirty();
+        },
+        [mapperNodeId, setNodes, markDirty],
     );
 
     const [editingEdgeId, setEditingEdgeId] = useState<string | null>(null);
@@ -678,6 +718,7 @@ export default function App() {
                     allNodes={nodes}
                     edges={edges}
                     onUpdate={handleUpdateNode}
+                    onOpenMapper={handleOpenMapper}
                     focusNameRequest={renameRequest}
                 />
             </main>
@@ -706,6 +747,22 @@ export default function App() {
                     edge={editingEdge}
                     onSave={handleEdgeEditSave}
                     onCancel={() => setEditingEdgeId(null)}
+                />
+            ) : null}
+
+            {mapperNode ? (
+                <VisualMapperModal
+                    nodeId={mapperNode.id}
+                    nodeLabel={mapperNode.data.label}
+                    nodes={nodes}
+                    edges={edges}
+                    initialState={
+                        ((mapperNode.data.properties?.mapper as MapperState | undefined) ?? {
+                            outputs: [] as MappingRow[],
+                        }) as MapperState
+                    }
+                    onSave={handleMapperSave}
+                    onCancel={() => setMapperNodeId(null)}
                 />
             ) : null}
         </div>

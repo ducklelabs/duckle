@@ -3082,6 +3082,383 @@ select.schema-input {
     max-width: 560px;
 }
 
+/* Visual mapper ----------------------------------------------------------- */
+.modal-mapper {
+    width: 94vw;
+    height: 88vh;
+    max-width: 1500px;
+    max-height: 1000px;
+    display: flex;
+    flex-direction: column;
+}
+
+.modal-mapper-header {
+    padding: 14px 18px;
+}
+
+.modal-subtitle {
+    font-size: 11px;
+    color: var(--text-3);
+    margin-top: 2px;
+    font-family: ui-monospace, 'SF Mono', 'Cascadia Code', Consolas, monospace;
+}
+
+.modal-mapper-header-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.mapper-action {
+    height: 30px;
+    padding: 0 12px;
+    font-size: 11px;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.mapper-body {
+    flex: 1;
+    display: grid;
+    grid-template-columns: 280px 1fr 240px;
+    gap: 1px;
+    background: var(--border);
+    min-height: 0;
+    overflow: hidden;
+}
+
+.mapper-pane {
+    background: var(--bg-1);
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+}
+
+.mapper-pane-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 14px;
+    background: var(--bg-2);
+    border-bottom: 1px solid var(--border);
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    font-weight: 700;
+    color: var(--text-2);
+    flex-shrink: 0;
+}
+
+.mapper-pane-spacer {
+    flex: 1;
+}
+
+.mapper-pane-count {
+    background: var(--bg-3);
+    color: var(--text-3);
+    padding: 1px 7px;
+    border-radius: 9px;
+    font-family: ui-monospace, 'SF Mono', 'Cascadia Code', Consolas, monospace;
+    font-size: 9px;
+    font-weight: 600;
+    text-transform: none;
+    letter-spacing: 0;
+}
+
+.mapper-pane-body {
+    flex: 1;
+    overflow-y: auto;
+    padding: 10px;
+}
+
+.mapper-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    height: 100%;
+    color: var(--text-3);
+    font-size: 12px;
+    text-align: center;
+}
+
+.mapper-empty-desc {
+    color: var(--text-4);
+    font-size: 11px;
+    max-width: 220px;
+    line-height: 1.5;
+}
+
+/* Input columns */
+.mapper-input-port {
+    margin-bottom: 14px;
+}
+
+.mapper-input-port-name {
+    font-size: 10px;
+    color: var(--accent);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    font-weight: 700;
+    padding: 4px 8px;
+    background: var(--accent-soft);
+    border-radius: 4px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-bottom: 4px;
+}
+
+.mapper-input-port-count {
+    background: rgba(0, 0, 0, 0.2);
+    color: var(--accent);
+    padding: 0 6px;
+    border-radius: 9px;
+    font-family: ui-monospace, 'SF Mono', 'Cascadia Code', Consolas, monospace;
+    font-size: 9px;
+}
+
+.mapper-input-col {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 8px;
+    margin: 1px 0;
+    background: var(--bg-2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    cursor: grab;
+    font-family: ui-monospace, 'SF Mono', 'Cascadia Code', Consolas, monospace;
+    font-size: 11px;
+    color: var(--text-1);
+    user-select: none;
+    transition: background 80ms ease, border-color 80ms ease;
+}
+
+.mapper-input-col:hover {
+    background: var(--bg-3);
+    border-color: var(--border-strong);
+}
+
+.mapper-input-col:active {
+    cursor: grabbing;
+}
+
+.mapper-input-col.is-used {
+    border-color: var(--accent);
+    background: var(--accent-soft);
+}
+
+.mapper-input-grip {
+    color: var(--text-4);
+    flex-shrink: 0;
+}
+
+.mapper-input-col-name {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.mapper-input-col-type {
+    color: var(--text-3);
+    font-size: 10px;
+    flex-shrink: 0;
+}
+
+.mapper-input-used {
+    color: var(--accent);
+    flex-shrink: 0;
+}
+
+/* Output table */
+.mapper-add-row {
+    background: transparent;
+    border: 1px solid var(--border-strong);
+    border-radius: 5px;
+    color: var(--accent);
+    padding: 3px 9px;
+    font-size: 11px;
+    font-weight: 600;
+    font-family: inherit;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    transition: background 80ms ease, border-color 80ms ease;
+}
+
+.mapper-add-row:hover {
+    background: var(--accent-soft);
+    border-color: var(--accent);
+}
+
+.mapper-output-table {
+    background: var(--bg-2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    overflow: hidden;
+}
+
+.mapper-output-row {
+    display: grid;
+    grid-template-columns: 1.2fr 0.8fr 2.5fr 28px;
+    gap: 4px;
+    padding: 4px 6px;
+    align-items: center;
+    border-bottom: 1px solid var(--border);
+    transition: background 80ms ease;
+}
+
+.mapper-output-row:last-child {
+    border-bottom: none;
+}
+
+.mapper-output-row.is-focused {
+    background: var(--accent-soft);
+}
+
+.mapper-output-header {
+    background: var(--bg-1);
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--text-3);
+    font-weight: 700;
+    padding: 7px 10px;
+}
+
+.mapper-output-header > div {
+    padding: 0 4px;
+}
+
+.mapper-cell-name input,
+.mapper-cell-type select {
+    font-family: ui-monospace, 'SF Mono', 'Cascadia Code', Consolas, monospace;
+}
+
+.mapper-expression {
+    width: 100%;
+    background: var(--bg-3);
+    border: 1px solid transparent;
+    border-radius: 4px;
+    color: var(--text-1);
+    padding: 4px 8px;
+    font-family: ui-monospace, 'SF Mono', 'Cascadia Code', Consolas, monospace;
+    font-size: 11px;
+    line-height: 1.5;
+    outline: none;
+    resize: vertical;
+    min-height: 26px;
+    transition: border-color 80ms ease;
+}
+
+.mapper-expression:focus {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 2px var(--accent-soft);
+}
+
+/* Helper panel */
+.mapper-helper-body {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.mapper-helper-hint {
+    font-size: 11px;
+    color: var(--text-3);
+    line-height: 1.5;
+    margin-bottom: 6px;
+}
+
+.mapper-helper-section {
+    font-size: 10px;
+    color: var(--text-3);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    font-weight: 700;
+    margin: 12px 0 6px;
+    padding-top: 10px;
+    border-top: 1px solid var(--border);
+}
+
+.mapper-func {
+    display: block;
+    width: 100%;
+    background: var(--bg-2);
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    color: var(--text-2);
+    padding: 5px 9px;
+    font-family: inherit;
+    font-size: 11px;
+    text-align: left;
+    cursor: pointer;
+    transition: background 80ms ease, border-color 80ms ease;
+}
+
+.mapper-func:hover:not(:disabled) {
+    background: var(--bg-3);
+    border-color: var(--border-strong);
+    color: var(--text-1);
+}
+
+.mapper-func:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.mapper-func code {
+    font-family: ui-monospace, 'SF Mono', 'Cascadia Code', Consolas, monospace;
+    color: var(--accent);
+}
+
+.modal-mapper-footer {
+    padding: 12px 18px;
+}
+
+.modal-mapper-status {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--text-3);
+    font-size: 11px;
+}
+
+/* PropertiesPanel mapper trigger */
+.properties-mapper-button {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    width: 100%;
+    background: linear-gradient(135deg, var(--accent), var(--kind-control));
+    border: none;
+    border-radius: 8px;
+    color: var(--bg-0);
+    padding: 10px 14px;
+    font-size: 12px;
+    font-weight: 700;
+    font-family: inherit;
+    cursor: pointer;
+    margin-bottom: 14px;
+    transition: filter 80ms ease, transform 80ms ease;
+    box-shadow: 0 4px 16px rgba(100, 112, 216, 0.2);
+}
+
+.properties-mapper-button:hover {
+    filter: brightness(1.08);
+}
+
+.properties-mapper-button:active {
+    transform: translateY(1px);
+}
+
 .modal-field-hint {
     margin-top: 4px;
     font-size: 11px;

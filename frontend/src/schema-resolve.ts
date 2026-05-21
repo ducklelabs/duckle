@@ -120,6 +120,20 @@ function computeNodeSchema(
         return [...reordered, ...others];
     }
 
+    if (id === 'xf.map') {
+        const mapper = props.mapper as
+            | { outputs?: Array<{ name: string; type: DataType }> }
+            | undefined;
+        if (mapper?.outputs && mapper.outputs.length > 0) {
+            return mapper.outputs.map(o => ({
+                name: o.name || 'col',
+                type: o.type,
+                nullable: true,
+            }));
+        }
+        return node.data.schema ?? upstream();
+    }
+
     if (id === 'xf.groupby') {
         const keys = (props.groupKeys as string[] | undefined) ?? [];
         const aggs = (props.aggregations as Aggregation[] | undefined) ?? [];
@@ -223,6 +237,29 @@ export function resolveUpstreamSchema(
 ): Column[] {
     if (!nodeId) return [];
     return mergedUpstream(nodeId, nodes, edges, new Set());
+}
+
+/**
+ * Per-input-port schemas — for components with multiple typed inputs
+ * (tMap with main + lookups, joins with driving + lookup, etc.).
+ */
+export function resolveInputPortSchemas(
+    nodeId: string,
+    nodes: Node<DuckleNodeData>[],
+    edges: Edge[],
+): { portId: string; schema: Column[] }[] {
+    const incoming = edges.filter(e => e.target === nodeId);
+    const byPort = new Map<string, Column[]>();
+    for (const e of incoming) {
+        const portId = e.targetHandle ?? 'main';
+        const arr = byPort.get(portId) ?? [];
+        const sourceSchema = resolveOutputSchema(e.source, nodes, edges, new Set());
+        for (const c of sourceSchema) {
+            if (!arr.some(x => x.name === c.name)) arr.push(c);
+        }
+        byPort.set(portId, arr);
+    }
+    return Array.from(byPort.entries()).map(([portId, schema]) => ({ portId, schema }));
 }
 
 /**

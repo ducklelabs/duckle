@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Edge, Node } from '@xyflow/react';
-import { CheckCircle2, MousePointer2 } from 'lucide-react';
+import { CheckCircle2, MousePointer2, Workflow } from 'lucide-react';
 import { resolveUpstreamSchema, resolveUpstreamSampleRows } from '../schema-resolve';
 import type { Column, DuckleNodeData } from '../pipeline-types';
 import SchemaEditor from './SchemaEditor';
@@ -27,6 +27,7 @@ type Props = {
     allNodes: Node<DuckleNodeData>[];
     edges: Edge[];
     onUpdate: (id: string, patch: Partial<DuckleNodeData>) => void;
+    onOpenMapper?: (nodeId: string) => void;
     focusNameRequest?: number;
 };
 
@@ -35,6 +36,7 @@ export default function PropertiesPanel({
     allNodes,
     edges,
     onUpdate,
+    onOpenMapper,
     focusNameRequest,
 }: Props) {
     const [tab, setTab] = useState<TabId>('basic');
@@ -160,6 +162,16 @@ export default function PropertiesPanel({
                 <div className="properties-content">
                     {tab === 'basic' ? (
                         <div className="properties-section">
+                            {data.componentId === 'xf.map' && onOpenMapper ? (
+                                <button
+                                    type="button"
+                                    className="properties-mapper-button"
+                                    onClick={() => onOpenMapper(selected.id)}
+                                >
+                                    <Workflow size={14} />
+                                    Open visual mapper
+                                </button>
+                            ) : null}
                             {manifest ? (
                                 manifest.sections.map(section => (
                                     <div className="form-section" key={section.label}>
