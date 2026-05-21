@@ -8,6 +8,7 @@ import {
     Terminal,
 } from 'lucide-react';
 import type { RunResult } from '../tauri-bridge';
+import type { ValidationResult } from '../validation';
 
 type TabId = 'problems' | 'output' | 'console';
 
@@ -19,9 +20,17 @@ export type Props = {
     runResult: RunResult | null;
     isRunning: boolean;
     nodeLabels: Record<string, string>;
+    validation: ValidationResult;
+    openProblemsRequest?: number;
 };
 
-export default function BottomPanel({ runResult, isRunning, nodeLabels }: Props) {
+export default function BottomPanel({
+    runResult,
+    isRunning,
+    nodeLabels,
+    validation,
+    openProblemsRequest,
+}: Props) {
     const [tab, setTab] = useState<TabId>('problems');
     const [collapsed, setCollapsed] = useState<boolean>(true);
     const [height, setHeight] = useState<number>(DEFAULT_HEIGHT);
@@ -34,6 +43,14 @@ export default function BottomPanel({ runResult, isRunning, nodeLabels }: Props)
             setCollapsed(false);
         }
     }, [runResult]);
+
+    // Auto-expand Problems tab when Validate is clicked.
+    useEffect(() => {
+        if (openProblemsRequest && openProblemsRequest > 0) {
+            setTab('problems');
+            setCollapsed(false);
+        }
+    }, [openProblemsRequest]);
 
     const onResizeStart = useCallback(
         (e: React.MouseEvent) => {
@@ -73,12 +90,14 @@ export default function BottomPanel({ runResult, isRunning, nodeLabels }: Props)
         }
     };
 
-    const errors = runResult
+    const runErrors = runResult
         ? Object.entries(runResult.nodes).filter(([, st]) => st.status === 'error')
         : [];
 
+    const problemsBadge = validation.errorCount + validation.warningCount + runErrors.length;
+
     const tabs: { id: TabId; label: string; badge?: number }[] = [
-        { id: 'problems', label: 'Problems', badge: errors.length },
+        { id: 'problems', label: 'Problems', badge: problemsBadge },
         { id: 'output', label: 'Output' },
         { id: 'console', label: 'Console' },
     ];
@@ -118,7 +137,11 @@ export default function BottomPanel({ runResult, isRunning, nodeLabels }: Props)
             {!collapsed ? (
                 <div className="bottom-panel-content">
                     {tab === 'problems' ? (
-                        <ProblemsTab errors={errors} nodeLabels={nodeLabels} />
+                        <ProblemsTab
+                            validation={validation}
+                            runErrors={runErrors}
+                            nodeLabels={nodeLabels}
+                        />
                     ) : null}
                     {tab === 'output' ? (
                         <OutputTab
@@ -135,39 +158,74 @@ export default function BottomPanel({ runResult, isRunning, nodeLabels }: Props)
 }
 
 function ProblemsTab({
-    errors,
+    validation,
+    runErrors,
     nodeLabels,
 }: {
-    errors: [string, { error?: string }][];
+    validation: ValidationResult;
+    runErrors: [string, { error?: string }][];
     nodeLabels: Record<string, string>;
 }) {
-    if (errors.length === 0) {
+    const hasNothing = validation.issues.length === 0 && runErrors.length === 0;
+    if (hasNothing) {
         return (
             <div className="bottom-empty">
                 <CheckCircle2 size={22} className="bottom-empty-icon bottom-empty-icon-ok" />
                 <div className="bottom-empty-title">No problems detected</div>
                 <div className="bottom-empty-desc">
-                    Schema mismatches, missing required properties, and engine compatibility
-                    warnings surface here. Click an issue to jump to the offending node.
+                    Required properties, dangling edges, cycles, and execution errors surface
+                    here. Validation runs live as you edit the pipeline.
                 </div>
             </div>
         );
     }
     return (
         <div className="bottom-problems">
-            {errors.map(([nodeId, st]) => (
-                <div className="bottom-problem-row" key={nodeId}>
-                    <AlertCircle size={13} className="bottom-problem-icon" />
-                    <div>
-                        <div className="bottom-problem-title">
-                            {nodeLabels[nodeId] ?? nodeId}
-                        </div>
-                        <div className="bottom-problem-detail">
-                            {st.error ?? 'Execution failed.'}
-                        </div>
-                    </div>
-                </div>
+            {validation.issues.map(issue => (
+                <ProblemRow
+                    key={issue.id}
+                    severity={issue.severity}
+                    title={
+                        issue.nodeId
+                            ? nodeLabels[issue.nodeId] ?? issue.nodeId
+                            : 'Pipeline'
+                    }
+                    detail={issue.message}
+                    code={issue.code}
+                />
             ))}
+            {runErrors.map(([nodeId, st]) => (
+                <ProblemRow
+                    key={'r_' + nodeId}
+                    severity="error"
+                    title={nodeLabels[nodeId] ?? nodeId}
+                    detail={st.error ?? 'Execution failed.'}
+                    code="run-error"
+                />
+            ))}
+        </div>
+    );
+}
+
+function ProblemRow({
+    severity,
+    title,
+    detail,
+    code,
+}: {
+    severity: 'error' | 'warning';
+    title: string;
+    detail: string;
+    code: string;
+}) {
+    return (
+        <div className={'bottom-problem-row severity-' + severity}>
+            <AlertCircle size={13} className="bottom-problem-icon" />
+            <div className="bottom-problem-body">
+                <div className="bottom-problem-title">{title}</div>
+                <div className="bottom-problem-detail">{detail}</div>
+            </div>
+            <code className="bottom-problem-code">{code}</code>
         </div>
     );
 }

@@ -27,6 +27,7 @@ import {
     type RunResult,
 } from './tauri-bridge';
 import { RunStatusContext } from './canvas/run-status-context';
+import { validatePipeline } from './validation';
 import WorkspacePickerModal from './workflow-ui/WorkspacePickerModal';
 import {
     getWorkspacePath,
@@ -640,8 +641,15 @@ export default function App() {
         setJobs(js => js.map(j => (j.id === activeJobId ? { ...j, dirty: false } : j)));
     }, [activeJobId]);
 
+    const validation = useMemo(
+        () => validatePipeline(nodes, edges),
+        [nodes, edges],
+    );
+
+    const [validateRequest, setValidateRequest] = useState<number>(0);
     const handleValidate = useCallback(() => {
-        // Real validation lands in Option B.
+        // Just bump a counter so BottomPanel pops the Problems tab.
+        setValidateRequest(n => n + 1);
     }, []);
 
     const handleAutoLayout = useCallback(() => {
@@ -1105,6 +1113,8 @@ export default function App() {
                 runResult={runResult}
                 isRunning={isRunning}
                 nodeLabels={nodeLabels}
+                validation={validation}
+                openProblemsRequest={validateRequest}
             />
 
             <StatusBar
