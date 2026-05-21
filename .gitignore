@@ -1,0 +1,45 @@
+# Rust
+target/
+**/*.rs.bk
+*.pdb
+Cargo.lock.bak
+
+# Tauri build artifacts
+apps/desktop/target/
+apps/desktop/gen/
+
+# Node / frontend
+node_modules/
+dist/
+.vite/
+*.tsbuildinfo
+.pnpm-store/
+.npm/
+.yarn/
+
+# Editor / OS
+.vscode/*
+!.vscode/settings.json.example
+!.vscode/extensions.json
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Logs / temp
+*.log
+logs/
+*.tmp
+.env
+.env.local
+.env.*.local
+
+# Coverage
+coverage/
+*.profraw
+
+# Embedded engines downloaded at runtime
+.duckle/cache/
+.duckle/engines/

@@ -1,0 +1,27 @@
+# Normalize line endings: LF for source, CRLF only for Windows-specific files
+* text=auto eol=lf
+
+*.rs    text eol=lf
+*.toml  text eol=lf
+*.md    text eol=lf
+*.json  text eol=lf
+*.yml   text eol=lf
+*.yaml  text eol=lf
+*.ts    text eol=lf
+*.tsx   text eol=lf
+*.js    text eol=lf
+*.jsx   text eol=lf
+*.html  text eol=lf
+*.css   text eol=lf
+*.svg   text eol=lf
+
+*.bat   text eol=crlf
+*.cmd   text eol=crlf
+*.ps1   text eol=crlf
+
+# Binary assets
+*.png   binary
+*.jpg   binary
+*.ico   binary
+*.icns  binary
+*.parquet binary
