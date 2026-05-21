@@ -7,12 +7,13 @@ import {
     type Node,
     type NodeProps,
 } from '@xyflow/react';
-import { AlertCircle } from 'lucide-react';
+import { AlertCircle, CheckCircle2, Loader2, XCircle } from 'lucide-react';
 import type { DuckleNodeData } from '../../pipeline-types';
 import { getManifest } from '../../workflow-ui/fields/component-manifests';
 import { metaFor } from '../connection-types';
 import type { PortDef } from '../../workflow-ui/fields/types';
 import { resolveOutputSchema } from '../../schema-resolve';
+import { useRunStatus } from '../run-status-context';
 
 export type DuckleFlowNode = Node<DuckleNodeData>;
 
@@ -46,16 +47,20 @@ export default function DuckleNode({ id, data, selected, type }: NodeProps<Duckl
         return false;
     }, [manifest, data.properties]);
 
+    const runStatus = useRunStatus(id);
+
     const classes =
         'node node-' + kind +
         (selected ? ' is-selected' : '') +
-        (data.disabled ? ' is-disabled' : '');
+        (data.disabled ? ' is-disabled' : '') +
+        (runStatus ? ' is-run-' + runStatus.status : '');
 
     return (
         <div className={classes}>
             <div className="node-header">
                 <div className="node-header-row">
                     <div className="node-kind">{kind}</div>
+                    {runStatus ? <RunStatusBadge status={runStatus.status} /> : null}
                     {needsConfig ? (
                         <span
                             className="node-needs-config"
@@ -89,6 +94,28 @@ export default function DuckleNode({ id, data, selected, type }: NodeProps<Duckl
                 </div>
             ) : null}
         </div>
+    );
+}
+
+function RunStatusBadge({ status }: { status: 'running' | 'ok' | 'error' }) {
+    if (status === 'running') {
+        return (
+            <span className="node-run-badge node-run-badge-running" title="Running">
+                <Loader2 size={11} />
+            </span>
+        );
+    }
+    if (status === 'error') {
+        return (
+            <span className="node-run-badge node-run-badge-error" title="Failed">
+                <XCircle size={11} />
+            </span>
+        );
+    }
+    return (
+        <span className="node-run-badge node-run-badge-ok" title="OK">
+            <CheckCircle2 size={11} />
+        </span>
     );
 }
 

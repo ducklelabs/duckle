@@ -26,6 +26,7 @@ import {
     type PipelineEvent,
     type RunResult,
 } from './tauri-bridge';
+import { RunStatusContext } from './canvas/run-status-context';
 import WorkspacePickerModal from './workflow-ui/WorkspacePickerModal';
 import {
     getWorkspacePath,
@@ -995,6 +996,7 @@ export default function App() {
     const openJobIds = useMemo(() => new Set(jobs.map(j => j.id)), [jobs]);
 
     return (
+        <RunStatusContext.Provider value={runResult?.nodes ?? {}}>
         <div className="app">
             <header className="topbar">
                 <div className="brand">
@@ -1159,5 +1161,6 @@ export default function App() {
                 />
             ) : null}
         </div>
+        </RunStatusContext.Provider>
     );
 }

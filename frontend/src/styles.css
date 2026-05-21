@@ -4867,3 +4867,63 @@ select.schema-input {
     margin-top: 2px;
     line-height: 1.4;
 }
+
+/* Per-node run status badges ------------------------------------------- */
+.node-run-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    flex-shrink: 0;
+}
+
+.node-run-badge-running {
+    background: rgba(91, 110, 251, 0.15);
+    color: var(--accent);
+    border: 1px solid rgba(91, 110, 251, 0.4);
+}
+
+.node-run-badge-running svg {
+    animation: node-run-spin 800ms linear infinite;
+}
+
+.node-run-badge-ok {
+    background: rgba(52, 211, 153, 0.15);
+    color: var(--success);
+    border: 1px solid rgba(52, 211, 153, 0.4);
+}
+
+.node-run-badge-error {
+    background: rgba(255, 77, 109, 0.12);
+    color: var(--danger);
+    border: 1px solid rgba(255, 77, 109, 0.4);
+}
+
+@keyframes node-run-spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+.node.is-run-running {
+    box-shadow:
+        0 0 0 1px var(--accent),
+        0 0 0 4px rgba(91, 110, 251, 0.18),
+        var(--shadow-1);
+}
+
+.node.is-run-ok {
+    box-shadow:
+        0 0 0 1px rgba(52, 211, 153, 0.5),
+        0 0 0 4px rgba(52, 211, 153, 0.12),
+        var(--shadow-1);
+}
+
+.node.is-run-error {
+    box-shadow:
+        0 0 0 1px var(--danger),
+        0 0 0 4px rgba(255, 77, 109, 0.16),
+        var(--shadow-1);
+}
