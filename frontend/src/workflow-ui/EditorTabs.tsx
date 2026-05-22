@@ -32,6 +32,7 @@ type Props = {
     onConnectWithType: (connection: Connection, type: ConnectionType) => void;
     onSelectionChange: (params: OnSelectionChangeParams) => void;
     onDropComponent: (component: ComponentDef, position: DropPosition) => void;
+    onSetActiveContext?: (id: string) => void;
     onNodeAction: (action: NodeAction, nodeId: string) => void;
     onPaneAction: (action: PaneAction) => void;
     onEdgeChangeType: (edgeId: string, newType: ConnectionType) => void;
@@ -49,6 +50,7 @@ export default function EditorTabs({
     onConnectWithType,
     onSelectionChange,
     onDropComponent,
+    onSetActiveContext,
     onNodeAction,
     onPaneAction,
     onEdgeChangeType,
@@ -84,6 +86,7 @@ export default function EditorTabs({
                         onConnectWithType={onConnectWithType}
                         onSelectionChange={onSelectionChange}
                         onDropComponent={onDropComponent}
+                        onSetActiveContext={onSetActiveContext}
                         onNodeAction={onNodeAction}
                         onPaneAction={onPaneAction}
                         onEdgeChangeType={onEdgeChangeType}

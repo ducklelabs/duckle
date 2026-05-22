@@ -334,10 +334,23 @@ export default function ProjectTree(props: Props) {
                         ' is-' + item.type
                     }
                     style={{ paddingLeft: 8 + depth * 14 }}
+                    draggable={item.type === 'context'}
+                    onDragStart={
+                        item.type === 'context'
+                            ? e => {
+                                  e.dataTransfer.setData('application/duckle-context', item.id);
+                                  e.dataTransfer.effectAllowed = 'copy';
+                              }
+                            : undefined
+                    }
                     onClick={onClick}
                     onDoubleClick={onDoubleClick}
                     onContextMenu={e => onItemContextMenu(e, item)}
-                    title={item.name}
+                    title={
+                        item.type === 'context'
+                            ? `${item.name} — drag onto the canvas to make it the active context`
+                            : item.name
+                    }
                 >
                     <span className="repo-chevron" aria-hidden="true">
                         {isContainer ? (

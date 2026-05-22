@@ -116,13 +116,16 @@ pub fn compile(pipeline: &PipelineDoc) -> Result<CompiledPipeline, EngineError> 
             .as_deref()
             .unwrap_or("main");
         let port_key = canonical_port(port);
+        // Resolve which materialized table this edge actually reads, based
+        // on the SOURCE node's output handle (main vs reject).
+        let source_ref = output_table_ref(&edge.source, edge.source_handle.as_deref());
         inputs
             .entry(edge.target.as_str())
             .or_default()
             .ports
             .entry(port_key.to_string())
             .or_default()
-            .push(edge.source.clone());
+            .push(source_ref);
     }
 
     let mut stages = Vec::with_capacity(order.len());
@@ -171,11 +174,16 @@ impl NodeInputs {
         self.ports.get("main").and_then(|v| v.first()).map(|s| s.as_str())
     }
 
-    fn all_main(&self) -> &[String] {
-        self.ports
-            .get("main")
-            .map(|v| v.as_slice())
-            .unwrap_or(&[])
+    /// Inputs across the `main` and `main_N` ports (used by set ops,
+    /// whose handles are main_1 / main_2 / main_3).
+    fn all_main_ports(&self) -> Vec<&str> {
+        let mut out = Vec::new();
+        for (key, refs) in &self.ports {
+            if key == "main" || key.starts_with("main_") {
+                out.extend(refs.iter().map(|s| s.as_str()));
+            }
+        }
+        out
     }
 
     #[allow(dead_code)]
@@ -197,6 +205,19 @@ impl NodeInputs {
             }
         }
         None
+    }
+}
+
+/// Suffix for a node's secondary "reject" output table.
+const REJECT_SUFFIX: &str = "__reject";
+
+/// Which materialized table an edge reads, based on the source node's
+/// OUTPUT handle. Reject/filter outputs read the node's `__reject`
+/// table; everything else reads its main table.
+fn output_table_ref(source_id: &str, source_handle: Option<&str>) -> String {
+    match source_handle.map(canonical_port) {
+        Some("reject") | Some("filter") => format!("{}{}", source_id, REJECT_SUFFIX),
+        _ => source_id.to_string(),
     }
 }
 
@@ -294,15 +315,24 @@ fn build_stage(
         })?;
         // Materialize as a real table so the result persists across the
         // separate CLI invocations the executor uses per stage.
-        (
-            format!(
-                "CREATE OR REPLACE TABLE {} AS {}",
-                quote_ident(&node.id),
-                body
-            ),
-            StageKind::View,
-            None,
-        )
+        let mut sql = format!(
+            "CREATE OR REPLACE TABLE {} AS {}",
+            quote_ident(&node.id),
+            body
+        );
+        // Components that split rows (filter, quality validators) also
+        // materialize a `<node>__reject` table for their reject port.
+        if let Some(reject_body) = build_reject_sql(component_id, &props, inputs).map_err(|e| {
+            EngineError::Config(format!("{} ({} / {}): {}", node.data.label, component_id, node.id, e))
+        })? {
+            let reject_table = format!("{}{}", node.id, REJECT_SUFFIX);
+            sql.push_str(&format!(
+                "; CREATE OR REPLACE TABLE {} AS {}",
+                quote_ident(&reject_table),
+                reject_body
+            ));
+        }
+        (sql, StageKind::View, None)
     };
     Ok(Stage {
         node_id: node.id.clone(),
@@ -364,8 +394,19 @@ fn build_view_sql(
         "xf.limit" => build_limit(inputs, props),
         "xf.sort" => build_sort(inputs, props),
         "xf.agg" | "xf.groupby" => build_aggregate(inputs, props),
-        "xf.union" | "xf.unionall" => build_union(inputs),
-        "xf.addcol" => build_addcol(inputs, props),
+        "xf.union" => build_union(inputs, true),
+        "xf.unionall" => build_union(inputs, false),
+        "xf.intersect" => build_setop(inputs, "INTERSECT"),
+        "xf.except" => build_setop(inputs, "EXCEPT"),
+        "xf.addcol" | "xf.coalesce" => build_addcol(inputs, props),
+        "xf.rownum" | "xf.rank" | "xf.denserank" | "xf.lead" | "xf.lag" | "xf.first"
+        | "xf.last" | "xf.ntile" => build_window(inputs, props, component_id),
+        "xf.pivot" => build_pivot(inputs, props),
+        // Data-quality validators — the PASS rows. Failures go to the
+        // node's __reject table (see build_reject_sql).
+        "qa.notnull" | "qa.range" | "qa.regex" | "qa.unique" => {
+            build_quality(inputs, props, component_id, false)
+        }
         "xf.cast" => build_cast(inputs, props),
         "xf.rename" => build_rename(inputs, props),
         "xf.drop" | "xf.dropcol" => build_drop(inputs, props),
@@ -623,19 +664,235 @@ fn build_aggregate(inputs: &NodeInputs, props: &JsonValue) -> Result<String, Str
     ))
 }
 
-fn build_union(inputs: &NodeInputs) -> Result<String, String> {
-    let mains = inputs.all_main();
+fn build_union(inputs: &NodeInputs, distinct: bool) -> Result<String, String> {
+    let mains = inputs.all_main_ports();
     if mains.is_empty() {
-        return Err("union: no main inputs".into());
+        return Err("Union needs at least one input".into());
     }
-    if mains.len() == 1 {
-        return Ok(format!("SELECT * FROM {}", quote_ident(&mains[0])));
-    }
+    let op = if distinct { " UNION " } else { " UNION ALL " };
     Ok(mains
         .iter()
         .map(|id| format!("SELECT * FROM {}", quote_ident(id)))
         .collect::<Vec<_>>()
-        .join(" UNION ALL "))
+        .join(op))
+}
+
+fn build_setop(inputs: &NodeInputs, op: &str) -> Result<String, String> {
+    let mains = inputs.all_main_ports();
+    if mains.len() < 2 {
+        return Err(format!("{} needs two inputs", op));
+    }
+    let sep = format!(" {} ", op);
+    Ok(mains
+        .iter()
+        .map(|id| format!("SELECT * FROM {}", quote_ident(id)))
+        .collect::<Vec<_>>()
+        .join(&sep))
+}
+
+fn build_window(
+    inputs: &NodeInputs,
+    props: &JsonValue,
+    component_id: &str,
+) -> Result<String, String> {
+    let upstream = inputs.main().ok_or_else(|| "window: missing main input".to_string())?;
+    let func = string_prop(props, "function")
+        .unwrap_or_else(|| component_id.rsplit('.').next().unwrap_or("rownum").to_string());
+    let target = string_prop(props, "targetColumn").filter(|s| !s.is_empty());
+    let offset = props.get("offset").and_then(JsonValue::as_u64).unwrap_or(1);
+    let need_target = |f: &str| -> Result<String, String> {
+        target
+            .clone()
+            .map(|c| quote_ident(&c))
+            .ok_or_else(|| format!("Window function '{}' needs a target column", f))
+    };
+    let call = match func.as_str() {
+        "rownum" => "ROW_NUMBER()".to_string(),
+        "rank" => "RANK()".to_string(),
+        "denserank" => "DENSE_RANK()".to_string(),
+        "lead" => format!("LEAD({}, {})", need_target("lead")?, offset),
+        "lag" => format!("LAG({}, {})", need_target("lag")?, offset),
+        "first" => format!("FIRST_VALUE({})", need_target("first")?),
+        "last" => format!("LAST_VALUE({})", need_target("last")?),
+        "ntile" => format!("NTILE({})", offset.max(1)),
+        other => return Err(format!("Unknown window function '{}'", other)),
+    };
+    let partition = columns_list(props, "partitionBy");
+    let order = columns_list(props, "orderBy");
+    let mut over = String::new();
+    if !partition.is_empty() {
+        over.push_str(&format!(
+            "PARTITION BY {}",
+            partition.iter().map(|c| quote_ident(c)).collect::<Vec<_>>().join(", ")
+        ));
+    }
+    if !order.is_empty() {
+        if !over.is_empty() {
+            over.push(' ');
+        }
+        over.push_str(&format!(
+            "ORDER BY {}",
+            order.iter().map(|c| quote_ident(c)).collect::<Vec<_>>().join(", ")
+        ));
+    }
+    let out_name = string_prop(props, "outputName")
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| func.clone());
+    Ok(format!(
+        "SELECT *, {} OVER ({}) AS {} FROM {}",
+        call,
+        over,
+        quote_ident(&out_name),
+        quote_ident(upstream)
+    ))
+}
+
+fn build_pivot(inputs: &NodeInputs, props: &JsonValue) -> Result<String, String> {
+    let upstream = inputs.main().ok_or_else(|| "pivot: missing main input".to_string())?;
+    let pivot_col = string_prop(props, "pivotColumn")
+        .filter(|s| !s.is_empty())
+        .ok_or_else(|| "Pivot needs a pivot column".to_string())?;
+    let value_col = string_prop(props, "valueColumn")
+        .filter(|s| !s.is_empty())
+        .ok_or_else(|| "Pivot needs a value column".to_string())?;
+    let agg = string_prop(props, "aggregation").unwrap_or_else(|| "sum".into());
+    let mut sql = format!(
+        "PIVOT (SELECT * FROM {}) ON {} USING {}({})",
+        quote_ident(upstream),
+        quote_ident(&pivot_col),
+        agg,
+        quote_ident(&value_col)
+    );
+    let group = columns_list(props, "groupBy");
+    if !group.is_empty() {
+        sql.push_str(&format!(
+            " GROUP BY {}",
+            group.iter().map(|c| quote_ident(c)).collect::<Vec<_>>().join(", ")
+        ));
+    }
+    Ok(sql)
+}
+
+/// Data-quality validators. `reject = false` yields the passing rows;
+/// `reject = true` yields the failing rows for the node's reject port.
+fn build_quality(
+    inputs: &NodeInputs,
+    props: &JsonValue,
+    component_id: &str,
+    reject: bool,
+) -> Result<String, String> {
+    let upstream = inputs.main().ok_or_else(|| "validator: missing main input".to_string())?;
+    let from = quote_ident(upstream);
+    if component_id == "qa.unique" {
+        let keys = columns_list(props, "columns");
+        if keys.is_empty() {
+            return Err("Uniqueness check needs key columns".into());
+        }
+        let partition = keys.iter().map(|c| quote_ident(c)).collect::<Vec<_>>().join(", ");
+        let cmp = if reject { ">" } else { "=" };
+        return Ok(format!(
+            "SELECT * EXCLUDE (__dq_rn) FROM (SELECT *, ROW_NUMBER() OVER (PARTITION BY {}) AS __dq_rn FROM {}) WHERE __dq_rn {} 1",
+            partition, from, cmp
+        ));
+    }
+    let predicate = quality_pass_predicate(component_id, props)?;
+    Ok(if reject {
+        format!("SELECT * FROM {} WHERE NOT COALESCE(({}), FALSE)", from, predicate)
+    } else {
+        format!("SELECT * FROM {} WHERE COALESCE(({}), FALSE)", from, predicate)
+    })
+}
+
+fn quality_pass_predicate(component_id: &str, props: &JsonValue) -> Result<String, String> {
+    match component_id {
+        "qa.notnull" => {
+            let cols = columns_list(props, "columns");
+            if cols.is_empty() {
+                return Ok("TRUE".into());
+            }
+            Ok(cols
+                .iter()
+                .map(|c| format!("{} IS NOT NULL", quote_ident(c)))
+                .collect::<Vec<_>>()
+                .join(" AND "))
+        }
+        "qa.range" => {
+            let col = string_prop(props, "column")
+                .filter(|s| !s.is_empty())
+                .ok_or_else(|| "Range check needs a column".to_string())?;
+            let c = quote_ident(&col);
+            let inclusive = props.get("inclusive").and_then(JsonValue::as_bool).unwrap_or(true);
+            let (ge, le) = if inclusive { (">=", "<=") } else { (">", "<") };
+            let mut parts = Vec::new();
+            if let Some(min) = num_prop(props, "min") {
+                parts.push(format!("{} {} {}", c, ge, min));
+            }
+            if let Some(max) = num_prop(props, "max") {
+                parts.push(format!("{} {} {}", c, le, max));
+            }
+            Ok(if parts.is_empty() { "TRUE".into() } else { parts.join(" AND ") })
+        }
+        "qa.regex" => {
+            let col = string_prop(props, "column")
+                .filter(|s| !s.is_empty())
+                .ok_or_else(|| "Regex check needs a column".to_string())?;
+            let pat = string_prop(props, "pattern")
+                .filter(|s| !s.is_empty())
+                .ok_or_else(|| "Regex check needs a pattern".to_string())?;
+            Ok(format!(
+                "regexp_full_match(CAST({} AS VARCHAR), '{}')",
+                quote_ident(&col),
+                sql_escape(&pat)
+            ))
+        }
+        other => Err(format!("Validator '{}' is not yet implemented", other)),
+    }
+}
+
+/// Reject-port SQL for components that split rows. None = no reject table.
+fn build_reject_sql(
+    component_id: &str,
+    props: &JsonValue,
+    inputs: &NodeInputs,
+) -> Result<Option<String>, String> {
+    match component_id {
+        "xf.filter" => {
+            let upstream = inputs.main().ok_or_else(|| "filter: missing main input".to_string())?;
+            let predicate = filter_predicate_sql(props.get("predicate")).unwrap_or_default();
+            let predicate = predicate.trim();
+            let predicate = if predicate.is_empty() { "TRUE" } else { predicate };
+            Ok(Some(format!(
+                "SELECT * FROM {} WHERE NOT COALESCE(({}), FALSE)",
+                quote_ident(upstream),
+                predicate
+            )))
+        }
+        "qa.notnull" | "qa.range" | "qa.regex" | "qa.unique" => {
+            Ok(Some(build_quality(inputs, props, component_id, true)?))
+        }
+        _ => Ok(None),
+    }
+}
+
+fn columns_list(props: &JsonValue, key: &str) -> Vec<String> {
+    props
+        .get(key)
+        .and_then(JsonValue::as_array)
+        .map(|arr| arr.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+        .unwrap_or_default()
+}
+
+/// A numeric property as a SQL literal — only if it's actually numeric,
+/// so it can't smuggle arbitrary SQL into a comparison.
+fn num_prop(props: &JsonValue, key: &str) -> Option<String> {
+    match props.get(key) {
+        Some(JsonValue::Number(n)) => Some(n.to_string()),
+        Some(JsonValue::String(s)) => {
+            let t = s.trim();
+            t.parse::<f64>().ok().map(|_| t.to_string())
+        }
+        _ => None,
+    }
 }
 
 fn build_addcol(inputs: &NodeInputs, props: &JsonValue) -> Result<String, String> {

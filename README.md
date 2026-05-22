@@ -93,7 +93,10 @@ Duckle is built to scrub that data clean *before* it reaches your AI:
 |---|---|
 | **Designer** | Drag-and-drop canvas, snap-to-grid, node search, live validation, generated-SQL inspector, per-node preview tab. |
 | **Sources** | CSV · TSV · Parquet · JSON / NDJSON · SQLite · DuckDB · S3 · GCS · Azure Blob · HTTP(S). |
-| **Transforms** | Filter (visual + raw SQL) · Map / expressions · Aggregate · Join & Lookup (auto-detected) · Project · Rename · Sort · Distinct · Union. |
+| **Transforms** | Filter (visual + raw SQL, with reject port) · Map / expressions · Aggregate · Join & Lookup · Project · Rename · Sort · Distinct · Sample / Top-N / Skip · Union / Intersect / Except · Window (row_number, rank, lead/lag, …) · Pivot · Coalesce. |
+| **Data Quality** | Not-Null · Range · Regex · Uniqueness checks — passing rows continue, failures route to the **reject** port. |
+| **Custom Code** | Inline SQL & SQL Template — your `SELECT` runs as a real stage with the upstream as `input`; **SQL routines** are reusable and executable. |
+| **Context variables** | Define per-environment variables; bind any field to one via a Manual/Context dropdown, or reference `${var}` inline. Resolved at run time. |
 | **AI / Vector** | Embeddings · LLM Transform · Text Chunker · PII Redact · Classify · Semantic Dedupe · Vector DB source + sink (pgvector, Pinecone, Qdrant, Weaviate, Chroma, Milvus, LanceDB) — *preview*. |
 | **Sinks** | CSV · Parquet · JSON · SQLite · DuckDB · S3 / GCS / Azure. |
 | **Run** | Streaming run events (nodes light up stage-by-stage), per-node row counts, **mid-query cancel**, run history. |

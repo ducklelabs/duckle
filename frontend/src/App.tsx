@@ -12,7 +12,7 @@ import {
     type OnSelectionChangeParams,
 } from '@xyflow/react';
 import type { ConnectionType } from './canvas/connection-types';
-import { FolderOpen, Moon, Sun } from 'lucide-react';
+import { Braces, FolderOpen, Moon, Sun } from 'lucide-react';
 import EditorTabs from './workflow-ui/EditorTabs';
 import EditorHeader, { type Job } from './workflow-ui/EditorHeader';
 import EngineSelector, { type EngineId } from './workflow-ui/EngineSelector';
@@ -199,6 +199,9 @@ export default function App() {
     const [isRunning, setIsRunning] = useState<boolean>(false);
     const [renameRequest, setRenameRequest] = useState<number>(0);
     const [repo, setRepo] = useState<RepoItem[]>(() => loadPersisted('repo', INITIAL_REPO));
+    const [activeContextId, setActiveContextId] = useState<string | null>(() =>
+        loadPersisted<string | null>('active-context', null),
+    );
 
     // First-run boot gate: in Tauri we must confirm an execution engine
     // is installed before anything else. 'checking' until engine_status
@@ -345,6 +348,7 @@ export default function App() {
             savePersisted('repo', repo);
             savePersisted('jobs', jobs);
             savePersisted('active-job', activeJobId);
+            savePersisted('active-context', activeContextId);
             savePersisted('engine', engine);
         }, 250);
         return () => clearTimeout(t);
@@ -355,6 +359,7 @@ export default function App() {
         repo,
         jobs,
         activeJobId,
+        activeContextId,
         engine,
     ]);
 
@@ -828,6 +833,8 @@ export default function App() {
         () => jobs.find(j => j.id === activeJobId)?.name ?? 'pipeline',
         [jobs, activeJobId],
     );
+
+    const contexts = useMemo(() => repo.filter(r => r.type === 'context'), [repo]);
 
     const downloadFile = useCallback((filename: string, content: string, mime: string) => {
         const blob = new Blob([content], { type: mime });
@@ -1383,6 +1390,27 @@ export default function App() {
                         <span className="topbar-workspace-name">{workspaceFolderName}</span>
                     </button>
                 ) : null}
+                {contexts.length > 0 ? (
+                    <div
+                        className="topbar-context"
+                        title="Active context — fields can bind to its variables"
+                    >
+                        <Braces size={12} aria-hidden="true" />
+                        <select
+                            className="topbar-context-select"
+                            value={activeContextId ?? ''}
+                            onChange={e => setActiveContextId(e.target.value || null)}
+                            aria-label="Active context"
+                        >
+                            <option value="">No context</option>
+                            {contexts.map(c => (
+                                <option key={c.id} value={c.id}>
+                                    {c.name}
+                                </option>
+                            ))}
+                        </select>
+                    </div>
+                ) : null}
                 <button
                     type="button"
                     className="topbar-theme-toggle"
@@ -1443,6 +1471,7 @@ export default function App() {
                         onConnectWithType={handleConnectWithType}
                         onSelectionChange={handleSelectionChange}
                         onDropComponent={handleDropComponent}
+                        onSetActiveContext={setActiveContextId}
                         onNodeAction={handleNodeAction}
                         onPaneAction={handlePaneAction}
                         onEdgeChangeType={handleEdgeChangeType}
@@ -1456,6 +1485,7 @@ export default function App() {
                     allNodes={nodes}
                     edges={edges}
                     repoItems={repo}
+                    activeContextId={activeContextId}
                     onUpdate={handleUpdateNode}
                     onOpenMapper={handleOpenMapper}
                     focusNameRequest={renameRequest}

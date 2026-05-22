@@ -2489,6 +2489,62 @@ select.schema-input {
     background: #f85149;
 }
 
+/* Active-context selector + field binding ------------------------------ */
+.topbar-context {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    height: 26px;
+    padding: 0 4px 0 9px;
+    border-radius: 7px;
+    background: var(--bg-2);
+    border: 1px solid var(--border);
+    color: var(--text-2);
+    -webkit-app-region: no-drag;
+}
+
+.topbar-context-select {
+    background: transparent;
+    border: none;
+    color: var(--text-1);
+    font-size: 12px;
+    font-family: inherit;
+    cursor: pointer;
+    max-width: 140px;
+}
+
+.ctx-bindable {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+}
+
+.ctx-source-select {
+    font-size: 11.5px;
+}
+
+.ctx-bound {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 7px 9px;
+    border-radius: 7px;
+    background: rgba(91, 110, 251, 0.1);
+    border: 1px solid rgba(91, 110, 251, 0.35);
+}
+
+.ctx-bound-token {
+    font-family: ui-monospace, 'Cascadia Code', Consolas, monospace;
+    font-size: 12px;
+    color: #a9b6ff;
+    font-weight: 600;
+}
+
+.ctx-bound-hint {
+    font-size: 11px;
+    color: var(--text-3);
+}
+
 .statusbar-runtime-ready {
     color: var(--accent-source);
 }

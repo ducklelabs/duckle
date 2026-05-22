@@ -63,6 +63,18 @@ fn main_edge(id: &str, source: &str, target: &str) -> Value {
     json!({ "id": id, "source": source, "target": target, "data": { "connectionType": "main" } })
 }
 
+/// Edge that leaves a specific output handle of the source (e.g. the
+/// "reject" port of a validator).
+fn port_edge(id: &str, source: &str, source_handle: &str, target: &str) -> Value {
+    json!({
+        "id": id,
+        "source": source,
+        "sourceHandle": source_handle,
+        "target": target,
+        "data": { "connectionType": if source_handle == "reject" { "reject" } else { "main" } }
+    })
+}
+
 /// Read back output files independently of the engine, by shelling out
 /// to the same DuckDB CLI (only called after engine_or_skip!, so the
 /// binary is present).
@@ -344,6 +356,74 @@ fn custom_sql_runs_with_input_alias() {
         out
     ));
     assert_eq!(dbl, "20");
+}
+
+#[test]
+fn quality_range_splits_pass_and_reject() {
+    // A Range validator must route in-range rows to its main output and
+    // out-of-range rows to its reject port (two materialized tables).
+    let tmp = tempfile::tempdir().unwrap();
+    let csv = write_file(tmp.path(), "in.csv", "id,amount\n1,5\n2,50\n3,500\n");
+    let pass = out_path(tmp.path(), "pass.csv");
+    let rej = out_path(tmp.path(), "reject.csv");
+
+    let engine = engine_or_skip!();
+    let d = doc(
+        json!([
+            node("s1", "src.csv", json!({ "path": csv, "hasHeader": true })),
+            node(
+                "v1",
+                "qa.range",
+                json!({ "column": "amount", "min": 10, "max": 100, "inclusive": true }),
+            ),
+            node("kp", "snk.csv", json!({ "path": pass, "hasHeader": true })),
+            node("kr", "snk.csv", json!({ "path": rej, "hasHeader": true })),
+        ]),
+        json!([
+            main_edge("e1", "s1", "v1"),
+            port_edge("e2", "v1", "main", "kp"),
+            port_edge("e3", "v1", "reject", "kr"),
+        ]),
+    );
+    let result = engine.execute_pipeline(&d);
+    assert_eq!(result.status, "ok", "run failed: {:?}", result.error);
+    // 50 is in [10,100] -> pass; 5 and 500 -> reject.
+    assert_eq!(count(&format!("read_csv_auto('{}')", pass)), 1);
+    assert_eq!(count(&format!("read_csv_auto('{}')", rej)), 2);
+}
+
+#[test]
+fn window_row_number_partitions() {
+    let tmp = tempfile::tempdir().unwrap();
+    let csv = write_file(tmp.path(), "in.csv", "g,v\na,1\na,2\nb,9\n");
+    let out = out_path(tmp.path(), "win.csv");
+
+    let engine = engine_or_skip!();
+    let d = doc(
+        json!([
+            node("s1", "src.csv", json!({ "path": csv, "hasHeader": true })),
+            node(
+                "w1",
+                "xf.rownum",
+                json!({ "partitionBy": ["g"], "orderBy": ["v"], "outputName": "rn" }),
+            ),
+            node("k1", "snk.csv", json!({ "path": out, "hasHeader": true })),
+        ]),
+        json!([main_edge("e1", "s1", "w1"), main_edge("e2", "w1", "k1")]),
+    );
+    let result = engine.execute_pipeline(&d);
+    assert_eq!(result.status, "ok", "run failed: {:?}", result.error);
+    // Partition 'a' has two rows ranked 1 and 2 by v.
+    let max_rn = scalar_string(&format!(
+        "SELECT CAST(MAX(rn) AS VARCHAR) FROM read_csv_auto('{}') WHERE g = 'a'",
+        out
+    ));
+    assert_eq!(max_rn, "2");
+    let b_rn = scalar_string(&format!(
+        "SELECT CAST(rn AS VARCHAR) FROM read_csv_auto('{}') WHERE g = 'b'",
+        out
+    ));
+    assert_eq!(b_rn, "1");
 }
 
 #[test]

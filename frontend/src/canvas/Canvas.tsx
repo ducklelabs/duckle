@@ -79,6 +79,7 @@ type Props = {
     onConnectWithType: (connection: Connection, type: ConnectionType) => void;
     onSelectionChange: (params: OnSelectionChangeParams) => void;
     onDropComponent: (component: ComponentDef, position: DropPosition) => void;
+    onSetActiveContext?: (id: string) => void;
     onNodeAction: (action: NodeAction, nodeId: string) => void;
     onPaneAction: (action: PaneAction) => void;
     onEdgeChangeType: (edgeId: string, newType: ConnectionType) => void;
@@ -95,6 +96,7 @@ function CanvasInner({
     onConnectWithType,
     onSelectionChange,
     onDropComponent,
+    onSetActiveContext,
     onNodeAction,
     onPaneAction,
     onEdgeChangeType,
@@ -199,7 +201,10 @@ function CanvasInner({
     }, []);
 
     const handleDragOver = useCallback((e: React.DragEvent) => {
-        if (e.dataTransfer.types.includes('application/duckle-component')) {
+        if (
+            e.dataTransfer.types.includes('application/duckle-component') ||
+            e.dataTransfer.types.includes('application/duckle-context')
+        ) {
             e.preventDefault();
             e.dataTransfer.dropEffect = 'copy';
         }
@@ -209,6 +214,12 @@ function CanvasInner({
         (e: React.DragEvent) => {
             e.preventDefault();
             e.stopPropagation();
+            // A context dragged from the Project tree sets the active context.
+            const ctxId = e.dataTransfer.getData('application/duckle-context');
+            if (ctxId) {
+                onSetActiveContext?.(ctxId);
+                return;
+            }
             const raw = e.dataTransfer.getData('application/duckle-component');
             if (!raw) {
                 // Helpful when debugging: types should include our MIME.
@@ -226,7 +237,7 @@ function CanvasInner({
                 console.error('Failed to parse dropped component', err);
             }
         },
-        [onDropComponent, screenToFlowPosition],
+        [onDropComponent, onSetActiveContext, screenToFlowPosition],
     );
 
     const handleNodeContextMenu = useCallback(

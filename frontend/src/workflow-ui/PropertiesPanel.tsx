@@ -3,10 +3,15 @@ import type { Edge, Node } from '@xyflow/react';
 import { CheckCircle2, MousePointer2, Workflow } from 'lucide-react';
 import { resolveUpstreamSchema, resolveUpstreamSampleRows } from '../schema-resolve';
 import type { Column, DuckleNodeData } from '../pipeline-types';
-import type { ConnectionPayload, RepoItem, RoutinePayload } from '../repo-types';
+import type {
+    ConnectionPayload,
+    ContextPayload,
+    RepoItem,
+    RoutinePayload,
+} from '../repo-types';
 import SchemaEditor from './SchemaEditor';
 import FieldRenderer from './fields/FieldRenderer';
-import { FieldContext } from './fields/FieldContext';
+import { FieldContext, type ActiveContext } from './fields/FieldContext';
 import { getManifest } from './fields/component-manifests';
 
 type TabId = 'basic' | 'schema' | 'preview' | 'advanced' | 'validation';
@@ -28,6 +33,7 @@ type Props = {
     allNodes: Node<DuckleNodeData>[];
     edges: Edge[];
     repoItems: RepoItem[];
+    activeContextId?: string | null;
     onUpdate: (id: string, patch: Partial<DuckleNodeData>) => void;
     onOpenMapper?: (nodeId: string) => void;
     focusNameRequest?: number;
@@ -38,6 +44,7 @@ export default function PropertiesPanel({
     allNodes,
     edges,
     repoItems,
+    activeContextId,
     onUpdate,
     onOpenMapper,
     focusNameRequest,
@@ -66,6 +73,14 @@ export default function PropertiesPanel({
         () => resolveUpstreamSampleRows(selected?.id, allNodes, edges),
         [selected, edges, allNodes],
     );
+
+    const activeContext = useMemo<ActiveContext | undefined>(() => {
+        if (!activeContextId) return undefined;
+        const item = repoItems.find(r => r.id === activeContextId && r.type === 'context');
+        if (!item) return undefined;
+        const payload = item.payload as ContextPayload | undefined;
+        return { id: item.id, name: item.name, variables: payload?.variables ?? [] };
+    }, [activeContextId, repoItems]);
 
     if (!selected) {
         return (
@@ -166,6 +181,7 @@ export default function PropertiesPanel({
                     upstreamSchema,
                     nodeSchema: declaredSchema,
                     repoItems,
+                    activeContext,
                     onPickConnection: (payload: ConnectionPayload) => {
                         if (!selected) return;
                         const next = { ...(selected.data.properties ?? {}) };
