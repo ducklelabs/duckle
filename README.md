@@ -54,14 +54,13 @@ Models are only as good as the data behind them. RAG indexes, embedding stores, 
 
 Duckle is built to scrub that data clean *before* it reaches your AI:
 
-- **Deduplicate** exact and near-duplicate rows.
+- **Deduplicate** exact and near-duplicate rows — including a **Semantic Dedupe** that drops near-identical text by vector similarity.
 - **Validate & filter** out malformed, empty, or out-of-range records with a visual rule builder.
 - **Normalize** types, encodings, casing, and null handling across messy sources.
-- **Reshape** — project, rename, map expressions, aggregate, and join reference data.
-- **Export clean** to the columnar formats (Parquet, JSON) and stores that AI / vector databases ingest.
+- **Redact PII**, **chunk text** for RAG, **embed**, **classify**, and **LLM-transform** rows — a whole **AI** transform group.
+- **Land it in your AI store** — native **Vector / AI Database** connectors and sinks: pgvector, Pinecone, Qdrant, Weaviate, Chroma, Milvus, LanceDB.
 
-> **Today:** clean and export to Parquet/JSON that your vector store or AI database loads.
-> **On the roadmap:** native sinks for vector / AI databases (e.g. pgvector and friends) so the clean data lands in one drag.
+> The AI transforms and Vector / AI Database source + sink connectors are in the palette today as **preview** components — drag, wire, and configure them now (provider, collection, embedding column, distance metric, …). Execution wiring is landing engine-by-engine; everything else (clean → export Parquet/JSON your store ingests) runs today.
 
 ---
 
@@ -95,6 +94,7 @@ Duckle is built to scrub that data clean *before* it reaches your AI:
 | **Designer** | Drag-and-drop canvas, snap-to-grid, node search, live validation, generated-SQL inspector, per-node preview tab. |
 | **Sources** | CSV · TSV · Parquet · JSON / NDJSON · SQLite · DuckDB · S3 · GCS · Azure Blob · HTTP(S). |
 | **Transforms** | Filter (visual + raw SQL) · Map / expressions · Aggregate · Join & Lookup (auto-detected) · Project · Rename · Sort · Distinct · Union. |
+| **AI / Vector** | Embeddings · LLM Transform · Text Chunker · PII Redact · Classify · Semantic Dedupe · Vector DB source + sink (pgvector, Pinecone, Qdrant, Weaviate, Chroma, Milvus, LanceDB) — *preview*. |
 | **Sinks** | CSV · Parquet · JSON · SQLite · DuckDB · S3 / GCS / Azure. |
 | **Run** | Streaming run events (nodes light up stage-by-stage), per-node row counts, **mid-query cancel**, run history. |
 | **Schedules** | Cron · fixed interval · file-watch triggers, with an in-process scheduler. |
@@ -214,7 +214,7 @@ duckle/
 
 ## Roadmap
 
-- [ ] Native vector / AI-database sinks (pgvector and friends)
+- [ ] Execution wiring for the AI transforms + Vector / AI-database connectors (in the palette now as preview)
 - [ ] In-process **Native** Rust streaming engine
 - [ ] More connectors (databases, REST/APIs, message queues)
 - [ ] Incremental / change-data pipelines

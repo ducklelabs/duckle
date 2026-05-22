@@ -189,6 +189,19 @@ export const PALETTE: Category[] = [
                     src('clipboard', 'Clipboard', 'planned'),
                 ],
             },
+            {
+                id: 'src.vector',
+                label: 'Vector / AI Databases',
+                components: [
+                    src('pgvector', 'pgvector (Postgres)', 'preview', 'Read embeddings + metadata'),
+                    src('pinecone', 'Pinecone', 'preview', 'Fetch or similarity-search vectors'),
+                    src('qdrant', 'Qdrant', 'preview'),
+                    src('weaviate', 'Weaviate', 'preview'),
+                    src('chroma', 'Chroma', 'preview'),
+                    src('milvus', 'Milvus', 'preview'),
+                    src('lancedb', 'LanceDB', 'preview'),
+                ],
+            },
         ],
     },
     {
@@ -354,6 +367,18 @@ export const PALETTE: Category[] = [
                     xf('cdc.upsert', 'Merge / Upsert', 'planned'),
                 ],
             },
+            {
+                id: 'xf.ai',
+                label: 'AI',
+                components: [
+                    xf('ai.embed', 'Embeddings', 'preview', 'Generate vector embeddings'),
+                    xf('ai.llm', 'LLM Transform', 'preview', 'Clean / enrich rows with an LLM'),
+                    xf('ai.chunk', 'Text Chunker', 'preview', 'Split text for RAG'),
+                    xf('ai.pii', 'PII Redact', 'preview', 'Detect + mask personal data'),
+                    xf('ai.classify', 'Classify', 'preview', 'Label rows with a model'),
+                    xf('ai.dedupe', 'Semantic Dedupe', 'preview', 'Drop near-duplicate rows'),
+                ],
+            },
         ],
     },
     {
@@ -437,6 +462,19 @@ export const PALETTE: Category[] = [
                     snk('redis', 'Redis', 'planned'),
                     snk('elastic', 'Elasticsearch', 'planned'),
                     snk('opensearch', 'OpenSearch', 'planned'),
+                ],
+            },
+            {
+                id: 'snk.vector',
+                label: 'Vector / AI Databases',
+                components: [
+                    snk('pgvector', 'pgvector (Postgres)', 'preview', 'Write embeddings to Postgres + pgvector'),
+                    snk('pinecone', 'Pinecone', 'preview', 'Upsert vectors + metadata'),
+                    snk('qdrant', 'Qdrant', 'preview'),
+                    snk('weaviate', 'Weaviate', 'preview'),
+                    snk('chroma', 'Chroma', 'preview'),
+                    snk('milvus', 'Milvus', 'preview'),
+                    snk('lancedb', 'LanceDB', 'preview'),
                 ],
             },
         ],

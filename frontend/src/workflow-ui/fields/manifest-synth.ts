@@ -1809,6 +1809,243 @@ function synthCustomCode(comp: ComponentDef): ComponentManifest {
     ], 'declared');
 }
 
+// AI / Vector ----------------------------------------------------------
+
+const aiProviderField = (): Field => ({
+    key: 'provider',
+    label: 'Provider',
+    kind: 'select',
+    defaultValue: 'openai',
+    options: [
+        { label: 'OpenAI', value: 'openai' },
+        { label: 'Anthropic', value: 'anthropic' },
+        { label: 'Cohere', value: 'cohere' },
+        { label: 'Hugging Face', value: 'huggingface' },
+        { label: 'Local (Ollama)', value: 'ollama' },
+    ],
+});
+
+const distanceMetricField = (): Field => ({
+    key: 'metric',
+    label: 'Distance metric',
+    kind: 'select',
+    defaultValue: 'cosine',
+    options: [
+        { label: 'Cosine', value: 'cosine' },
+        { label: 'Euclidean (L2)', value: 'l2' },
+        { label: 'Dot product', value: 'dot' },
+    ],
+});
+
+function synthVectorSink(comp: ComponentDef): ComponentManifest {
+    return base(
+        comp,
+        [
+            {
+                label: 'Vector store',
+                fields: [
+                    { key: 'endpoint', label: 'Endpoint / host', kind: 'text', placeholder: 'http://localhost:6333' },
+                    { key: 'apiKey', label: 'API key', kind: 'text', placeholder: '••••••••' },
+                    { key: 'collection', label: 'Collection / index', kind: 'text', required: true, placeholder: 'documents' },
+                    { key: 'connectionRef', label: 'Or use saved connection', kind: 'connection-ref' },
+                ],
+            },
+            {
+                label: 'Vectors',
+                fields: [
+                    { key: 'embeddingColumn', label: 'Embedding column', kind: 'column', required: true, description: 'Column holding the vector (array of floats).' },
+                    { key: 'idColumn', label: 'ID column', kind: 'column' },
+                    { key: 'metadataColumns', label: 'Metadata columns', kind: 'columns', description: 'Stored alongside each vector.' },
+                    { key: 'dimension', label: 'Dimensions', kind: 'integer', defaultValue: 1536 },
+                    distanceMetricField(),
+                    {
+                        key: 'mode',
+                        label: 'Write mode',
+                        kind: 'select',
+                        defaultValue: 'upsert',
+                        options: [
+                            { label: 'Upsert', value: 'upsert' },
+                            { label: 'Insert', value: 'insert' },
+                        ],
+                    },
+                    { key: 'batchSize', label: 'Batch size', kind: 'integer', defaultValue: 100 },
+                    { key: 'createIfMissing', label: 'Create collection if missing', kind: 'bool', defaultValue: true },
+                ],
+            },
+        ],
+        'upstream',
+    );
+}
+
+function synthVectorSource(comp: ComponentDef): ComponentManifest {
+    return base(comp, [
+        {
+            label: 'Vector store',
+            fields: [
+                { key: 'endpoint', label: 'Endpoint / host', kind: 'text' },
+                { key: 'apiKey', label: 'API key', kind: 'text', placeholder: '••••••••' },
+                { key: 'collection', label: 'Collection / index', kind: 'text', required: true },
+                { key: 'connectionRef', label: 'Or use saved connection', kind: 'connection-ref' },
+            ],
+        },
+        {
+            label: 'Query',
+            fields: [
+                {
+                    key: 'queryMode',
+                    label: 'Mode',
+                    kind: 'select',
+                    defaultValue: 'fetch',
+                    options: [
+                        { label: 'Fetch all', value: 'fetch' },
+                        { label: 'Similarity search', value: 'search' },
+                    ],
+                },
+                { key: 'queryText', label: 'Query text', kind: 'textarea', rows: 2, description: 'For similarity search.' },
+                { key: 'topK', label: 'Top K', kind: 'integer', defaultValue: 10 },
+                { key: 'filter', label: 'Metadata filter (JSON)', kind: 'textarea', rows: 3, placeholder: '{"source": "docs"}' },
+            ],
+        },
+    ]);
+}
+
+function synthAiTransform(comp: ComponentDef): ComponentManifest {
+    const id = comp.id;
+    if (id === 'xf.ai.embed') {
+        return base(comp, [
+            {
+                label: 'Embeddings',
+                fields: [
+                    { key: 'textColumn', label: 'Text column', kind: 'column', required: true },
+                    aiProviderField(),
+                    { key: 'model', label: 'Model', kind: 'text', defaultValue: 'text-embedding-3-small' },
+                    { key: 'apiKey', label: 'API key', kind: 'text', placeholder: '••••••••' },
+                    { key: 'outputColumn', label: 'Output column', kind: 'text', defaultValue: 'embedding' },
+                    { key: 'dimension', label: 'Dimensions', kind: 'integer', defaultValue: 1536 },
+                    { key: 'batchSize', label: 'Batch size', kind: 'integer', defaultValue: 64 },
+                ],
+            },
+        ], 'declared');
+    }
+    if (id === 'xf.ai.llm') {
+        return base(comp, [
+            {
+                label: 'Model',
+                fields: [
+                    aiProviderField(),
+                    { key: 'model', label: 'Model', kind: 'text', defaultValue: 'gpt-4o-mini' },
+                    { key: 'apiKey', label: 'API key', kind: 'text', placeholder: '••••••••' },
+                ],
+            },
+            {
+                label: 'Prompt',
+                fields: [
+                    {
+                        key: 'prompt',
+                        label: 'Prompt template',
+                        kind: 'textarea',
+                        rows: 6,
+                        monospace: true,
+                        required: true,
+                        placeholder: 'Clean and normalize this address:\n{{address}}',
+                        description: 'Reference columns with {{column_name}}.',
+                    },
+                    { key: 'outputColumn', label: 'Output column', kind: 'text', required: true, defaultValue: 'ai_result' },
+                    { key: 'temperature', label: 'Temperature', kind: 'number', defaultValue: 0 },
+                    { key: 'maxTokens', label: 'Max tokens', kind: 'integer', defaultValue: 256 },
+                ],
+            },
+        ], 'declared');
+    }
+    if (id === 'xf.ai.chunk') {
+        return base(comp, [
+            {
+                label: 'Chunking',
+                fields: [
+                    { key: 'textColumn', label: 'Text column', kind: 'column', required: true },
+                    {
+                        key: 'strategy',
+                        label: 'Strategy',
+                        kind: 'select',
+                        defaultValue: 'recursive',
+                        options: [
+                            { label: 'Fixed size', value: 'fixed' },
+                            { label: 'Sentence', value: 'sentence' },
+                            { label: 'Recursive', value: 'recursive' },
+                            { label: 'Semantic', value: 'semantic' },
+                        ],
+                    },
+                    { key: 'chunkSize', label: 'Chunk size (tokens)', kind: 'integer', defaultValue: 512 },
+                    { key: 'overlap', label: 'Overlap (tokens)', kind: 'integer', defaultValue: 64 },
+                    { key: 'outputColumn', label: 'Output column', kind: 'text', defaultValue: 'chunk' },
+                ],
+            },
+        ], 'declared');
+    }
+    if (id === 'xf.ai.pii') {
+        return base(comp, [
+            {
+                label: 'PII redaction',
+                fields: [
+                    { key: 'columns', label: 'Columns to scan', kind: 'columns', required: true },
+                    { key: 'entities', label: 'Entity types', kind: 'text', placeholder: 'email, phone, ssn, name, credit_card', description: 'Comma-separated PII types to detect.' },
+                    {
+                        key: 'action',
+                        label: 'Action',
+                        kind: 'select',
+                        defaultValue: 'mask',
+                        options: [
+                            { label: 'Mask (****)', value: 'mask' },
+                            { label: 'Hash', value: 'hash' },
+                            { label: 'Redact (remove)', value: 'redact' },
+                            { label: 'Tokenize', value: 'tokenize' },
+                        ],
+                    },
+                ],
+            },
+        ], 'upstream');
+    }
+    if (id === 'xf.ai.classify') {
+        return base(comp, [
+            {
+                label: 'Classify',
+                fields: [
+                    { key: 'textColumn', label: 'Text column', kind: 'column', required: true },
+                    { key: 'labels', label: 'Labels', kind: 'text', required: true, placeholder: 'positive, neutral, negative', description: 'Comma-separated candidate labels.' },
+                    aiProviderField(),
+                    { key: 'model', label: 'Model', kind: 'text', defaultValue: 'gpt-4o-mini' },
+                    { key: 'apiKey', label: 'API key', kind: 'text', placeholder: '••••••••' },
+                    { key: 'outputColumn', label: 'Output column', kind: 'text', defaultValue: 'label' },
+                ],
+            },
+        ], 'declared');
+    }
+    if (id === 'xf.ai.dedupe') {
+        return base(comp, [
+            {
+                label: 'Semantic dedupe',
+                fields: [
+                    { key: 'embeddingColumn', label: 'Embedding column', kind: 'column', description: 'Vector column to compare.' },
+                    { key: 'textColumn', label: 'Or text column', kind: 'column', description: 'Embedded on the fly if no vector column.' },
+                    { key: 'threshold', label: 'Similarity threshold', kind: 'number', defaultValue: 0.92, description: '0.0–1.0; higher keeps only very-close rows as duplicates.' },
+                    distanceMetricField(),
+                    {
+                        key: 'keep',
+                        label: 'Keep',
+                        kind: 'select',
+                        defaultValue: 'first',
+                        options: [
+                            { label: 'First', value: 'first' },
+                            { label: 'Last', value: 'last' },
+                        ],
+                    },
+                ],
+            },
+        ], 'upstream');
+    }
+    return synthGeneric(comp, 'upstream');
+}
+
 function synthGeneric(comp: ComponentDef, schemaSource: SchemaSource = 'upstream'): ComponentManifest {
     return base(comp, [
         {
@@ -1836,6 +2073,7 @@ export function synthesizeManifest(componentId: string): ComponentManifest | und
     if (groupId === 'src.apis') return synthApiSource(comp);
     if (groupId === 'src.nosql') return synthNoSqlSource(comp);
     if (groupId === 'src.misc') return synthMiscSource(comp);
+    if (groupId === 'src.vector') return synthVectorSource(comp);
 
     // Sinks
     if (groupId === 'snk.files') return synthFileSink(comp);
@@ -1845,6 +2083,7 @@ export function synthesizeManifest(componentId: string): ComponentManifest | und
     if (groupId === 'snk.streaming') return synthStreamingSink(comp);
     if (groupId === 'snk.apis') return synthApiSink(comp);
     if (groupId === 'snk.nosql') return synthNoSqlSink(comp);
+    if (groupId === 'snk.vector') return synthVectorSink(comp);
 
     // Transforms
     if (groupId === 'xf.fields') return synthFieldsTransform(comp);
@@ -1860,6 +2099,7 @@ export function synthesizeManifest(componentId: string): ComponentManifest | und
     if (groupId === 'xf.json') return synthJsonTransform(comp);
     if (groupId === 'xf.array') return synthArrayTransform(comp);
     if (groupId === 'xf.cdc') return synthCdcTransform(comp);
+    if (groupId === 'xf.ai') return synthAiTransform(comp);
 
     // Control
     if (groupId === 'ctl.routing') return synthRoutingControl(comp);
