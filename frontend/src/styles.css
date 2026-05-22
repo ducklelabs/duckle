@@ -5350,6 +5350,203 @@ select.schema-input {
     font-weight: 600;
 }
 
+/* Engine setup modal (first-run) --------------------------------------- */
+.modal-engine {
+    width: 100%;
+    max-width: 600px;
+}
+
+.modal-engine-body {
+    padding: 18px 24px;
+}
+
+.engine-loading {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: var(--text-3);
+    font-size: 13px;
+    padding: 16px;
+}
+
+.engine-list {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.engine-row {
+    display: flex;
+    gap: 12px;
+    align-items: flex-start;
+    padding: 14px;
+    background: var(--bg-2);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+}
+
+.engine-row-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    border-radius: 8px;
+    background: var(--accent-soft);
+    color: var(--accent);
+    flex-shrink: 0;
+}
+
+.engine-row-info {
+    flex: 1;
+    min-width: 0;
+}
+
+.engine-row-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.engine-row-name {
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--text-1);
+}
+
+.engine-row-tag {
+    font-size: 9px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    font-weight: 700;
+    padding: 2px 7px;
+    border-radius: 999px;
+    background: var(--bg-3);
+    color: var(--text-3);
+}
+
+.engine-row-tag.required {
+    background: var(--accent-soft);
+    color: var(--accent);
+}
+
+.engine-row-ver {
+    font-size: 11px;
+    color: var(--text-3);
+    font-variant-numeric: tabular-nums;
+}
+
+.engine-row-desc {
+    font-size: 12px;
+    color: var(--text-3);
+    margin-top: 3px;
+    line-height: 1.5;
+}
+
+.engine-row-action {
+    flex-shrink: 0;
+    align-self: center;
+}
+
+.btn-sm {
+    padding: 5px 10px;
+    font-size: 12px;
+}
+
+.engine-row-installed {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    color: var(--success);
+    font-size: 12px;
+    font-weight: 600;
+}
+
+.engine-row-installing {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    color: var(--accent);
+    font-size: 12px;
+    font-weight: 600;
+}
+
+.engine-row-unavailable {
+    font-size: 11px;
+    color: var(--text-4);
+}
+
+.engine-progress {
+    margin-top: 8px;
+}
+
+.engine-progress-bar {
+    height: 5px;
+    background: var(--bg-3);
+    border-radius: 3px;
+    overflow: hidden;
+}
+
+.engine-progress-fill {
+    height: 100%;
+    background: var(--gradient-brand);
+    border-radius: 3px;
+    transition: width 120ms ease;
+}
+
+.engine-progress-fill[data-indeterminate='true'] {
+    animation: engine-indeterminate 1.1s ease-in-out infinite;
+}
+
+@keyframes engine-indeterminate {
+    0% {
+        margin-left: 0;
+        width: 30%;
+    }
+    50% {
+        margin-left: 70%;
+        width: 30%;
+    }
+    100% {
+        margin-left: 0;
+        width: 30%;
+    }
+}
+
+.engine-progress-label {
+    margin-top: 4px;
+    font-size: 11px;
+    color: var(--text-3);
+    font-variant-numeric: tabular-nums;
+}
+
+.modal-engine-error {
+    margin-top: 12px;
+    padding: 10px 12px;
+    background: rgba(255, 77, 109, 0.08);
+    border: 1px solid rgba(255, 77, 109, 0.25);
+    border-radius: 8px;
+    color: var(--danger);
+    font-size: 12px;
+    line-height: 1.5;
+}
+
+.modal-engine-footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 14px 24px 18px;
+}
+
+.modal-engine-hint {
+    font-size: 12px;
+    color: var(--text-3);
+}
+
+.spin {
+    animation: node-run-spin 800ms linear infinite;
+}
+
 .schedule-presets {
     display: flex;
     flex-wrap: wrap;

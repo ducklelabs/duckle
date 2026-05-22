@@ -152,6 +152,47 @@ export async function runHistory(
     }
 }
 
+// ---- Engine install (first-run guided setup) ---------------------------
+
+export type EngineStatus = {
+    id: string;
+    name: string;
+    description: string;
+    required: boolean;
+    installed: boolean;
+    version?: string;
+    path?: string;
+    available: boolean;
+};
+
+export type InstallProgress =
+    | { phase: 'downloading'; received: number; total?: number }
+    | { phase: 'extracting' }
+    | { phase: 'verifying' }
+    | { phase: 'done'; path: string }
+    // Set by the frontend on a caught install error (the Rust command
+    // returns Err rather than streaming this).
+    | { phase: 'failed'; error: string };
+
+export async function engineStatus(): Promise<EngineStatus[]> {
+    if (!isTauri()) return [];
+    try {
+        return await invoke<EngineStatus[]>('engine_status');
+    } catch (err) {
+        console.warn('engineStatus failed', err);
+        return [];
+    }
+}
+
+export async function engineInstall(
+    engine: string,
+    onProgress?: (p: InstallProgress) => void,
+): Promise<string> {
+    const channel = new Channel<InstallProgress>();
+    if (onProgress) channel.onmessage = onProgress;
+    return await invoke<string>('engine_install', { engine, onProgress: channel });
+}
+
 export async function cancelPipeline(): Promise<void> {
     if (!isTauri()) return;
     try {

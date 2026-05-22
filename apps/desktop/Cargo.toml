@@ -34,3 +34,8 @@ duckle-plugin-sdk = { workspace = true }
 duckle-connectors = { workspace = true }
 duckle-duckdb-engine = { workspace = true }
 duckle-scheduler = { workspace = true }
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "rustls-tls"] }
+zip = "2"
+
+[dev-dependencies]
+tempfile = "3.10"

@@ -29,6 +29,8 @@ import {
     type RunResult,
 } from './tauri-bridge';
 import ScheduleEditorModal from './workflow-ui/ScheduleEditorModal';
+import EngineSetupModal from './workflow-ui/EngineSetupModal';
+import { engineStatus } from './tauri-bridge';
 import { RunStatusContext } from './canvas/run-status-context';
 import { validatePipeline } from './validation';
 import WorkspacePickerModal from './workflow-ui/WorkspacePickerModal';
@@ -196,13 +198,38 @@ export default function App() {
     const [renameRequest, setRenameRequest] = useState<number>(0);
     const [repo, setRepo] = useState<RepoItem[]>(() => loadPersisted('repo', INITIAL_REPO));
 
+    // First-run boot gate: in Tauri we must confirm an execution engine
+    // is installed before anything else. 'checking' until engine_status
+    // returns; 'engine-setup' if DuckDB is missing; 'ready' once present
+    // (or in browser, where engines aren't downloaded).
+    const [engineGate, setEngineGate] = useState<'checking' | 'engine-setup' | 'ready'>(
+        () => (isInTauri() ? 'checking' : 'ready'),
+    );
+
+    useEffect(() => {
+        if (!isInTauri()) return;
+        let cancelled = false;
+        void engineStatus().then(list => {
+            if (cancelled) return;
+            const duck = list.find(e => e.id === 'duckdb');
+            setEngineGate(duck?.installed ? 'ready' : 'engine-setup');
+        });
+        return () => {
+            cancelled = true;
+        };
+    }, []);
+
     const [workspacePathState, setWorkspacePathState] = useState<string | null>(() =>
         getWorkspacePath(),
     );
     // In Tauri: needs workspace picked + hydrated before saves start.
     // In browser: workspaceReady is always true; localStorage persists.
     const [workspaceReady, setWorkspaceReady] = useState<boolean>(!isInTauri());
-    const showWorkspacePicker = isInTauri() && !workspacePathState;
+    // Engine setup comes first; only once engines are ready do we show
+    // the workspace picker.
+    const showEngineSetup = isInTauri() && engineGate === 'engine-setup';
+    const showWorkspacePicker =
+        isInTauri() && engineGate === 'ready' && !workspacePathState;
     const [newPipelineModal, setNewPipelineModal] = useState<{
         open: boolean;
         defaultParent: string;
@@ -1406,6 +1433,10 @@ export default function App() {
                 }
                 onCreate={handleCreatePipeline}
             />
+
+            {showEngineSetup ? (
+                <EngineSetupModal onReady={() => setEngineGate('ready')} />
+            ) : null}
 
             {showWorkspacePicker ? (
                 <WorkspacePickerModal onPicked={handlePickedWorkspace} />

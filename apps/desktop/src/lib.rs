@@ -16,7 +16,11 @@ use serde_json::Value as JsonValue;
 use std::path::PathBuf;
 use std::sync::OnceLock;
 use tauri::ipc::Channel;
+use tauri::Manager;
 use tracing_subscriber::EnvFilter;
+
+mod engine_manager;
+use engine_manager::{EngineStatus, InstallProgress};
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -57,7 +61,9 @@ pub fn run() {
             schedule_list,
             schedule_upsert,
             schedule_delete,
-            schedule_run_now
+            schedule_run_now,
+            engine_status,
+            engine_install
         ])
         .run(tauri::generate_context!())
         .expect("error while running duckle");
@@ -273,4 +279,41 @@ fn schedule_delete(id: String) -> Result<(), String> {
 #[tauri::command]
 async fn schedule_run_now(id: String) -> Result<RunResult, String> {
     scheduler()?.run_now(&id).await
+}
+
+// ---- Engine install (first-run guided setup) ---------------------------
+
+/// Which engines are present in the app-data dir, and whether each can
+/// be installed on this platform.
+#[tauri::command]
+fn engine_status(app: tauri::AppHandle) -> Result<Vec<EngineStatus>, String> {
+    let dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
+    Ok(engine_manager::status(&dir))
+}
+
+/// Download + install an engine into app-data, streaming progress.
+#[tauri::command]
+async fn engine_install(
+    app: tauri::AppHandle,
+    engine: String,
+    on_progress: Channel<InstallProgress>,
+) -> Result<String, String> {
+    let dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
+    match engine.as_str() {
+        "duckdb" => {
+            let result = tokio::task::spawn_blocking(move || {
+                engine_manager::install_duckdb(&dir, |p| {
+                    let _ = on_progress.send(p);
+                })
+            })
+            .await
+            .map_err(|e| e.to_string())?;
+            if let Err(ref e) = result {
+                let _ = ();
+                tracing::warn!("DuckDB install failed: {}", e);
+            }
+            result
+        }
+        other => Err(format!("Engine '{}' can't be installed automatically yet", other)),
+    }
 }
