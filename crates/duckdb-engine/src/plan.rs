@@ -427,6 +427,10 @@ fn build_view_sql(
         "qa.notnull" | "qa.range" | "qa.regex" | "qa.unique" => {
             build_quality(inputs, props, component_id, false)
         }
+        "qa.profile" => build_profile(inputs, props),
+        "qa.describe" => build_describe(inputs),
+        "qa.histogram" => build_histogram(inputs, props),
+        "qa.standardize" => build_standardize(inputs, props),
         "xf.reorder" => build_reorder(inputs, props),
         "xf.count" => build_count(inputs),
         "xf.join.cross" => build_cross_join(inputs),
@@ -1326,6 +1330,90 @@ fn build_unpivot(inputs: &NodeInputs, props: &JsonValue) -> Result<String, Strin
         on,
         quote_ident(&name_col),
         quote_ident(&value_col)
+    ))
+}
+
+/// Column Profile: one summary-stats row per column, via DuckDB
+/// SUMMARIZE (count, null %, approx distinct, min/max, quartiles).
+fn build_profile(inputs: &NodeInputs, props: &JsonValue) -> Result<String, String> {
+    let upstream = inputs.main().ok_or_else(|| missing_input_msg("qa.profile"))?;
+    let cols = columns_list(props, "columns");
+    let projection = if cols.is_empty() {
+        "*".to_string()
+    } else {
+        cols.iter()
+            .map(|c| quote_ident(c))
+            .collect::<Vec<_>>()
+            .join(", ")
+    };
+    Ok(format!(
+        "SELECT * FROM (SUMMARIZE SELECT {} FROM {})",
+        projection,
+        quote_ident(upstream)
+    ))
+}
+
+/// Describe: the column names and types of the input.
+fn build_describe(inputs: &NodeInputs) -> Result<String, String> {
+    let upstream = inputs.main().ok_or_else(|| missing_input_msg("qa.describe"))?;
+    Ok(format!(
+        "SELECT * FROM (DESCRIBE SELECT * FROM {})",
+        quote_ident(upstream)
+    ))
+}
+
+/// Histogram: value frequencies for one column, most frequent first.
+fn build_histogram(inputs: &NodeInputs, props: &JsonValue) -> Result<String, String> {
+    let upstream = inputs.main().ok_or_else(|| missing_input_msg("qa.histogram"))?;
+    let col = string_prop(props, "column")
+        .filter(|s| !s.is_empty())
+        .ok_or_else(|| "Histogram needs a column".to_string())?;
+    let q = quote_ident(&col);
+    Ok(format!(
+        "SELECT {q} AS value, COUNT(*) AS frequency FROM {} GROUP BY {q} ORDER BY frequency DESC, value",
+        quote_ident(upstream)
+    ))
+}
+
+/// Standardize: trim, case-normalize, and collapse internal whitespace in
+/// the chosen text columns, in place.
+fn build_standardize(inputs: &NodeInputs, props: &JsonValue) -> Result<String, String> {
+    let upstream = inputs.main().ok_or_else(|| missing_input_msg("qa.standardize"))?;
+    let cols = columns_list(props, "columns");
+    if cols.is_empty() {
+        return Err("Standardize needs at least one column".to_string());
+    }
+    let case = string_prop(props, "case").unwrap_or_else(|| "none".into());
+    let trim = props.get("trim").and_then(|v| v.as_bool()).unwrap_or(true);
+    let collapse = props
+        .get("collapseWhitespace")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(true);
+    let replacements = cols
+        .iter()
+        .map(|c| {
+            let q = quote_ident(c);
+            let mut expr = format!("CAST({} AS VARCHAR)", q);
+            expr = match case.as_str() {
+                "upper" => format!("UPPER({})", expr),
+                "lower" => format!("LOWER({})", expr),
+                "title" => format!("INITCAP({})", expr),
+                _ => expr,
+            };
+            if collapse {
+                expr = format!("regexp_replace({}, '\\s+', ' ', 'g')", expr);
+            }
+            if trim {
+                expr = format!("TRIM({})", expr);
+            }
+            format!("{} AS {}", expr, q)
+        })
+        .collect::<Vec<_>>()
+        .join(", ");
+    Ok(format!(
+        "SELECT * REPLACE ({}) FROM {}",
+        replacements,
+        quote_ident(upstream)
     ))
 }
 

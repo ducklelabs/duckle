@@ -942,6 +942,96 @@ fn cdc_diff_detect_tags_changes() {
 }
 
 #[test]
+fn column_profile_summarizes() {
+    let engine = engine_or_skip!();
+    let tmp = tempfile::tempdir().unwrap();
+    let csv = write_file(tmp.path(), "in.csv", "id,grp\n1,a\n2,a\n3,b\n");
+    let out = out_path(tmp.path(), "out.csv");
+    let d = doc(
+        json!([
+            node("s1", "src.csv", json!({ "path": csv, "hasHeader": true })),
+            node("p1", "qa.profile", json!({})),
+            node("k1", "snk.csv", json!({ "path": out, "hasHeader": true })),
+        ]),
+        json!([main_edge("e1", "s1", "p1"), main_edge("e2", "p1", "k1")]),
+    );
+    let result = engine.execute_pipeline(&d);
+    assert_eq!(result.status, "ok", "run failed: {:?}", result.error);
+    // One stats row per column.
+    assert_eq!(count(&format!("read_csv_auto('{}')", out)), 2);
+    let name = scalar_string(&format!(
+        "SELECT column_name FROM read_csv_auto('{}') WHERE column_name = 'grp'",
+        out
+    ));
+    assert_eq!(name, "grp");
+}
+
+#[test]
+fn describe_lists_columns_and_types() {
+    let engine = engine_or_skip!();
+    let tmp = tempfile::tempdir().unwrap();
+    let csv = write_file(tmp.path(), "in.csv", "id,name\n1,alice\n");
+    let out = out_path(tmp.path(), "out.csv");
+    let d = doc(
+        json!([
+            node("s1", "src.csv", json!({ "path": csv, "hasHeader": true })),
+            node("d1", "qa.describe", json!({})),
+            node("k1", "snk.csv", json!({ "path": out, "hasHeader": true })),
+        ]),
+        json!([main_edge("e1", "s1", "d1"), main_edge("e2", "d1", "k1")]),
+    );
+    let result = engine.execute_pipeline(&d);
+    assert_eq!(result.status, "ok", "run failed: {:?}", result.error);
+    assert_eq!(count(&format!("read_csv_auto('{}')", out)), 2);
+}
+
+#[test]
+fn histogram_counts_values() {
+    let engine = engine_or_skip!();
+    let tmp = tempfile::tempdir().unwrap();
+    let csv = write_file(tmp.path(), "in.csv", "g\na\na\nb\n");
+    let out = out_path(tmp.path(), "out.csv");
+    let d = doc(
+        json!([
+            node("s1", "src.csv", json!({ "path": csv, "hasHeader": true })),
+            node("h1", "qa.histogram", json!({ "column": "g" })),
+            node("k1", "snk.csv", json!({ "path": out, "hasHeader": true })),
+        ]),
+        json!([main_edge("e1", "s1", "h1"), main_edge("e2", "h1", "k1")]),
+    );
+    let result = engine.execute_pipeline(&d);
+    assert_eq!(result.status, "ok", "run failed: {:?}", result.error);
+    assert_eq!(count(&format!("read_csv_auto('{}')", out)), 2);
+    let freq = scalar_string(&format!(
+        "SELECT CAST(frequency AS VARCHAR) FROM read_csv_auto('{}') WHERE value = 'a'",
+        out
+    ));
+    assert_eq!(freq, "2", "got {}", freq);
+}
+
+#[test]
+fn standardize_trims_and_uppercases() {
+    let engine = engine_or_skip!();
+    let tmp = tempfile::tempdir().unwrap();
+    let csv = write_file(tmp.path(), "in.csv", "name\n  hello   world \n");
+    let out = out_path(tmp.path(), "out.csv");
+    let d = doc(
+        json!([
+            node("s1", "src.csv", json!({ "path": csv, "hasHeader": true })),
+            node("c1", "qa.standardize", json!({
+                "columns": ["name"], "case": "upper", "trim": true, "collapseWhitespace": true
+            })),
+            node("k1", "snk.csv", json!({ "path": out, "hasHeader": true })),
+        ]),
+        json!([main_edge("e1", "s1", "c1"), main_edge("e2", "c1", "k1")]),
+    );
+    let result = engine.execute_pipeline(&d);
+    assert_eq!(result.status, "ok", "run failed: {:?}", result.error);
+    let v = scalar_string(&format!("SELECT name FROM read_csv_auto('{}')", out));
+    assert_eq!(v, "HELLO WORLD", "got {}", v);
+}
+
+#[test]
 fn missing_source_file_errors_cleanly() {
     let tmp = tempfile::tempdir().unwrap();
     let out = out_path(tmp.path(), "never.parquet");

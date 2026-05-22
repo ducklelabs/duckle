@@ -553,16 +553,16 @@ export const PALETTE: Category[] = [
                 id: 'qa.profile',
                 label: 'Profiling',
                 components: [
-                    qa('profile', 'Column Profile', 'planned'),
-                    qa('describe', 'Describe', 'planned'),
-                    qa('histogram', 'Histogram', 'planned'),
+                    qa('profile', 'Column Profile', 'available', 'Per-column stats: count, nulls, distinct, min/max, quartiles'),
+                    qa('describe', 'Describe', 'available', 'Column names and types of the input'),
+                    qa('histogram', 'Histogram', 'available', 'Value frequencies for a column'),
                 ],
             },
             {
                 id: 'qa.cleanse',
                 label: 'Cleansing',
                 components: [
-                    qa('standardize', 'Standardize', 'planned'),
+                    qa('standardize', 'Standardize', 'available', 'Trim, case-normalize, and collapse whitespace'),
                     qa('dedupe', 'Fuzzy Deduplicate', 'planned'),
                     qa('match', 'Record Match', 'planned'),
                     qa('addressclean', 'Address Cleanse', 'planned'),

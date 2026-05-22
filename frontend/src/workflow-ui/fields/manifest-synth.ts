@@ -1809,29 +1809,53 @@ function synthQualityValidation(comp: ComponentDef): ComponentManifest {
 }
 
 function synthQualityProfile(comp: ComponentDef): ComponentManifest {
+    if (comp.id === 'qa.describe') {
+        // Outputs the input's column names and types; no configuration.
+        return base(comp, [{ label: 'Describe', fields: [] }], 'declared');
+    }
+    if (comp.id === 'qa.histogram') {
+        // Outputs value/frequency rows for one column.
+        return base(comp, [{
+            label: 'Histogram',
+            fields: [{ key: 'column', label: 'Column', kind: 'column', required: true }],
+        }], 'declared');
+    }
     return base(comp, [
         {
             label: 'Profile',
             fields: [
                 { key: 'columns', label: 'Columns to profile', kind: 'columns', description: 'Leave empty for all.' },
-                {
-                    key: 'metrics',
-                    label: 'Metrics',
-                    kind: 'select',
-                    defaultValue: 'standard',
-                    options: [
-                        { label: 'Standard (count, nulls, distinct, min, max, mean)', value: 'standard' },
-                        { label: 'Full (adds quartiles, histogram)', value: 'full' },
-                    ],
-                },
-                { key: 'sampleSize', label: 'Sample size', kind: 'integer', defaultValue: 10000 },
             ],
         },
-    ], 'upstream');
+    ], 'declared');
 }
 
 function synthQualityCleanse(comp: ComponentDef): ComponentManifest {
     const id = comp.id;
+    if (id === 'qa.standardize') {
+        return base(comp, [
+            {
+                label: 'Standardize',
+                fields: [
+                    { key: 'columns', label: 'Columns', kind: 'columns', required: true },
+                    {
+                        key: 'case',
+                        label: 'Case',
+                        kind: 'select',
+                        defaultValue: 'none',
+                        options: [
+                            { label: 'Keep as-is', value: 'none' },
+                            { label: 'UPPERCASE', value: 'upper' },
+                            { label: 'lowercase', value: 'lower' },
+                            { label: 'Title Case', value: 'title' },
+                        ],
+                    },
+                    { key: 'trim', label: 'Trim whitespace', kind: 'bool', defaultValue: true },
+                    { key: 'collapseWhitespace', label: 'Collapse inner whitespace', kind: 'bool', defaultValue: true },
+                ],
+            },
+        ], 'upstream');
+    }
     if (id === 'qa.dedupe') {
         return base(comp, [
             {
