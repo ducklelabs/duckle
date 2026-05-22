@@ -736,17 +736,39 @@ export default function App() {
         [setNodes],
     );
 
+    const validation = useMemo(
+        () => validatePipeline(nodes, edges),
+        [nodes, edges],
+    );
+
+    const [validateRequest, setValidateRequest] = useState<number>(0);
+    const handleValidate = useCallback(() => {
+        // Just bump a counter so BottomPanel pops the Problems tab.
+        setValidateRequest(n => n + 1);
+    }, []);
+
     const handleRun = useCallback(() => {
+        // Don't launch a run that's guaranteed to fail (e.g. a sink with
+        // no output path) — that only yields a cryptic engine error.
+        // Surface the Problems tab so the user can fix it first.
+        if (validation.errorCount > 0) {
+            setValidateRequest(n => n + 1);
+            return;
+        }
         setIsRunning(true);
         setRunResult(null);
         const start = performance.now();
         void runPipeline(nodes, edges, handleEvent, activeJobId, workspacePathState)
             .then(result => finishRun(start, result))
             .finally(() => setIsRunning(false));
-    }, [nodes, edges, handleEvent, finishRun, activeJobId, workspacePathState]);
+    }, [nodes, edges, handleEvent, finishRun, activeJobId, workspacePathState, validation.errorCount]);
 
     const handleRunFromHere = useCallback(
         (nodeId: string) => {
+            if (validation.errorCount > 0) {
+                setValidateRequest(n => n + 1);
+                return;
+            }
             setIsRunning(true);
             setRunResult(null);
             const start = performance.now();
@@ -761,7 +783,15 @@ export default function App() {
                 .then(result => finishRun(start, result))
                 .finally(() => setIsRunning(false));
         },
-        [nodes, edges, handleEvent, finishRun, activeJobId, workspacePathState],
+        [
+            nodes,
+            edges,
+            handleEvent,
+            finishRun,
+            activeJobId,
+            workspacePathState,
+            validation.errorCount,
+        ],
     );
 
     const handleStop = useCallback(() => {
@@ -784,17 +814,6 @@ export default function App() {
     const handleSave = useCallback(() => {
         setJobs(js => js.map(j => (j.id === activeJobId ? { ...j, dirty: false } : j)));
     }, [activeJobId]);
-
-    const validation = useMemo(
-        () => validatePipeline(nodes, edges),
-        [nodes, edges],
-    );
-
-    const [validateRequest, setValidateRequest] = useState<number>(0);
-    const handleValidate = useCallback(() => {
-        // Just bump a counter so BottomPanel pops the Problems tab.
-        setValidateRequest(n => n + 1);
-    }, []);
 
     const activeJobName = useMemo(
         () => jobs.find(j => j.id === activeJobId)?.name ?? 'pipeline',
@@ -1448,6 +1467,9 @@ export default function App() {
                 runtime={runtime}
                 nodeCount={nodes.length}
                 edgeCount={edges.length}
+                errorCount={validation.errorCount}
+                warningCount={validation.warningCount}
+                pipelineName={activeJobName}
             />
 
             <NewPipelineModal

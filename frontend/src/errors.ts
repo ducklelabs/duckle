@@ -35,6 +35,9 @@ export function friendlyError(raw: string | undefined): string {
     if ((m = body.match(/No files found that match the pattern\s+"?([^"]+?)"?\s*$/i))) {
         return wrap(`No file matches '${m[1].trim()}'. Check the path.`);
     }
+    if (/Cannot open file ""/i.test(body)) {
+        return wrap('No output path set — open this sink and choose a destination file.');
+    }
     if ((m = body.match(/IO Error: Cannot open file "([^"]+)"/i))) {
         return wrap(`Can't open '${m[1]}'. Verify the file exists and the app has permission.`);
     }

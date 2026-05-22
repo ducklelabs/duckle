@@ -2458,6 +2458,14 @@ select.schema-input {
     background: var(--accent-source);
 }
 
+.statusbar-dot-warn {
+    background: #e3b341;
+}
+
+.statusbar-dot-error {
+    background: #f85149;
+}
+
 .statusbar-runtime-ready {
     color: var(--accent-source);
 }

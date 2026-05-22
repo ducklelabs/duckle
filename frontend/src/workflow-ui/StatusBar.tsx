@@ -13,6 +13,8 @@ type Props = {
     runtime: RuntimeState;
     nodeCount: number;
     edgeCount: number;
+    errorCount: number;
+    warningCount: number;
     pipelineName?: string;
 };
 
@@ -21,8 +23,16 @@ export default function StatusBar({
     runtime,
     nodeCount,
     edgeCount,
+    errorCount,
+    warningCount,
     pipelineName,
 }: Props) {
+    const dotClass =
+        errorCount > 0
+            ? 'statusbar-dot-error'
+            : warningCount > 0
+              ? 'statusbar-dot-warn'
+              : 'statusbar-dot-ok';
     return (
         <footer className="statusbar" role="status">
             <div className="statusbar-section">
@@ -31,10 +41,14 @@ export default function StatusBar({
             </div>
             <div className="statusbar-sep" />
             <div className="statusbar-section">
-                <span className="statusbar-dot statusbar-dot-ok" aria-hidden="true" />
-                <span>0 errors</span>
+                <span className={'statusbar-dot ' + dotClass} aria-hidden="true" />
+                <span>
+                    {errorCount} {errorCount === 1 ? 'error' : 'errors'}
+                </span>
                 <span className="statusbar-comma">·</span>
-                <span>0 warnings</span>
+                <span>
+                    {warningCount} {warningCount === 1 ? 'warning' : 'warnings'}
+                </span>
             </div>
             <div className="statusbar-sep" />
             <div className="statusbar-section">
