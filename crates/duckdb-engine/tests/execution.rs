@@ -2263,6 +2263,116 @@ fn geo_distance_computes_point_distance() {
 }
 
 #[test]
+fn num_clamp_caps_outliers() {
+    let engine = engine_or_skip!();
+    let tmp = tempfile::tempdir().unwrap();
+    let csv = write_file(
+        tmp.path(),
+        "vals.csv",
+        "id,v\n1,-50\n2,25\n3,150\n4,75\n",
+    );
+    let out = out_path(tmp.path(), "out.csv");
+    let r = engine.execute_pipeline(&doc(
+        json!([
+            node("s", "src.csv", json!({ "path": csv, "hasHeader": true })),
+            node("c", "xf.num.clamp", json!({ "column": "v", "low": 0, "high": 100 })),
+            node("k", "snk.csv", json!({ "path": out, "hasHeader": true })),
+        ]),
+        json!([main_edge("e1", "s", "c"), main_edge("e2", "c", "k")]),
+    ));
+    assert_eq!(r.status, "ok", "clamp failed: {:?}", r.error);
+    // -50 -> 0, 25 -> 25, 150 -> 100, 75 -> 75.
+    let v1 = scalar_string(&format!(
+        "SELECT CAST(v AS VARCHAR) FROM read_csv_auto('{}') WHERE id = 1",
+        out
+    ));
+    let v3 = scalar_string(&format!(
+        "SELECT CAST(v AS VARCHAR) FROM read_csv_auto('{}') WHERE id = 3",
+        out
+    ));
+    assert_eq!(v1, "0.0");
+    assert_eq!(v3, "100.0");
+}
+
+#[test]
+fn text_padding_lpad_zero_pads() {
+    let engine = engine_or_skip!();
+    let tmp = tempfile::tempdir().unwrap();
+    let csv = write_file(
+        tmp.path(),
+        "ids.csv",
+        "id\n7\n42\n1000\n",
+    );
+    let out = out_path(tmp.path(), "out.csv");
+    let r = engine.execute_pipeline(&doc(
+        json!([
+            node("s", "src.csv", json!({ "path": csv, "hasHeader": true })),
+            node("p", "xf.text.padding", json!({
+                "column": "id", "length": 5, "fill": "0", "side": "left",
+                "outputColumn": "padded"
+            })),
+            node("k", "snk.csv", json!({ "path": out, "hasHeader": true })),
+        ]),
+        json!([main_edge("e1", "s", "p"), main_edge("e2", "p", "k")]),
+    ));
+    assert_eq!(r.status, "ok", "padding failed: {:?}", r.error);
+    let p1 = scalar_string(&format!(
+        "SELECT padded FROM read_csv_auto('{}') WHERE id = 7",
+        out
+    ));
+    let p2 = scalar_string(&format!(
+        "SELECT padded FROM read_csv_auto('{}') WHERE id = 1000",
+        out
+    ));
+    assert_eq!(p1, "00007");
+    assert_eq!(p2, "01000");
+}
+
+#[test]
+fn dt_epoch_roundtrips() {
+    let engine = engine_or_skip!();
+    let tmp = tempfile::tempdir().unwrap();
+    let csv = write_file(
+        tmp.path(),
+        "ts.csv",
+        "id,ts\n1,2026-01-01 12:00:00\n",
+    );
+    let out = out_path(tmp.path(), "out.csv");
+    let r = engine.execute_pipeline(&doc(
+        json!([
+            node("s", "src.csv", json!({ "path": csv, "hasHeader": true })),
+            node("e", "xf.dt.epoch", json!({ "column": "ts", "mode": "to", "outputColumn": "sec" })),
+            node("k", "snk.csv", json!({ "path": out, "hasHeader": true })),
+        ]),
+        json!([main_edge("e1", "s", "e"), main_edge("e2", "e", "k")]),
+    ));
+    assert_eq!(r.status, "ok", "dt.epoch to failed: {:?}", r.error);
+    // 2026-01-01 12:00:00 UTC = 1767268800 seconds since unix epoch.
+    let sec = scalar_string(&format!(
+        "SELECT CAST(CAST(sec AS BIGINT) AS VARCHAR) FROM read_csv_auto('{}') WHERE id = 1",
+        out
+    ));
+    assert_eq!(sec, "1767268800");
+
+    // Round-trip: convert epoch back to timestamp.
+    let out2 = out_path(tmp.path(), "back.csv");
+    let r2 = engine.execute_pipeline(&doc(
+        json!([
+            node("s", "src.csv", json!({ "path": out, "hasHeader": true })),
+            node("e", "xf.dt.epoch", json!({ "column": "sec", "mode": "from", "outputColumn": "ts2" })),
+            node("k", "snk.csv", json!({ "path": out2, "hasHeader": true })),
+        ]),
+        json!([main_edge("e1", "s", "e"), main_edge("e2", "e", "k")]),
+    ));
+    assert_eq!(r2.status, "ok", "dt.epoch from failed: {:?}", r2.error);
+    let back = scalar_string(&format!(
+        "SELECT strftime(CAST(ts2 AS TIMESTAMP), '%Y-%m-%d %H:%M:%S') FROM read_csv_auto('{}') WHERE id = 1",
+        out2
+    ));
+    assert_eq!(back, "2026-01-01 12:00:00");
+}
+
+#[test]
 fn dt_now_stamps_loaded_at() {
     let engine = engine_or_skip!();
     let tmp = tempfile::tempdir().unwrap();

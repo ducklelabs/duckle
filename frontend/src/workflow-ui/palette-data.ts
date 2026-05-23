@@ -311,6 +311,7 @@ export const PALETTE: Category[] = [
                     xf('url.parse', 'URL Parse', 'available', 'Extract scheme / host / port / path / query / fragment from a URL column'),
                     xf('text.similarity', 'Text Similarity', 'available', 'Pairwise string similarity between two columns - levenshtein / damerau / jaccard / jaro-winkler'),
                     xf('text.base64', 'Base64', 'available', 'Encode a column to base64 text, or decode base64 back to bytes'),
+                    xf('text.padding', 'Pad String', 'available', 'Left or right pad to a fixed length (zero-pad IDs, right-pad for fixed-width output)'),
                     xf('split', 'Split', 'available'),
                     xf('concat', 'Concat', 'available'),
                     xf('trim', 'Trim', 'available'),
@@ -335,6 +336,7 @@ export const PALETTE: Category[] = [
                     xf('dt.tz', 'Timezone Convert', 'available'),
                     xf('dt.bin', 'Time Bin', 'available', 'Round timestamps down to fixed-interval buckets (e.g. 5 minutes, 1 hour) for time-series grouping'),
                     xf('dt.now', 'Current Timestamp', 'available', 'Add a column with the pipeline run time - the standard loaded_at / processed_at stamp'),
+                    xf('dt.epoch', 'Epoch Convert', 'available', 'Convert a TIMESTAMP to Unix epoch seconds, or epoch seconds back to TIMESTAMP'),
                 ],
             },
             {
@@ -349,6 +351,7 @@ export const PALETTE: Category[] = [
                     xf('num.sqrt', 'Square Root', 'available'),
                     xf('num.bucketize', 'Bucketize', 'available', 'Bin a numeric column into N equal-width buckets between low and high (width_bucket)'),
                     xf('num.zscore', 'Z-Score', 'available', 'Per-row standardized value: (value - mean) / stddev across the whole input'),
+                    xf('num.clamp', 'Clamp', 'available', 'Clip values to a [low, high] range - cap outliers before stats'),
                 ],
             },
             {

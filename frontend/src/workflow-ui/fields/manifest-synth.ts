@@ -1745,6 +1745,29 @@ function synthWindowTransform(comp: ComponentDef): ComponentManifest {
 }
 
 function synthStringTransform(comp: ComponentDef): ComponentManifest {
+    if (comp.id === 'xf.text.padding') {
+        return base(comp, [
+            {
+                label: 'Pad string',
+                fields: [
+                    { key: 'column', label: 'Column', kind: 'column', required: true },
+                    { key: 'length', label: 'Target length', kind: 'integer', required: true, defaultValue: 10 },
+                    { key: 'fill', label: 'Fill character', kind: 'text', defaultValue: ' ', placeholder: '0' },
+                    {
+                        key: 'side',
+                        label: 'Side',
+                        kind: 'select',
+                        defaultValue: 'left',
+                        options: [
+                            { label: 'Left (lpad - zero-pad numeric IDs)', value: 'left' },
+                            { label: 'Right (rpad - fixed-width output)', value: 'right' },
+                        ],
+                    },
+                    { key: 'outputColumn', label: 'Output column', kind: 'text', placeholder: 'leave blank to overwrite' },
+                ],
+            },
+        ], 'upstream');
+    }
     if (comp.id === 'xf.text.base64') {
         return base(comp, [
             {
@@ -1951,6 +1974,22 @@ function synthDateTimeTransform(comp: ComponentDef): ComponentManifest {
             { key: 'outputColumn', label: 'Output column', kind: 'text', defaultValue: 'loaded_at' },
         ] }], 'upstream');
     }
+    if (id === 'xf.dt.epoch') {
+        return base(comp, [{ label: 'Epoch convert', fields: [
+            col,
+            {
+                key: 'mode',
+                label: 'Direction',
+                kind: 'select',
+                defaultValue: 'to',
+                options: [
+                    { label: 'Timestamp -> epoch seconds', value: 'to' },
+                    { label: 'Epoch seconds -> timestamp', value: 'from' },
+                ],
+            },
+            { key: 'outputColumn', label: 'Output column', kind: 'text', placeholder: '<column>_epoch / <column>_timestamp' },
+        ] }], 'upstream');
+    }
     if (id === 'xf.dt.bin') {
         return base(comp, [{ label: 'Time bin', fields: [
             col,
@@ -1992,6 +2031,18 @@ function synthDateTimeTransform(comp: ComponentDef): ComponentManifest {
 }
 
 function synthNumericTransform(comp: ComponentDef): ComponentManifest {
+    if (comp.id === 'xf.num.clamp') {
+        return base(comp, [
+            {
+                label: 'Clamp',
+                fields: [
+                    { key: 'column', label: 'Column', kind: 'column', required: true },
+                    { key: 'low', label: 'Low bound', kind: 'number', required: true, defaultValue: 0 },
+                    { key: 'high', label: 'High bound', kind: 'number', required: true, defaultValue: 100 },
+                ],
+            },
+        ], 'upstream');
+    }
     if (comp.id === 'xf.num.zscore') {
         return base(comp, [
             {

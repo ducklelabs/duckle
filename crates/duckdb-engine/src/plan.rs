@@ -590,6 +590,7 @@ fn build_view_sql(
         | "xf.num.log" => build_numeric(inputs, props, component_id),
         "xf.num.bucketize" => build_bucketize(inputs, props),
         "xf.num.zscore" => build_zscore(inputs, props),
+        "xf.num.clamp" => build_clamp(inputs, props),
         "xf.rank.filter" => build_rank_filter(inputs, props),
         "xf.fill_forward" => build_fill_forward(inputs, props),
         "xf.cumulative" => build_cumulative(inputs, props),
@@ -602,6 +603,7 @@ fn build_view_sql(
         "xf.dt.add" => build_date_add(inputs, props),
         "xf.dt.diff" => build_date_diff(inputs, props),
         "xf.dt.now" => build_dt_now(inputs, props),
+        "xf.dt.epoch" => build_dt_epoch(inputs, props),
         "xf.json.parse" | "xf.json.stringify" | "xf.json.path" => {
             build_json(inputs, props, component_id)
         }
@@ -610,6 +612,7 @@ fn build_view_sql(
         "xf.json.array_agg" => build_json_array_agg(inputs, props),
         "xf.text.similarity" => build_text_similarity(inputs, props),
         "xf.text.base64" => build_base64(inputs, props),
+        "xf.text.padding" => build_padding(inputs, props),
         "xf.arr.element" | "xf.arr.distinct" | "xf.arr.explode" => {
             build_array(inputs, props, component_id)
         }
@@ -2989,6 +2992,112 @@ fn build_zscore(inputs: &NodeInputs, props: &JsonValue) -> Result<String, String
     Ok(format!(
         "SELECT *, CASE WHEN stddev_samp(CAST({col} AS DOUBLE)) OVER () = 0 THEN NULL ELSE (CAST({col} AS DOUBLE) - avg(CAST({col} AS DOUBLE)) OVER ()) / stddev_samp(CAST({col} AS DOUBLE)) OVER () END AS {out} FROM {up}",
         col = qcol,
+        out = quote_ident(&output),
+        up = quote_ident(upstream)
+    ))
+}
+
+/// Clamp: clip numeric values to a [low, high] range via LEAST +
+/// GREATEST. Values below low become low; above high become high.
+/// Useful for capping outliers before downstream stats.
+fn build_clamp(inputs: &NodeInputs, props: &JsonValue) -> Result<String, String> {
+    let upstream = inputs.main().ok_or_else(|| missing_input_msg("xf.num.clamp"))?;
+    let column = string_prop(props, "column")
+        .filter(|s| !s.is_empty())
+        .ok_or_else(|| "Clamp needs a column".to_string())?;
+    let low = props
+        .get("low")
+        .and_then(|v| v.as_f64())
+        .ok_or_else(|| "Clamp needs a low bound".to_string())?;
+    let high = props
+        .get("high")
+        .and_then(|v| v.as_f64())
+        .ok_or_else(|| "Clamp needs a high bound".to_string())?;
+    if high < low {
+        return Err("Clamp needs high >= low".to_string());
+    }
+    let qcol = quote_ident(&column);
+    Ok(format!(
+        "SELECT * REPLACE (LEAST(GREATEST(CAST({col} AS DOUBLE), {low}), {high}) AS {col}) FROM {up}",
+        col = qcol,
+        low = low,
+        high = high,
+        up = quote_ident(upstream)
+    ))
+}
+
+/// String Padding: pad a string column to a fixed length on the left
+/// or right with a fill character. Default fills with space, mode
+/// 'left' (lpad) is the classic 'zero-pad numeric IDs' pattern.
+fn build_padding(inputs: &NodeInputs, props: &JsonValue) -> Result<String, String> {
+    let upstream = inputs.main().ok_or_else(|| missing_input_msg("xf.text.padding"))?;
+    let column = string_prop(props, "column")
+        .filter(|s| !s.is_empty())
+        .ok_or_else(|| "Padding needs a column".to_string())?;
+    let length = props
+        .get("length")
+        .and_then(|v| v.as_i64())
+        .filter(|n| *n > 0)
+        .ok_or_else(|| "Padding needs a positive target length".to_string())?;
+    let fill = string_prop(props, "fill")
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| " ".into());
+    let side = string_prop(props, "side").unwrap_or_else(|| "left".into());
+    let fn_name = if side == "right" { "rpad" } else { "lpad" };
+    let qcol = quote_ident(&column);
+    let fill_escaped = sql_escape(&fill);
+    let output = string_prop(props, "outputColumn")
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| column.clone());
+    if output == column {
+        Ok(format!(
+            "SELECT * REPLACE ({fn}(CAST({col} AS VARCHAR), {n}, '{f}') AS {col}) FROM {up}",
+            fn = fn_name,
+            col = qcol,
+            n = length,
+            f = fill_escaped,
+            up = quote_ident(upstream)
+        ))
+    } else {
+        Ok(format!(
+            "SELECT *, {fn}(CAST({col} AS VARCHAR), {n}, '{f}') AS {out} FROM {up}",
+            fn = fn_name,
+            col = qcol,
+            n = length,
+            f = fill_escaped,
+            out = quote_ident(&output),
+            up = quote_ident(upstream)
+        ))
+    }
+}
+
+/// Date/Time Epoch: convert a TIMESTAMP column to Unix epoch seconds
+/// (mode 'to') or epoch seconds back to TIMESTAMP (mode 'from').
+/// Both directions use DuckDB core functions, no extension needed.
+fn build_dt_epoch(inputs: &NodeInputs, props: &JsonValue) -> Result<String, String> {
+    let upstream = inputs.main().ok_or_else(|| missing_input_msg("xf.dt.epoch"))?;
+    let column = string_prop(props, "column")
+        .filter(|s| !s.is_empty())
+        .ok_or_else(|| "Epoch needs a column".to_string())?;
+    let mode = string_prop(props, "mode").unwrap_or_else(|| "to".into());
+    let qcol = quote_ident(&column);
+    let expr = if mode == "from" {
+        format!("to_timestamp(CAST({} AS DOUBLE))", qcol)
+    } else {
+        format!("epoch(CAST({} AS TIMESTAMP))", qcol)
+    };
+    let output = string_prop(props, "outputColumn")
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| {
+            if mode == "from" {
+                format!("{}_timestamp", column)
+            } else {
+                format!("{}_epoch", column)
+            }
+        });
+    Ok(format!(
+        "SELECT *, {expr} AS {out} FROM {up}",
+        expr = expr,
         out = quote_ident(&output),
         up = quote_ident(upstream)
     ))
