@@ -1763,6 +1763,9 @@ fn pg_sink_upsert_updates_and_inserts() {
     ));
     assert_eq!(r1.status, "ok", "overwrite failed: {:?}", r1.error);
     // Add a primary key so ON CONFLICT (id) has something to match on.
+    // Run the ALTER via the postgres extension's passthrough so the
+    // constraint lands in PG's catalog (DuckDB's ATTACH path silently
+    // no-ops some DDL).
     let bin = std::env::var("DUCKLE_DUCKDB_BIN").expect("DUCKLE_DUCKDB_BIN set");
     let alter = std::process::Command::new(&bin)
         .arg(":memory:")
@@ -1770,7 +1773,7 @@ fn pg_sink_upsert_updates_and_inserts() {
         .arg(format!(
             "INSTALL postgres; LOAD postgres; \
              ATTACH 'host={host} port={port} dbname={db} user={user} password={pass}' AS d (TYPE POSTGRES); \
-             ALTER TABLE d.public.{table} ADD PRIMARY KEY (id);"
+             CALL postgres_execute('d', 'ALTER TABLE public.{table} ADD PRIMARY KEY (id);');"
         ))
         .output()
         .expect("alter");
