@@ -1528,6 +1528,26 @@ function synthRowTransform(comp: ComponentDef): ComponentManifest {
 }
 
 function synthAggregateTransform(comp: ComponentDef): ComponentManifest {
+    if (comp.id === 'xf.cumulative') {
+        return base(comp, [
+            {
+                label: 'Cumulative',
+                fields: [
+                    { key: 'column', label: 'Column', kind: 'column', required: true },
+                    {
+                        key: 'function',
+                        label: 'Function',
+                        kind: 'select',
+                        defaultValue: 'sum',
+                        options: ['sum', 'avg', 'count', 'min', 'max'].map(f => ({ label: f.toUpperCase(), value: f })),
+                    },
+                    { key: 'orderBy', label: 'Order by', kind: 'column', required: true },
+                    { key: 'partitionBy', label: 'Group by (optional)', kind: 'columns' },
+                    { key: 'outputColumn', label: 'Output column', kind: 'text', placeholder: '<column>_running_<function>' },
+                ],
+            },
+        ], 'upstream');
+    }
     if (comp.id === 'xf.approx.quantile') {
         return base(comp, [
             {
@@ -1919,6 +1939,20 @@ function synthDateTimeTransform(comp: ComponentDef): ComponentManifest {
     if (id === 'xf.dt.trunc') {
         return base(comp, [{ label: 'Truncate', fields: [col, unitField('Truncate to'), outColField()] }], 'upstream');
     }
+    if (id === 'xf.dt.bin') {
+        return base(comp, [{ label: 'Time bin', fields: [
+            col,
+            { key: 'count', label: 'Bucket size', kind: 'integer', defaultValue: 5 },
+            {
+                key: 'unit',
+                label: 'Unit',
+                kind: 'select',
+                defaultValue: 'minute',
+                options: ['second', 'minute', 'hour', 'day'].map(u => ({ label: u, value: u })),
+            },
+            outColField(),
+        ] }], 'upstream');
+    }
     if (id === 'xf.dt.tz') {
         return base(comp, [{ label: 'Timezone convert', fields: [
             col,
@@ -2107,6 +2141,12 @@ function synthArrayTransform(comp: ComponentDef): ComponentManifest {
             col,
             { key: 'value', label: 'Value to find', kind: 'text', required: true },
             { key: 'outputColumn', label: 'Output column', kind: 'text', placeholder: 'e.g. has_value' },
+        ] }], 'upstream');
+    }
+    if (id === 'xf.arr.length') {
+        return base(comp, [{ label: 'Array length', fields: [
+            col,
+            { key: 'outputColumn', label: 'Output column', kind: 'text', placeholder: '<column>_length' },
         ] }], 'upstream');
     }
     if (id === 'xf.arr.collect') {

@@ -592,6 +592,9 @@ fn build_view_sql(
         "xf.num.zscore" => build_zscore(inputs, props),
         "xf.rank.filter" => build_rank_filter(inputs, props),
         "xf.fill_forward" => build_fill_forward(inputs, props),
+        "xf.cumulative" => build_cumulative(inputs, props),
+        "xf.dt.bin" => build_dt_bin(inputs, props),
+        "xf.arr.length" => build_arr_length(inputs, props),
         "xf.dt.parse" | "xf.dt.format" | "xf.dt.extract" | "xf.dt.trunc" | "xf.dt.tz" => {
             build_datetime(inputs, props, component_id)
         }
@@ -2984,6 +2987,106 @@ fn build_zscore(inputs: &NodeInputs, props: &JsonValue) -> Result<String, String
     Ok(format!(
         "SELECT *, CASE WHEN stddev_samp(CAST({col} AS DOUBLE)) OVER () = 0 THEN NULL ELSE (CAST({col} AS DOUBLE) - avg(CAST({col} AS DOUBLE)) OVER ()) / stddev_samp(CAST({col} AS DOUBLE)) OVER () END AS {out} FROM {up}",
         col = qcol,
+        out = quote_ident(&output),
+        up = quote_ident(upstream)
+    ))
+}
+
+/// Cumulative: running aggregate over an ordered window
+/// (sum / avg / count / min / max), optionally per-group. Classic
+/// reporting pattern - 'running total of sales', 'cumulative count
+/// of users per region'. Uses the standard ROWS BETWEEN UNBOUNDED
+/// PRECEDING AND CURRENT ROW frame so the value at each row reflects
+/// everything seen so far in scan order.
+fn build_cumulative(inputs: &NodeInputs, props: &JsonValue) -> Result<String, String> {
+    let upstream = inputs.main().ok_or_else(|| missing_input_msg("xf.cumulative"))?;
+    let column = string_prop(props, "column")
+        .filter(|s| !s.is_empty())
+        .ok_or_else(|| "Cumulative needs a column".to_string())?;
+    let order_col = string_prop(props, "orderBy")
+        .filter(|s| !s.is_empty())
+        .ok_or_else(|| "Cumulative needs an orderBy column".to_string())?;
+    let func = string_prop(props, "function").unwrap_or_else(|| "sum".into()).to_lowercase();
+    let fn_name = match func.as_str() {
+        "avg" => "avg",
+        "count" => "count",
+        "min" => "min",
+        "max" => "max",
+        _ => "sum",
+    };
+    let partition: Vec<String> = columns_from_props(props, "partitionBy").unwrap_or_default();
+    let partition_clause = if partition.is_empty() {
+        String::new()
+    } else {
+        let cols = partition
+            .iter()
+            .map(|c| quote_ident(c))
+            .collect::<Vec<_>>()
+            .join(", ");
+        format!("PARTITION BY {} ", cols)
+    };
+    let output = string_prop(props, "outputColumn")
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| format!("{}_running_{}", column, fn_name));
+    Ok(format!(
+        "SELECT *, {fn}({col}) OVER ({part}ORDER BY {ord} ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS {out} FROM {up}",
+        fn = fn_name,
+        col = quote_ident(&column),
+        part = partition_clause,
+        ord = quote_ident(&order_col),
+        out = quote_ident(&output),
+        up = quote_ident(upstream)
+    ))
+}
+
+/// Time Bin: round a timestamp column down to the nearest multiple of
+/// the chosen interval (e.g. 5-minute, 1-hour, 1-day buckets) for
+/// time-series grouping. Done via epoch math so any (unit, count)
+/// combination works, not just the standard date_trunc units.
+fn build_dt_bin(inputs: &NodeInputs, props: &JsonValue) -> Result<String, String> {
+    let upstream = inputs.main().ok_or_else(|| missing_input_msg("xf.dt.bin"))?;
+    let column = string_prop(props, "column")
+        .filter(|s| !s.is_empty())
+        .ok_or_else(|| "Time Bin needs a timestamp column".to_string())?;
+    let unit = string_prop(props, "unit").unwrap_or_else(|| "minute".into());
+    let count = props
+        .get("count")
+        .and_then(|v| v.as_i64())
+        .filter(|n| *n > 0)
+        .unwrap_or(5);
+    let seconds_per = match unit.to_lowercase().as_str() {
+        "second" | "seconds" => 1_i64,
+        "minute" | "minutes" => 60,
+        "hour" | "hours" => 3_600,
+        "day" | "days" => 86_400,
+        _ => 60,
+    };
+    let bucket_seconds = seconds_per * count;
+    let output = string_prop(props, "outputColumn")
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| format!("{}_bin", column));
+    let qcol = quote_ident(&column);
+    Ok(format!(
+        "SELECT *, to_timestamp(floor(epoch(CAST({col} AS TIMESTAMP)) / {bucket}) * {bucket}) AS {out} FROM {up}",
+        col = qcol,
+        bucket = bucket_seconds,
+        out = quote_ident(&output),
+        up = quote_ident(upstream)
+    ))
+}
+
+/// Array Length: scalar length of an array / list column.
+fn build_arr_length(inputs: &NodeInputs, props: &JsonValue) -> Result<String, String> {
+    let upstream = inputs.main().ok_or_else(|| missing_input_msg("xf.arr.length"))?;
+    let column = string_prop(props, "column")
+        .filter(|s| !s.is_empty())
+        .ok_or_else(|| "Array Length needs a column".to_string())?;
+    let output = string_prop(props, "outputColumn")
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| format!("{}_length", column));
+    Ok(format!(
+        "SELECT *, length({col}) AS {out} FROM {up}",
+        col = quote_ident(&column),
         out = quote_ident(&output),
         up = quote_ident(upstream)
     ))

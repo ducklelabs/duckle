@@ -256,6 +256,7 @@ export const PALETTE: Category[] = [
                     xf('rollup', 'Rollup', 'available'),
                     xf('cube', 'Cube', 'available'),
                     xf('aggwin', 'Window Aggregate', 'available', 'Aggregate over a window, keep every row'),
+                    xf('cumulative', 'Cumulative', 'available', 'Running sum / avg / count / min / max over an ordered window'),
                     xf('count', 'Count Rows', 'available'),
                     xf('approx.quantile', 'Approx Quantile', 'available', 'Approximate quantile (median, p95, p99) via t-digest - fixed memory regardless of cardinality'),
                 ],
@@ -331,6 +332,7 @@ export const PALETTE: Category[] = [
                     xf('dt.add', 'Date Add', 'available'),
                     xf('dt.trunc', 'Truncate', 'available'),
                     xf('dt.tz', 'Timezone Convert', 'available'),
+                    xf('dt.bin', 'Time Bin', 'available', 'Round timestamps down to fixed-interval buckets (e.g. 5 minutes, 1 hour) for time-series grouping'),
                 ],
             },
             {
@@ -379,6 +381,7 @@ export const PALETTE: Category[] = [
                     xf('arr.element', 'Element At', 'available'),
                     xf('arr.contains', 'Contains', 'available'),
                     xf('arr.distinct', 'Array Distinct', 'available'),
+                    xf('arr.length', 'Array Length', 'available', 'Scalar length of a list / array column'),
                 ],
             },
             {

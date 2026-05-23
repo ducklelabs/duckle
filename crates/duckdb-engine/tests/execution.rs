@@ -2263,6 +2263,117 @@ fn geo_distance_computes_point_distance() {
 }
 
 #[test]
+fn cumulative_running_sum_per_group() {
+    let engine = engine_or_skip!();
+    let tmp = tempfile::tempdir().unwrap();
+    let csv = write_file(
+        tmp.path(),
+        "sales.csv",
+        "region,day,amount\nus,1,10\nus,2,20\nus,3,30\neu,1,5\neu,2,15\n",
+    );
+    let out = out_path(tmp.path(), "out.csv");
+    let r = engine.execute_pipeline(&doc(
+        json!([
+            node("s", "src.csv", json!({ "path": csv, "hasHeader": true })),
+            node("c", "xf.cumulative", json!({
+                "column": "amount", "function": "sum",
+                "orderBy": "day", "partitionBy": ["region"],
+                "outputColumn": "cum_amount"
+            })),
+            node("k", "snk.csv", json!({ "path": out, "hasHeader": true })),
+        ]),
+        json!([main_edge("e1", "s", "c"), main_edge("e2", "c", "k")]),
+    ));
+    assert_eq!(r.status, "ok", "cumulative failed: {:?}", r.error);
+    // us: 10, 30, 60.  eu: 5, 20.
+    let us_d3 = scalar_string(&format!(
+        "SELECT CAST(cum_amount AS VARCHAR) FROM read_csv_auto('{}') WHERE region = 'us' AND day = 3",
+        out
+    ));
+    let eu_d2 = scalar_string(&format!(
+        "SELECT CAST(cum_amount AS VARCHAR) FROM read_csv_auto('{}') WHERE region = 'eu' AND day = 2",
+        out
+    ));
+    assert_eq!(us_d3, "60");
+    assert_eq!(eu_d2, "20");
+}
+
+#[test]
+fn dt_bin_rounds_to_five_minute_buckets() {
+    let engine = engine_or_skip!();
+    let tmp = tempfile::tempdir().unwrap();
+    let csv = write_file(
+        tmp.path(),
+        "events.csv",
+        "id,ts\n1,2026-01-01 12:03:42\n2,2026-01-01 12:07:11\n3,2026-01-01 12:11:00\n",
+    );
+    let out = out_path(tmp.path(), "out.csv");
+    let r = engine.execute_pipeline(&doc(
+        json!([
+            node("s", "src.csv", json!({ "path": csv, "hasHeader": true })),
+            node("b", "xf.dt.bin", json!({
+                "column": "ts", "unit": "minute", "count": 5, "outputColumn": "bucket"
+            })),
+            node("k", "snk.csv", json!({ "path": out, "hasHeader": true })),
+        ]),
+        json!([main_edge("e1", "s", "b"), main_edge("e2", "b", "k")]),
+    ));
+    assert_eq!(r.status, "ok", "dt.bin failed: {:?}", r.error);
+    // 12:03:42 -> 12:00; 12:07:11 -> 12:05; 12:11:00 -> 12:10.
+    let b1 = scalar_string(&format!(
+        "SELECT strftime(CAST(bucket AS TIMESTAMP), '%H:%M') FROM read_csv_auto('{}') WHERE id = 1",
+        out
+    ));
+    let b2 = scalar_string(&format!(
+        "SELECT strftime(CAST(bucket AS TIMESTAMP), '%H:%M') FROM read_csv_auto('{}') WHERE id = 2",
+        out
+    ));
+    let b3 = scalar_string(&format!(
+        "SELECT strftime(CAST(bucket AS TIMESTAMP), '%H:%M') FROM read_csv_auto('{}') WHERE id = 3",
+        out
+    ));
+    assert_eq!(b1, "12:00");
+    assert_eq!(b2, "12:05");
+    assert_eq!(b3, "12:10");
+}
+
+#[test]
+fn arr_length_counts_list_elements() {
+    let engine = engine_or_skip!();
+    let tmp = tempfile::tempdir().unwrap();
+    // Use the existing collect/array path to build a list column we can
+    // measure. csv -> arr.collect -> arr.length.
+    let csv = write_file(
+        tmp.path(),
+        "raw.csv",
+        "group,val\na,1\na,2\na,3\nb,4\n",
+    );
+    let out = out_path(tmp.path(), "out.csv");
+    let r = engine.execute_pipeline(&doc(
+        json!([
+            node("s", "src.csv", json!({ "path": csv, "hasHeader": true })),
+            node("c", "xf.arr.collect", json!({
+                "valueColumn": "val", "groupBy": ["group"], "outputColumn": "items"
+            })),
+            node("l", "xf.arr.length", json!({ "column": "items", "outputColumn": "n" })),
+            node("k", "snk.csv", json!({ "path": out, "hasHeader": true })),
+        ]),
+        json!([main_edge("e1", "s", "c"), main_edge("e2", "c", "l"), main_edge("e3", "l", "k")]),
+    ));
+    assert_eq!(r.status, "ok", "arr.length failed: {:?}", r.error);
+    let na = scalar_string(&format!(
+        "SELECT CAST(n AS VARCHAR) FROM read_csv_auto('{}') WHERE \"group\" = 'a'",
+        out
+    ));
+    let nb = scalar_string(&format!(
+        "SELECT CAST(n AS VARCHAR) FROM read_csv_auto('{}') WHERE \"group\" = 'b'",
+        out
+    ));
+    assert_eq!(na, "3");
+    assert_eq!(nb, "1");
+}
+
+#[test]
 fn rank_filter_keeps_top_n_per_group() {
     let engine = engine_or_skip!();
     let tmp = tempfile::tempdir().unwrap();
