@@ -580,6 +580,7 @@ fn build_view_sql(
             build_string(inputs, props, component_id)
         }
         "xf.url.parse" => build_url_parse(inputs, props),
+        "xf.assert" => build_assert(inputs, props),
         "xf.hash" => build_hash(inputs, props),
         "xf.ip.parse" => build_ip_parse(inputs, props),
         "xf.geo.distance" => build_geo_distance(inputs, props),
@@ -3024,6 +3025,33 @@ fn build_hash(inputs: &NodeInputs, props: &JsonValue) -> Result<String, String> 
         "SELECT *, {fn_name}(CAST({col} AS VARCHAR)) AS {out} FROM {up}",
         col = quote_ident(&column),
         out = quote_ident(&output),
+        up = quote_ident(upstream)
+    ))
+}
+
+/// Assert: hard-fail the pipeline if any row violates the given SQL
+/// predicate. Unlike qa.* validators which route bad rows to a reject
+/// port, this stops the whole pipeline so a downstream sink never
+/// sees a partial result. Rows pass through unchanged. The CASE
+/// invokes DuckDB's error() in the ELSE branch; the error surfaces
+/// as the stage's failure with the user's message. The outer
+/// EXCLUDE strips the temporary marker column so downstream stages
+/// see the original schema.
+fn build_assert(inputs: &NodeInputs, props: &JsonValue) -> Result<String, String> {
+    let upstream = inputs.main().ok_or_else(|| missing_input_msg("xf.assert"))?;
+    let predicate = string_prop(props, "predicate")
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .ok_or_else(|| "Assert needs a SQL predicate (e.g. amount >= 0)".to_string())?;
+    let raw_msg = string_prop(props, "message")
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| format!("Assertion violated: {}", predicate));
+    let msg = sql_escape(&raw_msg);
+    Ok(format!(
+        "SELECT * EXCLUDE (_duckle_assert) FROM (SELECT u.*, CASE WHEN ({pred}) THEN NULL ELSE error('{msg}') END AS _duckle_assert FROM {up} u)",
+        pred = predicate,
+        msg = msg,
         up = quote_ident(upstream)
     ))
 }

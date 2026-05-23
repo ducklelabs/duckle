@@ -2263,6 +2263,59 @@ fn geo_distance_computes_point_distance() {
 }
 
 #[test]
+fn assert_passes_when_predicate_holds_on_every_row() {
+    let engine = engine_or_skip!();
+    let tmp = tempfile::tempdir().unwrap();
+    let csv = write_file(
+        tmp.path(),
+        "rows.csv",
+        "id,amount\n1,10\n2,20\n3,30\n",
+    );
+    let out = out_path(tmp.path(), "out.csv");
+    let r = engine.execute_pipeline(&doc(
+        json!([
+            node("s", "src.csv", json!({ "path": csv, "hasHeader": true })),
+            node("a", "xf.assert", json!({ "predicate": "amount >= 0" })),
+            node("k", "snk.csv", json!({ "path": out, "hasHeader": true })),
+        ]),
+        json!([main_edge("e1", "s", "a"), main_edge("e2", "a", "k")]),
+    ));
+    assert_eq!(r.status, "ok", "assert (passing) failed: {:?}", r.error);
+    let n = count(&format!("read_csv_auto('{}')", out));
+    assert_eq!(n, 3, "expected 3 rows through, got {}", n);
+}
+
+#[test]
+fn assert_fails_when_any_row_violates_predicate() {
+    let engine = engine_or_skip!();
+    let tmp = tempfile::tempdir().unwrap();
+    let csv = write_file(
+        tmp.path(),
+        "rows.csv",
+        "id,amount\n1,10\n2,-5\n3,30\n",
+    );
+    let out = out_path(tmp.path(), "out.csv");
+    let r = engine.execute_pipeline(&doc(
+        json!([
+            node("s", "src.csv", json!({ "path": csv, "hasHeader": true })),
+            node("a", "xf.assert", json!({
+                "predicate": "amount >= 0",
+                "message": "amount must be non-negative"
+            })),
+            node("k", "snk.csv", json!({ "path": out, "hasHeader": true })),
+        ]),
+        json!([main_edge("e1", "s", "a"), main_edge("e2", "a", "k")]),
+    ));
+    assert_ne!(r.status, "ok", "assert should have failed but pipeline returned ok");
+    let err = format!("{:?}", r.error.unwrap_or_default());
+    assert!(
+        err.contains("amount must be non-negative") || err.to_lowercase().contains("non-negative"),
+        "expected user-facing message in error, got: {}",
+        err
+    );
+}
+
+#[test]
 fn parquet_sink_writes_hive_partitions() {
     let engine = engine_or_skip!();
     let tmp = tempfile::tempdir().unwrap();

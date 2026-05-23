@@ -2826,6 +2826,30 @@ function synthGeoTransform(comp: ComponentDef): ComponentManifest {
 }
 
 function synthDebugTransform(comp: ComponentDef): ComponentManifest {
+    if (comp.id === 'xf.assert') {
+        return base(comp, [
+            {
+                label: 'Assertion',
+                fields: [
+                    {
+                        key: 'predicate',
+                        label: 'SQL predicate (must be true on every row)',
+                        kind: 'expression',
+                        required: true,
+                        rows: 2,
+                        placeholder: 'amount >= 0',
+                        description: 'Plain SQL boolean expression evaluated per row. If any row returns false, the pipeline raises with the message below.',
+                    },
+                    {
+                        key: 'message',
+                        label: 'Error message (optional)',
+                        kind: 'text',
+                        placeholder: 'amount must be non-negative',
+                    },
+                ],
+            },
+        ], 'upstream');
+    }
     if (comp.id === 'xf.log') {
         return base(comp, [
             {

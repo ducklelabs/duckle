@@ -412,6 +412,7 @@ export const PALETTE: Category[] = [
                 label: 'Debug',
                 components: [
                     xf('log', 'Log Rows', 'available', 'Pass rows through and print them to Output'),
+                    xf('assert', 'Assert', 'available', 'Hard-fail the pipeline if any row violates a SQL predicate (defensive ETL check)'),
                 ],
             },
         ],
