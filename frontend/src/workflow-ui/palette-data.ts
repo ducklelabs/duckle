@@ -414,10 +414,11 @@ export const PALETTE: Category[] = [
                     snk('json', 'JSON', 'available'),
                     snk('jsonl', 'JSONL / NDJSON', 'available'),
                     snk('xml', 'XML', 'planned'),
-                    snk('excel', 'Excel (XLSX)', 'planned'),
+                    snk('excel', 'Excel (XLSX)', 'available', 'Write .xlsx via the DuckDB excel extension'),
                     snk('parquet', 'Parquet', 'available'),
                     snk('avro', 'Avro', 'planned'),
                     snk('orc', 'ORC', 'planned'),
+                    snk('spatial', 'Geospatial (GeoJSON / GeoPackage / ...)', 'available', 'Write geospatial files via the spatial extension'),
                 ],
             },
             {
@@ -438,6 +439,7 @@ export const PALETTE: Category[] = [
                 id: 'snk.warehouses',
                 label: 'Cloud Warehouses',
                 components: [
+                    snk('motherduck', 'MotherDuck', 'available', 'Write a table into MotherDuck via ATTACH md:'),
                     snk('snowflake', 'Snowflake', 'planned'),
                     snk('bigquery', 'BigQuery', 'planned'),
                     snk('redshift', 'Redshift', 'planned'),

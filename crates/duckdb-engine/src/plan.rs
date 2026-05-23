@@ -2463,7 +2463,13 @@ fn attach_prelude(component_id: &str, props: &JsonValue) -> String {
         "snk.postgres" | "snk.cockroach" => return db_attach(props, "postgres", 5432, false),
         "src.mysql" | "src.mariadb" => return db_attach(props, "mysql", 3306, true),
         "snk.mysql" | "snk.mariadb" => return db_attach(props, "mysql", 3306, false),
-        "src.motherduck" => return md_attach(props),
+        "src.motherduck" => return md_attach(props, true),
+        "snk.motherduck" => return md_attach(props, false),
+        // snk.excel + snk.spatial both COPY through DuckDB extensions; LOAD
+        // is enough since the install paths pre-fetched them (spatial is
+        // the lazy one and still INSTALLs on first use too).
+        "snk.excel" => return "LOAD excel; ".into(),
+        "snk.spatial" => return "INSTALL spatial; LOAD spatial; ".into(),
         // Extensions are pre-installed (desktop: the first-launch
         // installer; CI: a dedicated pre-install step). Each fresh
         // DuckDB process still needs LOAD. Concurrent INSTALL would
@@ -2642,7 +2648,7 @@ fn relational_qualified(alias: &str, component_id: &str, schema: Option<&str>, t
 /// an optional inline `motherduck_token` query parameter. If the token
 /// isn't in the form, MotherDuck falls back to the MOTHERDUCK_TOKEN env
 /// var, which lets a user keep credentials out of saved pipelines.
-fn md_attach(props: &JsonValue) -> String {
+fn md_attach(props: &JsonValue, read_only: bool) -> String {
     let db = match string_prop(props, "database").filter(|s| !s.is_empty()) {
         Some(d) => d,
         None => return String::new(),
@@ -2652,7 +2658,45 @@ fn md_attach(props: &JsonValue) -> String {
         Some(t) => format!("md:{}?motherduck_token={}", db, t),
         None => format!("md:{}", db),
     };
-    format!("ATTACH '{}' AS duckle_src (READ_ONLY); ", sql_escape(&url))
+    let (alias, mode) = if read_only {
+        ("duckle_src", " (READ_ONLY)")
+    } else {
+        ("duckle_dst", "")
+    };
+    format!("ATTACH '{}' AS {}{}; ", sql_escape(&url), alias, mode)
+}
+
+/// Excel sink: COPY ... TO '<path>' (FORMAT 'xlsx'). The form's
+/// `hasHeader` toggle becomes HEADER true/false. v1.2+ ships native
+/// xlsx writer in the excel extension.
+fn build_excel_sink(props: &JsonValue, from_view: &str) -> String {
+    let path = string_prop(props, "path").unwrap_or_default();
+    let header = props
+        .get("hasHeader")
+        .and_then(JsonValue::as_bool)
+        .unwrap_or(true);
+    format!(
+        "COPY (SELECT * FROM {}) TO '{}' (FORMAT 'xlsx', HEADER {})",
+        quote_ident(from_view),
+        sql_escape(&path),
+        header
+    )
+}
+
+/// Geospatial sink via the spatial extension's GDAL writer. The form's
+/// `driver` picks the OGR driver (GeoJSON / GeoPackage / Shapefile /
+/// KML / GPX). Most drivers expect a geometry column called `geom`.
+fn build_spatial_sink(props: &JsonValue, from_view: &str) -> String {
+    let path = string_prop(props, "path").unwrap_or_default();
+    let driver = string_prop(props, "driver")
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| "GeoJSON".into());
+    format!(
+        "COPY (SELECT * FROM {}) TO '{}' (FORMAT GDAL, DRIVER '{}')",
+        quote_ident(from_view),
+        sql_escape(&path),
+        sql_escape(&driver)
+    )
 }
 
 /// SQLite / DuckDB sink - write the upstream into a table inside the
@@ -2900,9 +2944,10 @@ fn build_sink_sql(
         "snk.json" | "snk.jsonl" => Ok(build_json_sink(props, from_view)),
         "snk.s3" | "snk.gcs" | "snk.azureblob" => Ok(build_cloud_sink(props, from_view)),
         "snk.sqlite" | "snk.duckdb" => Ok(build_db_sink(props, from_view)),
-        "snk.postgres" | "snk.cockroach" | "snk.mysql" | "snk.mariadb" => {
-            build_relational_sink(component_id, props, from_view)
-        }
+        "snk.postgres" | "snk.cockroach" | "snk.mysql" | "snk.mariadb"
+        | "snk.motherduck" => build_relational_sink(component_id, props, from_view),
+        "snk.excel" => Ok(build_excel_sink(props, from_view)),
+        "snk.spatial" => Ok(build_spatial_sink(props, from_view)),
         other => Err(EngineError::Unsupported(format!(
             "Sink '{}' is not yet implemented",
             other

@@ -458,6 +458,40 @@ function synthFileSource(comp: ComponentDef): ComponentManifest {
 }
 
 function synthFileSink(comp: ComponentDef): ComponentManifest {
+    if (comp.id === 'snk.spatial') {
+        // Geospatial sink writes via GDAL; the driver picks the actual
+        // file format (GeoJSON / GeoPackage / Shapefile / KML / GPX).
+        return base(comp, [
+            {
+                label: 'Destination file',
+                fields: [
+                    {
+                        key: 'path',
+                        label: 'Output path',
+                        kind: 'save-path',
+                        required: true,
+                        filters: [
+                            { name: 'Geospatial', extensions: ['geojson', 'gpkg', 'shp', 'kml', 'gpx'] },
+                            { name: 'All files', extensions: ['*'] },
+                        ],
+                    },
+                    {
+                        key: 'driver',
+                        label: 'OGR driver',
+                        kind: 'select',
+                        defaultValue: 'GeoJSON',
+                        options: [
+                            { label: 'GeoJSON', value: 'GeoJSON' },
+                            { label: 'GeoPackage (.gpkg)', value: 'GPKG' },
+                            { label: 'ESRI Shapefile', value: 'ESRI Shapefile' },
+                            { label: 'KML', value: 'KML' },
+                            { label: 'GPX', value: 'GPX' },
+                        ],
+                    },
+                ],
+            },
+        ], 'upstream');
+    }
     const ext = comp.id.split('.').pop() ?? 'txt';
     return base(
         comp,
@@ -471,7 +505,7 @@ function synthFileSink(comp: ComponentDef): ComponentManifest {
                         kind: 'save-path',
                         required: true,
                         filters: [
-                            { name: comp.label, extensions: [ext] },
+                            { name: comp.label, extensions: comp.id === 'snk.excel' ? ['xlsx'] : [ext] },
                             { name: 'All files', extensions: ['*'] },
                         ],
                     },
@@ -488,6 +522,14 @@ function synthFileSink(comp: ComponentDef): ComponentManifest {
 
 function fileFormatSection(comp: ComponentDef): FormSection[] {
     const id = comp.id;
+    if (id === 'snk.excel') {
+        return [{
+            label: 'Format',
+            fields: [
+                { key: 'hasHeader', label: 'Has header row', kind: 'bool', defaultValue: true },
+            ],
+        }];
+    }
     if (id.endsWith('.csv') || id.endsWith('.tsv')) {
         return [
             {
@@ -686,6 +728,37 @@ function synthWarehouseSource(comp: ComponentDef): ComponentManifest {
 }
 
 function synthWarehouseSink(comp: ComponentDef): ComponentManifest {
+    if (comp.id === 'snk.motherduck') {
+        // Mirror src.motherduck: compact form (database + token + schema +
+        // tableName + mode) instead of the Snowflake-style warehouse fields.
+        return base(comp, [
+            {
+                label: 'MotherDuck',
+                fields: [
+                    { key: 'database', label: 'Database', kind: 'text', required: true, placeholder: 'my_db' },
+                    {
+                        key: 'token',
+                        label: 'MotherDuck token',
+                        kind: 'text',
+                        description: 'Optional. If empty, MOTHERDUCK_TOKEN from the environment is used.',
+                    },
+                    { key: 'schemaName', label: 'Schema', kind: 'text', defaultValue: 'main' },
+                    { key: 'tableName', label: 'Table', kind: 'text', required: true, placeholder: 'orders' },
+                    {
+                        key: 'mode',
+                        label: 'Write mode',
+                        kind: 'select',
+                        defaultValue: 'overwrite',
+                        options: [
+                            { label: 'Create or replace', value: 'overwrite' },
+                            { label: 'Append (insert)', value: 'append' },
+                            { label: 'Truncate + insert', value: 'truncate' },
+                        ],
+                    },
+                ],
+            },
+        ], 'upstream');
+    }
     return base(
         comp,
         [

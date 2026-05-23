@@ -2038,6 +2038,95 @@ fn text_search_ranks_by_bm25() {
 }
 
 #[test]
+fn excel_sink_writes_xlsx() {
+    let engine = engine_or_skip!();
+    let tmp = tempfile::tempdir().unwrap();
+    let csv = write_file(tmp.path(), "in.csv", "id,name\n1,alice\n2,bob\n3,carol\n");
+    let xlsx = out_path(tmp.path(), "out.xlsx");
+    let d = doc(
+        json!([
+            node("s", "src.csv", json!({ "path": csv, "hasHeader": true })),
+            node("k", "snk.excel", json!({ "path": xlsx, "hasHeader": true })),
+        ]),
+        json!([main_edge("e", "s", "k")]),
+    );
+    let result = engine.execute_pipeline(&d);
+    assert_eq!(result.status, "ok", "xlsx write failed: {:?}", result.error);
+    // Read back via the same extension.
+    let n = scalar_string(&format!(
+        "INSTALL excel; LOAD excel; SELECT CAST(count(*) AS VARCHAR) FROM read_xlsx('{}')",
+        xlsx
+    ));
+    assert_eq!(n, "3", "got {}", n);
+}
+
+#[test]
+fn spatial_sink_writes_geojson() {
+    if std::env::var("DUCKLE_TEST_SPATIAL").ok().as_deref() != Some("1") {
+        eprintln!("skipping: set DUCKLE_TEST_SPATIAL=1 to run spatial tests");
+        return;
+    }
+    let engine = engine_or_skip!();
+    let tmp = tempfile::tempdir().unwrap();
+    // Source: a tiny in-memory table of geometry points via the spatial
+    // extension. We seed via duckdb_exec because src.csv has no geom type.
+    let parquet = out_path(tmp.path(), "geoms.parquet");
+    duckdb_exec(
+        ":memory:",
+        &format!(
+            "INSTALL spatial; LOAD spatial; \
+             COPY (SELECT ST_Point(1, 2) AS geom, 'alpha' AS name UNION ALL \
+                   SELECT ST_Point(3, 4), 'beta') TO '{}' (FORMAT PARQUET)",
+            parquet
+        ),
+    );
+    let out = out_path(tmp.path(), "out.geojson");
+    let d = doc(
+        json!([
+            node("s", "src.parquet", json!({ "path": parquet })),
+            node("k", "snk.spatial", json!({ "path": out, "driver": "GeoJSON" })),
+        ]),
+        json!([main_edge("e", "s", "k")]),
+    );
+    let result = engine.execute_pipeline(&d);
+    assert_eq!(result.status, "ok", "spatial write failed: {:?}", result.error);
+    // Read back via ST_Read and verify both features made it.
+    let n = scalar_string(&format!(
+        "INSTALL spatial; LOAD spatial; SELECT CAST(count(*) AS VARCHAR) FROM ST_Read('{}')",
+        out
+    ));
+    assert_eq!(n, "2", "got {}", n);
+}
+
+#[test]
+fn md_sink_writes_table() {
+    let engine = engine_or_skip!();
+    let token = match std::env::var("MOTHERDUCK_TOKEN") {
+        Ok(t) if !t.is_empty() => t,
+        _ => {
+            eprintln!("skipping: set MOTHERDUCK_TOKEN to run against MotherDuck");
+            return;
+        }
+    };
+    let db = std::env::var("DUCKLE_MD_DB").unwrap_or_else(|_| "my_db".into());
+    let table = format!("duckle_sink_test_{}", std::process::id());
+    let tmp = tempfile::tempdir().unwrap();
+    let csv = write_file(tmp.path(), "in.csv", "id,name\n1,alice\n2,bob\n");
+    let d = doc(
+        json!([
+            node("s", "src.csv", json!({ "path": csv, "hasHeader": true })),
+            node("w", "snk.motherduck", json!({
+                "database": db, "token": token,
+                "schemaName": "main", "tableName": table, "mode": "overwrite"
+            })),
+        ]),
+        json!([main_edge("e", "s", "w")]),
+    );
+    let result = engine.execute_pipeline(&d);
+    assert_eq!(result.status, "ok", "MD write failed: {:?}", result.error);
+}
+
+#[test]
 fn missing_source_file_errors_cleanly() {
     let tmp = tempfile::tempdir().unwrap();
     let out = out_path(tmp.path(), "never.parquet");
