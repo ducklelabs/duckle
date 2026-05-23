@@ -1613,6 +1613,29 @@ function synthWindowTransform(comp: ComponentDef): ComponentManifest {
 }
 
 function synthStringTransform(comp: ComponentDef): ComponentManifest {
+    if (comp.id === 'xf.hash') {
+        return base(comp, [
+            {
+                label: 'Hash',
+                fields: [
+                    { key: 'column', label: 'Column to hash', kind: 'column', required: true },
+                    {
+                        key: 'algorithm',
+                        label: 'Algorithm',
+                        kind: 'select',
+                        defaultValue: 'md5',
+                        options: [
+                            { label: 'MD5 (hex string)', value: 'md5' },
+                            { label: 'SHA-1 (hex string)', value: 'sha1' },
+                            { label: 'SHA-256 (hex string)', value: 'sha256' },
+                            { label: 'DuckDB hash() (int64, fast non-cryptographic)', value: 'hash' },
+                        ],
+                    },
+                    { key: 'outputColumn', label: 'Output column', kind: 'text', placeholder: '<column>_hash' },
+                ],
+            },
+        ], 'upstream');
+    }
     return base(comp, [
         {
             label: 'String operation',

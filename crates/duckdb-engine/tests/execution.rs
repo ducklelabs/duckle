@@ -2191,6 +2191,33 @@ fn ducklake_sink_then_source_roundtrip() {
 }
 
 #[test]
+fn hash_adds_md5_column() {
+    let engine = engine_or_skip!();
+    let tmp = tempfile::tempdir().unwrap();
+    let csv = write_file(tmp.path(), "in.csv", "id,name\n1,alice\n2,bob\n");
+    let out = out_path(tmp.path(), "out.csv");
+    let d = doc(
+        json!([
+            node("s", "src.csv", json!({ "path": csv, "hasHeader": true })),
+            node("h", "xf.hash", json!({
+                "column": "name", "algorithm": "md5", "outputColumn": "name_md5"
+            })),
+            node("k", "snk.csv", json!({ "path": out, "hasHeader": true })),
+        ]),
+        json!([main_edge("e1", "s", "h"), main_edge("e2", "h", "k")]),
+    );
+    let result = engine.execute_pipeline(&d);
+    assert_eq!(result.status, "ok", "hash failed: {:?}", result.error);
+    assert_eq!(count(&format!("read_csv_auto('{}')", out)), 2);
+    // md5('alice') is a well-known fixed digest.
+    let alice = scalar_string(&format!(
+        "SELECT name_md5 FROM read_csv_auto('{}') WHERE id = 1",
+        out
+    ));
+    assert_eq!(alice, "6384e2b2184bcbf58eccf10ca7a6563c", "got {}", alice);
+}
+
+#[test]
 fn missing_source_file_errors_cleanly() {
     let tmp = tempfile::tempdir().unwrap();
     let out = out_path(tmp.path(), "never.parquet");

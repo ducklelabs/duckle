@@ -114,7 +114,7 @@ Duckle is not a CSV tool with extras. It reads a broad set of formats and source
 | **Join** | Inner, Left, Right, Full Outer, Cross, Lookup, Semi, Anti |
 | **Set operations** | Union, Union All, Intersect, Except / Minus |
 | **Window** | Row Number, Rank, Dense Rank, Lead, Lag, First Value, Last Value, NTile |
-| **Strings** | Regex Replace, Split, Concat, Trim, Case Change, Length, Substring, Format |
+| **Strings** | Regex Replace, Split, Concat, Trim, Case Change, Length, Substring, Format, **Hash** (md5 / sha1 / sha256 for anonymization or deterministic IDs) |
 | **Date / Time** | Parse, Format, Extract Part, Date Diff, Date Add, Truncate, Timezone Convert |
 | **Numeric** | Round, Modulo, Absolute, Logarithm, Power, Square Root |
 | **JSON / nested** | Parse JSON, Stringify, Flatten, JSONPath Extract, Merge Objects |

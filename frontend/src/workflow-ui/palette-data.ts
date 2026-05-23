@@ -307,6 +307,7 @@ export const PALETTE: Category[] = [
                     xf('length', 'Length', 'available'),
                     xf('substring', 'Substring', 'available'),
                     xf('format', 'Format String', 'available'),
+                    xf('hash', 'Hash', 'available', 'Hash a column (md5 / sha1 / sha256) for anonymization or deterministic IDs'),
                 ],
             },
             {

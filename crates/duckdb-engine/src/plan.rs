@@ -575,6 +575,7 @@ fn build_view_sql(
         "xf.join.cross" => build_cross_join(inputs),
         "xf.regex" | "xf.trim" | "xf.case" | "xf.length" | "xf.substring" | "xf.concat"
         | "xf.split" | "xf.format" => build_string(inputs, props, component_id),
+        "xf.hash" => build_hash(inputs, props),
         "xf.num.round" | "xf.num.abs" | "xf.num.mod" | "xf.num.power" | "xf.num.sqrt"
         | "xf.num.log" => build_numeric(inputs, props, component_id),
         "xf.dt.parse" | "xf.dt.format" | "xf.dt.extract" | "xf.dt.trunc" | "xf.dt.tz" => {
@@ -2795,6 +2796,32 @@ fn build_text_search_spec(node_id: &str, inputs: &NodeInputs, props: &JsonValue)
         output_col,
         staging_table,
     })
+}
+
+/// Hash: add a column with the md5 / sha1 / sha256 digest (or a
+/// DuckDB `hash()` int64) of an input column. Useful for deterministic
+/// IDs from natural keys, one-way PII masking, and fingerprinting.
+fn build_hash(inputs: &NodeInputs, props: &JsonValue) -> Result<String, String> {
+    let upstream = inputs.main().ok_or_else(|| missing_input_msg("xf.hash"))?;
+    let column = string_prop(props, "column")
+        .filter(|s| !s.is_empty())
+        .ok_or_else(|| "Hash needs a column".to_string())?;
+    let algo = string_prop(props, "algorithm").unwrap_or_else(|| "md5".into());
+    let output = string_prop(props, "outputColumn")
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| format!("{}_hash", column));
+    let fn_name = match algo.as_str() {
+        "sha1" => "sha1",
+        "sha256" => "sha256",
+        "hash" => "hash",
+        _ => "md5",
+    };
+    Ok(format!(
+        "SELECT *, {fn_name}(CAST({col} AS VARCHAR)) AS {out} FROM {up}",
+        col = quote_ident(&column),
+        out = quote_ident(&output),
+        up = quote_ident(upstream)
+    ))
 }
 
 /// Vector Similarity Search via the DuckDB vss extension. Adds a
