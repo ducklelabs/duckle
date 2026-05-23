@@ -46,7 +46,7 @@ jobs:
         shell: bash
         run: |
           set -e
-          ver=1.2.2
+          ver=1.4.4
           case "$RUNNER_OS" in
             Linux)   asset=duckdb_cli-linux-amd64.zip;  exe=duckdb ;;
             Windows) asset=duckdb_cli-windows-amd64.zip; exe=duckdb.exe ;;
@@ -108,7 +108,7 @@ jobs:
       - name: Install DuckDB CLI
         run: |
           set -e
-          curl -L -o duckdb.zip https://github.com/duckdb/duckdb/releases/download/v1.2.2/duckdb_cli-linux-amd64.zip
+          curl -L -o duckdb.zip https://github.com/duckdb/duckdb/releases/download/v1.4.4/duckdb_cli-linux-amd64.zip
           mkdir -p "$RUNNER_TEMP/duckdb"
           unzip -o duckdb.zip -d "$RUNNER_TEMP/duckdb"
           echo "DUCKLE_DUCKDB_BIN=$RUNNER_TEMP/duckdb/duckdb" >> "$GITHUB_ENV"
@@ -146,7 +146,7 @@ jobs:
       - name: Install DuckDB CLI
         run: |
           set -e
-          curl -L -o duckdb.zip https://github.com/duckdb/duckdb/releases/download/v1.2.2/duckdb_cli-linux-amd64.zip
+          curl -L -o duckdb.zip https://github.com/duckdb/duckdb/releases/download/v1.4.4/duckdb_cli-linux-amd64.zip
           mkdir -p "$RUNNER_TEMP/duckdb"
           unzip -o duckdb.zip -d "$RUNNER_TEMP/duckdb"
           echo "DUCKLE_DUCKDB_BIN=$RUNNER_TEMP/duckdb/duckdb" >> "$GITHUB_ENV"
@@ -191,7 +191,7 @@ jobs:
       - name: Install DuckDB CLI
         run: |
           set -e
-          curl -L -o duckdb.zip https://github.com/duckdb/duckdb/releases/download/v1.2.2/duckdb_cli-linux-amd64.zip
+          curl -L -o duckdb.zip https://github.com/duckdb/duckdb/releases/download/v1.4.4/duckdb_cli-linux-amd64.zip
           mkdir -p "$RUNNER_TEMP/duckdb"
           unzip -o duckdb.zip -d "$RUNNER_TEMP/duckdb"
           echo "DUCKLE_DUCKDB_BIN=$RUNNER_TEMP/duckdb/duckdb" >> "$GITHUB_ENV"

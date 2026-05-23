@@ -10,7 +10,7 @@ use serde::Serialize;
 use std::io::Read;
 use std::path::{Path, PathBuf};
 
-pub const DUCKDB_VERSION: &str = "1.2.2";
+pub const DUCKDB_VERSION: &str = "1.4.4";
 pub const SLOTHDB_VERSION: &str = "0.2.7";
 
 /// Static description of an installable engine.
@@ -139,11 +139,12 @@ const DUCKDB_EXTENSIONS: &[&str] = &[
     "postgres", // PostgreSQL ATTACH
     "mysql",    // MySQL / MariaDB ATTACH
     "excel",    // .xlsx reader
-    "avro",     // Avro reader
     "iceberg",  // Apache Iceberg table scan
     "delta",    // Delta Lake table scan
     "vss",      // Vector similarity search (array_* distance funcs)
     "fts",      // Full-text search (BM25 keyword scoring)
+    // The avro community extension hasn't published for v1.4+ yet; src.avro
+    // is marked preview in the palette until it catches up.
 ];
 
 fn duckdb_command(bin: &Path) -> std::process::Command {
