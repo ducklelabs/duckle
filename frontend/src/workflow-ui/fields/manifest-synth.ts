@@ -2676,6 +2676,25 @@ function synthGeoTransform(comp: ComponentDef): ComponentManifest {
             },
         ], 'upstream');
     }
+    if (comp.id === 'xf.geo.intersects') {
+        return base(comp, [
+            {
+                label: 'Spatial intersects',
+                fields: [
+                    { key: 'geomColumn', label: 'Geometry column', kind: 'column', required: true },
+                    {
+                        key: 'targetWkt',
+                        label: 'Target geometry (WKT)',
+                        kind: 'text',
+                        required: true,
+                        placeholder: 'POLYGON((0 0, 0 10, 10 10, 10 0, 0 0))',
+                        description: 'Each row gets a boolean: does its geometry overlap this target? Pair with Filter Rows to keep only the matches.',
+                    },
+                    { key: 'outputColumn', label: 'Output column', kind: 'text', defaultValue: 'intersects' },
+                ],
+            },
+        ], 'upstream');
+    }
     return base(comp, [], 'upstream');
 }
 

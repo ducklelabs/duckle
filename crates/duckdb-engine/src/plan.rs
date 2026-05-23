@@ -579,6 +579,7 @@ fn build_view_sql(
         "xf.ip.parse" => build_ip_parse(inputs, props),
         "xf.geo.distance" => build_geo_distance(inputs, props),
         "xf.geo.buffer" => build_geo_buffer(inputs, props),
+        "xf.geo.intersects" => build_geo_intersects(inputs, props),
         "xf.num.round" | "xf.num.abs" | "xf.num.mod" | "xf.num.power" | "xf.num.sqrt"
         | "xf.num.log" => build_numeric(inputs, props, component_id),
         "xf.dt.parse" | "xf.dt.format" | "xf.dt.extract" | "xf.dt.trunc" | "xf.dt.tz" => {
@@ -2495,7 +2496,7 @@ fn attach_prelude(component_id: &str, props: &JsonValue) -> String {
         // the first-launch DUCKDB_EXTENSIONS pre-fetch so the install
         // stays small. INSTALL runs lazily on first use, then LOAD on
         // every subsequent run.
-        "src.spatial" | "snk.spatial" | "xf.geo.distance" | "xf.geo.buffer" => {
+        "src.spatial" | "snk.spatial" | "xf.geo.distance" | "xf.geo.buffer" | "xf.geo.intersects" => {
             return "INSTALL spatial; LOAD spatial; ".into();
         }
         // inet is a small built-in extension. INSTALL is a no-op once
@@ -2852,6 +2853,30 @@ fn build_geo_buffer(inputs: &NodeInputs, props: &JsonValue) -> Result<String, St
         "SELECT *, ST_Buffer(CAST({col} AS GEOMETRY), {distance}) AS {out} FROM {up}",
         col = quote_ident(&column),
         distance = distance,
+        out = quote_ident(&output),
+        up = quote_ident(upstream)
+    ))
+}
+
+/// Spatial Intersects: add a boolean column with ST_Intersects(geom,
+/// target). Pair with xf.filter downstream to keep only the rows that
+/// overlap a polygon (e.g. "orders inside a delivery zone"). Two-input
+/// spatial joins land later as xf.join.spatial.
+fn build_geo_intersects(inputs: &NodeInputs, props: &JsonValue) -> Result<String, String> {
+    let upstream = inputs.main().ok_or_else(|| missing_input_msg("xf.geo.intersects"))?;
+    let column = string_prop(props, "geomColumn")
+        .filter(|s| !s.is_empty())
+        .ok_or_else(|| "Spatial Intersects needs a geometry column".to_string())?;
+    let target = string_prop(props, "targetWkt")
+        .filter(|s| !s.trim().is_empty())
+        .ok_or_else(|| "Spatial Intersects needs a target geometry (WKT)".to_string())?;
+    let output = string_prop(props, "outputColumn")
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| "intersects".into());
+    Ok(format!(
+        "SELECT *, ST_Intersects(CAST({col} AS GEOMETRY), ST_GeomFromText('{target}')) AS {out} FROM {up}",
+        col = quote_ident(&column),
+        target = target.replace('\'', "''"),
         out = quote_ident(&output),
         up = quote_ident(upstream)
     ))

@@ -399,6 +399,7 @@ export const PALETTE: Category[] = [
                 components: [
                     xf('geo.distance', 'Spatial Distance', 'available', 'Distance from each row to a target point (ST_Distance)'),
                     xf('geo.buffer', 'Spatial Buffer', 'available', 'A buffered geometry around each row (ST_Buffer)'),
+                    xf('geo.intersects', 'Spatial Intersects', 'available', 'Boolean: does each row overlap a target geometry? (ST_Intersects)'),
                 ],
             },
             {

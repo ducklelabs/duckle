@@ -123,7 +123,7 @@ Duckle is not a CSV tool with extras. It reads a broad set of formats and source
 | **Pivot / shape** | Pivot, **Unpivot**, **Denormalize** (group + delimited cells), **Normalize** (explode delimited / array column), **Transpose** |
 | **CDC / SCD** | **Diff Detect** (tag inserted / updated / deleted rows vs a previous snapshot), **SCD Type 1**, **SCD Type 2** (versioned history with valid_from / valid_to / is_current), **Merge / Upsert** |
 | **AI / Search** | **Vector Similarity Search** (cosine / L2 / inner product over FLOAT[N] embeddings via `vss`, optional top-K), **Full-Text Search** (BM25 over chosen columns via `fts`, optional top-K) |
-| **Geospatial** | **Spatial Distance** (ST_Distance to a target WKT geometry), **Spatial Buffer** (ST_Buffer around each row's geometry) - lazy-load the spatial extension on first use |
+| **Geospatial** | **Spatial Distance** (ST_Distance to a target WKT geometry), **Spatial Buffer** (ST_Buffer around each row's geometry), **Spatial Intersects** (boolean: does each row overlap a target geometry, via ST_Intersects - pair with Filter Rows to keep only matches) - lazy-load the spatial extension on first use |
 | **Debug** | Log Rows (pass through and print to Output for mid-pipeline inspection) |
 
 The AI transforms that still need a model API (Embeddings, LLM Transform, Text Chunker, PII Redact, Classify, Semantic Dedupe) stay in **preview** until the API wiring lands.

@@ -2263,6 +2263,53 @@ fn geo_distance_computes_point_distance() {
 }
 
 #[test]
+fn geo_intersects_flags_overlapping_geometries() {
+    if std::env::var("DUCKLE_TEST_SPATIAL").ok().as_deref() != Some("1") {
+        eprintln!("skipping: set DUCKLE_TEST_SPATIAL=1 to run spatial tests");
+        return;
+    }
+    let engine = engine_or_skip!();
+    let tmp = tempfile::tempdir().unwrap();
+    let parquet = out_path(tmp.path(), "pts.parquet");
+    // Two points, one inside the 0..10 square, one outside.
+    duckdb_exec(
+        ":memory:",
+        &format!(
+            "INSTALL spatial; LOAD spatial; \
+             COPY (SELECT * FROM (VALUES \
+                 ('in',  ST_Point(5, 5)), \
+                 ('out', ST_Point(50, 50)) \
+             ) t(name, loc)) TO '{}' (FORMAT PARQUET)",
+            parquet
+        ),
+    );
+    let out = out_path(tmp.path(), "out.csv");
+    let r = engine.execute_pipeline(&doc(
+        json!([
+            node("s", "src.parquet", json!({ "path": parquet })),
+            node("g", "xf.geo.intersects", json!({
+                "geomColumn": "loc",
+                "targetWkt": "POLYGON((0 0, 0 10, 10 10, 10 0, 0 0))",
+                "outputColumn": "hits"
+            })),
+            node("k", "snk.csv", json!({ "path": out, "hasHeader": true })),
+        ]),
+        json!([main_edge("e1", "s", "g"), main_edge("e2", "g", "k")]),
+    ));
+    assert_eq!(r.status, "ok", "geo_intersects failed: {:?}", r.error);
+    let hit_in = scalar_string(&format!(
+        "SELECT CAST(hits AS VARCHAR) FROM read_csv_auto('{}') WHERE name = 'in'",
+        out
+    ));
+    let hit_out = scalar_string(&format!(
+        "SELECT CAST(hits AS VARCHAR) FROM read_csv_auto('{}') WHERE name = 'out'",
+        out
+    ));
+    assert_eq!(hit_in, "true");
+    assert_eq!(hit_out, "false");
+}
+
+#[test]
 fn ip_parse_extracts_host_and_family() {
     // inet is a small built-in extension; no env gate. Tests both that
     // the prelude LOADs inet (a fresh CLI process has no inet symbols
