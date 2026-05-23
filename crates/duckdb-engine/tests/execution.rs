@@ -2263,6 +2263,117 @@ fn geo_distance_computes_point_distance() {
 }
 
 #[test]
+fn parquet_sink_writes_hive_partitions() {
+    let engine = engine_or_skip!();
+    let tmp = tempfile::tempdir().unwrap();
+    let csv = write_file(
+        tmp.path(),
+        "events.csv",
+        "region,id,amount\nus,1,10\nus,2,20\neu,3,30\neu,4,40\n",
+    );
+    let out_dir = out_path(tmp.path(), "events_partitioned");
+    let r = engine.execute_pipeline(&doc(
+        json!([
+            node("s", "src.csv", json!({ "path": csv, "hasHeader": true })),
+            node("k", "snk.parquet", json!({
+                "path": out_dir,
+                "partitionBy": ["region"]
+            })),
+        ]),
+        json!([main_edge("e", "s", "k")]),
+    ));
+    assert_eq!(r.status, "ok", "partitioned parquet failed: {:?}", r.error);
+    // Hive layout: <out_dir>/region=us/*.parquet, region=eu/*.parquet.
+    let us_count = scalar_string(&format!(
+        "SELECT CAST(count(*) AS VARCHAR) FROM read_parquet('{}/region=us/*.parquet')",
+        out_dir
+    ));
+    let eu_count = scalar_string(&format!(
+        "SELECT CAST(count(*) AS VARCHAR) FROM read_parquet('{}/region=eu/*.parquet')",
+        out_dir
+    ));
+    assert_eq!(us_count, "2");
+    assert_eq!(eu_count, "2");
+}
+
+#[test]
+fn url_parse_extracts_components() {
+    let engine = engine_or_skip!();
+    let tmp = tempfile::tempdir().unwrap();
+    let csv = write_file(
+        tmp.path(),
+        "urls.csv",
+        "id,url\n1,https://example.com:8443/api/v1?key=x#top\n2,http://a.io/p\n",
+    );
+    let host_out = out_path(tmp.path(), "host.csv");
+    let r1 = engine.execute_pipeline(&doc(
+        json!([
+            node("s", "src.csv", json!({ "path": csv, "hasHeader": true })),
+            node("p", "xf.url.parse", json!({ "column": "url", "kind": "host", "outputColumn": "h" })),
+            node("k", "snk.csv", json!({ "path": host_out, "hasHeader": true })),
+        ]),
+        json!([main_edge("e1", "s", "p"), main_edge("e2", "p", "k")]),
+    ));
+    assert_eq!(r1.status, "ok", "url host failed: {:?}", r1.error);
+    let host1 = scalar_string(&format!(
+        "SELECT h FROM read_csv_auto('{}') WHERE id = 1",
+        host_out
+    ));
+    assert_eq!(host1, "example.com");
+
+    let port_out = out_path(tmp.path(), "port.csv");
+    let r2 = engine.execute_pipeline(&doc(
+        json!([
+            node("s", "src.csv", json!({ "path": csv, "hasHeader": true })),
+            node("p", "xf.url.parse", json!({ "column": "url", "kind": "port", "outputColumn": "po" })),
+            node("k", "snk.csv", json!({ "path": port_out, "hasHeader": true })),
+        ]),
+        json!([main_edge("e1", "s", "p"), main_edge("e2", "p", "k")]),
+    ));
+    assert_eq!(r2.status, "ok", "url port failed: {:?}", r2.error);
+    let port1 = scalar_string(&format!(
+        "SELECT CAST(po AS VARCHAR) FROM read_csv_auto('{}') WHERE id = 1",
+        port_out
+    ));
+    assert_eq!(port1, "8443");
+}
+
+#[test]
+fn regex_match_emits_boolean() {
+    let engine = engine_or_skip!();
+    let tmp = tempfile::tempdir().unwrap();
+    let csv = write_file(
+        tmp.path(),
+        "tags.csv",
+        "id,tag\n1,FOO-123\n2,bar\n3,FOO-bar\n",
+    );
+    let out = out_path(tmp.path(), "out.csv");
+    let r = engine.execute_pipeline(&doc(
+        json!([
+            node("s", "src.csv", json!({ "path": csv, "hasHeader": true })),
+            node("m", "xf.regex.match", json!({
+                "column": "tag",
+                "pattern": "^FOO-",
+                "outputColumn": "is_foo"
+            })),
+            node("k", "snk.csv", json!({ "path": out, "hasHeader": true })),
+        ]),
+        json!([main_edge("e1", "s", "m"), main_edge("e2", "m", "k")]),
+    ));
+    assert_eq!(r.status, "ok", "regex match failed: {:?}", r.error);
+    let a = scalar_string(&format!(
+        "SELECT CAST(is_foo AS VARCHAR) FROM read_csv_auto('{}') WHERE id = 1",
+        out
+    ));
+    let b = scalar_string(&format!(
+        "SELECT CAST(is_foo AS VARCHAR) FROM read_csv_auto('{}') WHERE id = 2",
+        out
+    ));
+    assert_eq!(a, "true");
+    assert_eq!(b, "false");
+}
+
+#[test]
 fn approx_count_distinct_via_groupby() {
     // Exercises the new function name through the existing aggregate
     // path. APPROX_COUNT_DISTINCT lands as DuckDB approx_count_distinct.

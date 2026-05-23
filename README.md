@@ -115,7 +115,7 @@ Duckle is not a CSV tool with extras. It reads a broad set of formats and source
 | **Join** | Inner, Left, Right, Full Outer, Cross, Lookup, Semi, Anti, **Spatial Join** (two-input join whose predicate is ST_Intersects / Contains / Within / Touches / Crosses / Overlaps / Equals; INNER or LEFT) |
 | **Set operations** | Union, Union All, Intersect, Except / Minus |
 | **Window** | Row Number, Rank, Dense Rank, Lead, Lag, First Value, Last Value, NTile |
-| **Strings** | Regex Replace, **Regex Extract** (pull a capture group out of a column via `regexp_extract`), Split, Concat, Trim, Case Change, Length, Substring, Format, **Hash** (md5 / sha1 / sha256 for anonymization or deterministic IDs), **IP Parse** (extract host / family / netmask / broadcast / mask length / network from IP or CIDR text via the `inet` extension) |
+| **Strings** | Regex Replace, **Regex Extract** (pull a capture group out of a column via `regexp_extract`), **Regex Match** (boolean column from `regexp_matches`), Split, Concat, Trim, Case Change, Length, Substring, Format, **Hash** (md5 / sha1 / sha256 for anonymization or deterministic IDs), **IP Parse** (extract host / family / netmask / broadcast / mask length / network from IP or CIDR text via the `inet` extension), **URL Parse** (extract scheme / host / port / path / query / fragment from URL columns) |
 | **Date / Time** | Parse, Format, Extract Part, Date Diff, Date Add, Truncate, Timezone Convert |
 | **Numeric** | Round, Modulo, Absolute, Logarithm, Power, Square Root |
 | **JSON / nested** | Parse JSON, Stringify, Flatten, JSONPath Extract, Merge Objects |
@@ -160,7 +160,7 @@ The whole group runs today. Validators split their input: passing rows continue 
 
 | Group | Connectors | Status |
 |---|---|---|
-| **Files** | CSV, TSV, Parquet (ZSTD), JSON, JSONL / NDJSON, Excel (.xlsx) | Available |
+| **Files** | CSV, TSV, Parquet (ZSTD), JSON, JSONL / NDJSON, Excel (.xlsx) - Parquet and CSV support Hive-partitioned writes via `PARTITION_BY (col1, col2)` with `OVERWRITE_OR_IGNORE` semantics | Available |
 | **Geospatial files** | GeoJSON, GeoPackage, Shapefile, KML, GPX via GDAL | Available (lazy-loaded) |
 | **Lakehouse table formats** | Apache Iceberg (full table layout), DuckLake | Available |
 | **Embedded databases** | SQLite, DuckDB (write a table) | Available |

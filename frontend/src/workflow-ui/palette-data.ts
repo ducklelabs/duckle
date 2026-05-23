@@ -303,6 +303,8 @@ export const PALETTE: Category[] = [
                 components: [
                     xf('regex', 'Regex Replace', 'available'),
                     xf('regex.extract', 'Regex Extract', 'available', 'Extract a capture group from a column via regexp_extract'),
+                    xf('regex.match', 'Regex Match', 'available', 'Boolean: does the regex match the column? (regexp_matches)'),
+                    xf('url.parse', 'URL Parse', 'available', 'Extract scheme / host / port / path / query / fragment from a URL column'),
                     xf('split', 'Split', 'available'),
                     xf('concat', 'Concat', 'available'),
                     xf('trim', 'Trim', 'available'),

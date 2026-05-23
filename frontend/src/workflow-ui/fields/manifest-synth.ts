@@ -457,6 +457,20 @@ function synthFileSource(comp: ComponentDef): ComponentManifest {
     ]);
 }
 
+function partitionBySection(): FormSection {
+    return {
+        label: 'Partitioning (write side, applies to sinks only)',
+        fields: [
+            {
+                key: 'partitionBy',
+                label: 'Partition by columns',
+                kind: 'columns',
+                description: 'Write a Hive-style partitioned dataset under the output path. Each partition column becomes a directory level (col=value/). Reruns overwrite the slice we just emitted.',
+            },
+        ],
+    };
+}
+
 function synthFileSink(comp: ComponentDef): ComponentManifest {
     if (comp.id === 'snk.spatial') {
         // Geospatial sink writes via GDAL; the driver picks the actual
@@ -563,6 +577,7 @@ function fileFormatSection(comp: ComponentDef): FormSection[] {
                     { key: 'skipLines', label: 'Skip lines', kind: 'integer', defaultValue: 0 },
                 ],
             },
+            partitionBySection(),
         ];
     }
     if (id.endsWith('.json') || id.endsWith('.jsonl')) {
@@ -629,6 +644,7 @@ function fileFormatSection(comp: ComponentDef): FormSection[] {
                     },
                 ],
             },
+            partitionBySection(),
         ];
     }
     if (id.endsWith('.fixedwidth')) {
@@ -1668,6 +1684,43 @@ function synthWindowTransform(comp: ComponentDef): ComponentManifest {
 }
 
 function synthStringTransform(comp: ComponentDef): ComponentManifest {
+    if (comp.id === 'xf.regex.match') {
+        return base(comp, [
+            {
+                label: 'Regex match',
+                fields: [
+                    { key: 'column', label: 'Column', kind: 'column', required: true },
+                    { key: 'pattern', label: 'Pattern', kind: 'text', required: true, placeholder: '^[A-Z]+$' },
+                    { key: 'outputColumn', label: 'Output column', kind: 'text', placeholder: '<column>_matches' },
+                ],
+            },
+        ], 'upstream');
+    }
+    if (comp.id === 'xf.url.parse') {
+        return base(comp, [
+            {
+                label: 'URL parse',
+                fields: [
+                    { key: 'column', label: 'URL column', kind: 'column', required: true },
+                    {
+                        key: 'kind',
+                        label: 'Extract',
+                        kind: 'select',
+                        defaultValue: 'host',
+                        options: [
+                            { label: 'Scheme (http, https, ...)', value: 'scheme' },
+                            { label: 'Host', value: 'host' },
+                            { label: 'Port', value: 'port' },
+                            { label: 'Path', value: 'path' },
+                            { label: 'Query string', value: 'query' },
+                            { label: 'Fragment (#...)', value: 'fragment' },
+                        ],
+                    },
+                    { key: 'outputColumn', label: 'Output column', kind: 'text', placeholder: '<column>_<kind>' },
+                ],
+            },
+        ], 'upstream');
+    }
     if (comp.id === 'xf.regex.extract') {
         return base(comp, [
             {

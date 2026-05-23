@@ -575,10 +575,11 @@ fn build_view_sql(
         "xf.count" => build_count(inputs),
         "xf.join.cross" => build_cross_join(inputs),
         "xf.join.spatial" => build_spatial_join(inputs, props),
-        "xf.regex" | "xf.regex.extract" | "xf.trim" | "xf.case" | "xf.length"
-        | "xf.substring" | "xf.concat" | "xf.split" | "xf.format" => {
+        "xf.regex" | "xf.regex.extract" | "xf.regex.match" | "xf.trim" | "xf.case"
+        | "xf.length" | "xf.substring" | "xf.concat" | "xf.split" | "xf.format" => {
             build_string(inputs, props, component_id)
         }
+        "xf.url.parse" => build_url_parse(inputs, props),
         "xf.hash" => build_hash(inputs, props),
         "xf.ip.parse" => build_ip_parse(inputs, props),
         "xf.geo.distance" => build_geo_distance(inputs, props),
@@ -1216,6 +1217,11 @@ fn build_string(inputs: &NodeInputs, props: &JsonValue, component_id: &str) -> R
                 group_idx
             )
         }
+        "xf.regex.match" => format!(
+            "regexp_matches(CAST({} AS VARCHAR), '{}')",
+            col,
+            sql_escape(&pattern)
+        ),
         "xf.trim" => format!("trim(CAST({} AS VARCHAR))", col),
         "xf.case" => match pattern.to_lowercase().as_str() {
             "lower" => format!("lower(CAST({} AS VARCHAR))", col),
@@ -3022,6 +3028,40 @@ fn build_hash(inputs: &NodeInputs, props: &JsonValue) -> Result<String, String> 
     ))
 }
 
+/// URL Parse: pull a single component out of a URL string column via
+/// a fixed regex. Picks one of scheme / host / port / path / query /
+/// fragment with the `kind` prop, mirrors xf.ip.parse's shape.
+fn build_url_parse(inputs: &NodeInputs, props: &JsonValue) -> Result<String, String> {
+    let upstream = inputs.main().ok_or_else(|| missing_input_msg("xf.url.parse"))?;
+    let column = string_prop(props, "column")
+        .filter(|s| !s.is_empty())
+        .ok_or_else(|| "URL Parse needs an input column".to_string())?;
+    let kind = string_prop(props, "kind").unwrap_or_else(|| "host".into());
+    // Single regex with named groups for every URL component. The
+    // expression intentionally accepts URLs with and without a scheme.
+    let url_re = "^(?:([a-zA-Z][a-zA-Z0-9+.-]*)://)?([^:/?#]*)(?::([0-9]+))?(/[^?#]*)?(?:\\?([^#]*))?(?:#(.*))?$";
+    let group_idx: i64 = match kind.as_str() {
+        "scheme" => 1,
+        "host" => 2,
+        "port" => 3,
+        "path" => 4,
+        "query" => 5,
+        "fragment" => 6,
+        _ => 2,
+    };
+    let output = string_prop(props, "outputColumn")
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| format!("{}_{}", column, kind));
+    Ok(format!(
+        "SELECT *, regexp_extract(CAST({col} AS VARCHAR), '{re}', {idx}) AS {out} FROM {up}",
+        col = quote_ident(&column),
+        re = sql_escape(url_re),
+        idx = group_idx,
+        out = quote_ident(&output),
+        up = quote_ident(upstream)
+    ))
+}
+
 /// IP Parse: CAST a text/IP column to INET and extract a single
 /// component via the inet extension. `kind` picks which piece comes
 /// out (host / family / broadcast / netmask / hostmask / masklen /
@@ -3298,6 +3338,16 @@ fn build_csv_sink(props: &JsonValue, from_view: &str) -> String {
     if !null_val.is_empty() {
         options.push(format!("NULLSTR '{}'", sql_escape(&null_val)));
     }
+    let partition = columns_from_props(props, "partitionBy").unwrap_or_default();
+    if !partition.is_empty() {
+        let cols = partition
+            .iter()
+            .map(|c| quote_ident(c))
+            .collect::<Vec<_>>()
+            .join(", ");
+        options.push(format!("PARTITION_BY ({})", cols));
+        options.push("OVERWRITE_OR_IGNORE".to_string());
+    }
     format!(
         "COPY (SELECT * FROM {}) TO '{}' ({})",
         quote_ident(from_view),
@@ -3309,11 +3359,29 @@ fn build_csv_sink(props: &JsonValue, from_view: &str) -> String {
 fn build_parquet_sink(props: &JsonValue, from_view: &str) -> String {
     let path = string_prop(props, "path").unwrap_or_default();
     let compression = string_prop(props, "compression").unwrap_or_else(|| "ZSTD".into());
+    let partition = columns_from_props(props, "partitionBy").unwrap_or_default();
+    let mut options = vec![
+        "FORMAT PARQUET".to_string(),
+        format!("COMPRESSION '{}'", sql_escape(&compression)),
+    ];
+    if !partition.is_empty() {
+        let cols = partition
+            .iter()
+            .map(|c| quote_ident(c))
+            .collect::<Vec<_>>()
+            .join(", ");
+        options.push(format!("PARTITION_BY ({})", cols));
+        // DuckDB refuses to write into an existing partition directory
+        // unless one of these is set; OVERWRITE_OR_IGNORE matches what
+        // most ETL pipelines want (rewrite the slice we just emitted,
+        // leave untouched siblings alone).
+        options.push("OVERWRITE_OR_IGNORE".to_string());
+    }
     format!(
-        "COPY (SELECT * FROM {}) TO '{}' (FORMAT PARQUET, COMPRESSION '{}')",
+        "COPY (SELECT * FROM {}) TO '{}' ({})",
         quote_ident(from_view),
         sql_escape(&path),
-        sql_escape(&compression)
+        options.join(", ")
     )
 }
 
