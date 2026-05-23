@@ -1581,6 +1581,60 @@ fn pg_sink_truncate_replaces_rows() {
 }
 
 #[test]
+fn scd2_closes_changed_and_inserts_new_versions() {
+    let engine = engine_or_skip!();
+    let tmp = tempfile::tempdir().unwrap();
+
+    // Seed the previous-history snapshot as parquet so timestamp + bool
+    // + nullable columns survive (CSV would coerce them all to varchar).
+    let prev = out_path(tmp.path(), "prev.parquet");
+    duckdb_exec(
+        ":memory:",
+        &format!(
+            "COPY (SELECT * FROM (VALUES \
+                (1,'a',TIMESTAMP '2024-01-01',NULL::TIMESTAMP,TRUE), \
+                (2,'b',TIMESTAMP '2024-01-01',NULL::TIMESTAMP,TRUE) \
+            ) t(id,v,valid_from,valid_to,is_current)) TO '{}' (FORMAT PARQUET)",
+            prev
+        ),
+    );
+    let cur = write_file(tmp.path(), "cur.csv", "id,v\n1,a\n2,b2\n3,c\n");
+    let out = out_path(tmp.path(), "out.parquet");
+    let d = doc(
+        json!([
+            node("c", "src.csv", json!({ "path": cur, "hasHeader": true })),
+            node("p", "src.parquet", json!({ "path": prev })),
+            node("h", "xf.cdc.scd2", json!({
+                "naturalKey": ["id"], "compareColumns": ["v"],
+                "validFromColumn": "valid_from", "validToColumn": "valid_to",
+                "isCurrentColumn": "is_current"
+            })),
+            node("k", "snk.parquet", json!({ "path": out })),
+        ]),
+        json!([
+            main_edge("e1", "c", "h"),
+            lookup_edge("e2", "p", "h"),
+            main_edge("e3", "h", "k"),
+        ]),
+    );
+    let result = engine.execute_pipeline(&d);
+    assert_eq!(result.status, "ok", "scd2 failed: {:?}", result.error);
+    // id=1 unchanged (1 row), id=2 closed + new (2 rows), id=3 new (1 row) = 4.
+    assert_eq!(count(&format!("read_parquet('{}')", out)), 4);
+    // id=2 should now have one closed and one current row.
+    assert_eq!(
+        count(&format!("read_parquet('{}') WHERE id = 2", out)),
+        2
+    );
+    // The closed-and-replaced id=2 row should be the OLD v ('b'), not current.
+    let closed = scalar_string(&format!(
+        "SELECT v FROM read_parquet('{}') WHERE id = 2 AND NOT is_current",
+        out
+    ));
+    assert_eq!(closed, "b", "got {}", closed);
+}
+
+#[test]
 fn missing_source_file_errors_cleanly() {
     let tmp = tempfile::tempdir().unwrap();
     let out = out_path(tmp.path(), "never.parquet");

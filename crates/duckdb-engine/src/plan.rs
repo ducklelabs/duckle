@@ -433,6 +433,7 @@ fn build_view_sql(
         "xf.norm" => build_normalize(inputs, props),
         "xf.transpose" => build_transpose(inputs),
         "xf.cdc.diff" => build_cdc_diff(inputs, props),
+        "xf.cdc.scd2" => build_scd2(inputs, props),
         // Data-quality validators - the PASS rows. Failures go to the
         // node's __reject table (see build_reject_sql).
         "qa.notnull" | "qa.range" | "qa.regex" | "qa.unique" | "qa.schemavalidate" => {
@@ -1395,6 +1396,83 @@ fn build_transpose(inputs: &NodeInputs) -> Result<String, String> {
          UNPIVOT (val FOR colname IN (COLUMNS(* EXCLUDE _row)))) \
          ON _row USING first(val) GROUP BY colname)",
         up = quote_ident(upstream)
+    ))
+}
+
+/// SCD Type 2: maintain versioned history. Reads `current` on main and
+/// `previous` on the lookup port; the previous input must already carry
+/// the SCD columns (valid_from, valid_to, is_current) at the end of its
+/// schema. Output is the new history table: closed records get their
+/// valid_to + is_current updated, unchanged records pass through, and
+/// new / changed keys land as fresh current versions. Compare columns
+/// drive the change detection.
+fn build_scd2(inputs: &NodeInputs, props: &JsonValue) -> Result<String, String> {
+    let cur = inputs.main().ok_or_else(|| missing_input_msg("xf.cdc.scd2"))?;
+    let prev = inputs.first_lookup().ok_or_else(|| {
+        "SCD2 needs a 'previous' input on the lookup port (the current history table)".to_string()
+    })?;
+    let keys = columns_list(props, "naturalKey");
+    if keys.is_empty() {
+        return Err("SCD2 needs natural key columns".to_string());
+    }
+    let compares = columns_list(props, "compareColumns");
+    if compares.is_empty() {
+        return Err("SCD2 needs at least one compare column to detect changes".to_string());
+    }
+    let valid_from = string_prop(props, "validFromColumn")
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| "valid_from".into());
+    let valid_to = string_prop(props, "validToColumn")
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| "valid_to".into());
+    let is_current = string_prop(props, "isCurrentColumn")
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| "is_current".into());
+
+    let key_eq = keys
+        .iter()
+        .map(|k| {
+            let q = quote_ident(k);
+            format!("p.{q} = c.{q}")
+        })
+        .collect::<Vec<_>>()
+        .join(" AND ");
+    let cmp_diff = compares
+        .iter()
+        .map(|c| {
+            let q = quote_ident(c);
+            format!("p.{q} IS DISTINCT FROM c.{q}")
+        })
+        .collect::<Vec<_>>()
+        .join(" OR ");
+    let cmp_same = compares
+        .iter()
+        .map(|c| {
+            let q = quote_ident(c);
+            format!("p.{q} IS NOT DISTINCT FROM c.{q}")
+        })
+        .collect::<Vec<_>>()
+        .join(" AND ");
+    let first_key = quote_ident(&keys[0]);
+    let vf = quote_ident(&valid_from);
+    let vt = quote_ident(&valid_to);
+    let ic = quote_ident(&is_current);
+    let cur_q = quote_ident(cur);
+    let prev_q = quote_ident(prev);
+
+    Ok(format!(
+        "WITH prev_current AS (SELECT * FROM {prev_q} WHERE {ic}), \
+              prev_history AS (SELECT * FROM {prev_q} WHERE NOT {ic}), \
+              to_close AS (SELECT p.* FROM prev_current p LEFT JOIN {cur_q} c ON {key_eq} \
+                           WHERE c.{first_key} IS NULL OR ({cmp_diff})), \
+              to_keep AS (SELECT p.* FROM prev_current p INNER JOIN {cur_q} c ON {key_eq} \
+                          WHERE {cmp_same}), \
+              to_insert AS (SELECT c.* FROM {cur_q} c LEFT JOIN prev_current p ON {key_eq} \
+                            WHERE p.{first_key} IS NULL OR ({cmp_diff})) \
+         SELECT * FROM prev_history \
+         UNION ALL SELECT * FROM to_keep \
+         UNION ALL SELECT * REPLACE (CURRENT_TIMESTAMP AS {vt}, FALSE AS {ic}) FROM to_close \
+         UNION ALL SELECT *, CURRENT_TIMESTAMP AS {vf}, NULL::TIMESTAMP AS {vt}, TRUE AS {ic} FROM to_insert"
     ))
 }
 
