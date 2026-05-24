@@ -233,6 +233,7 @@ export const PALETTE: Category[] = [
                     xf('reorder', 'Reorder Columns', 'available'),
                     xf('coalesce', 'Coalesce / Null Fill', 'available', 'Fill nulls via an expression'),
                     xf('uuid', 'UUID', 'available', 'Add a fresh UUID v4 column per row - the standard surrogate row id'),
+                    xf('compare', 'Compare Columns', 'available', 'Boolean column from comparing two row columns (=, !=, <, <=, >, >=)'),
                 ],
             },
             {
@@ -313,6 +314,8 @@ export const PALETTE: Category[] = [
                     xf('text.base64', 'Base64', 'available', 'Encode a column to base64 text, or decode base64 back to bytes'),
                     xf('text.padding', 'Pad String', 'available', 'Left or right pad to a fixed length (zero-pad IDs, right-pad for fixed-width output)'),
                     xf('text.match', 'Text Match', 'available', 'Boolean: does the string contain / start with / end with a substring (DuckDB contains / starts_with / ends_with)'),
+                    xf('text.reverse', 'Reverse', 'available', 'Reverse the characters of a string column'),
+                    xf('text.repeat', 'Repeat', 'available', 'Repeat a string column N times'),
                     xf('split', 'Split', 'available'),
                     xf('concat', 'Concat', 'available'),
                     xf('trim', 'Trim', 'available'),

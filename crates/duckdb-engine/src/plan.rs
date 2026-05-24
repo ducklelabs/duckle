@@ -867,6 +867,9 @@ fn build_view_sql(
         "xf.text.base64" => build_base64(inputs, props),
         "xf.text.padding" => build_padding(inputs, props),
         "xf.text.match" => build_text_match(inputs, props),
+        "xf.text.reverse" => build_text_reverse(inputs, props),
+        "xf.text.repeat" => build_text_repeat(inputs, props),
+        "xf.compare" => build_compare(inputs, props),
         "xf.arr.element" | "xf.arr.distinct" | "xf.arr.explode" => {
             build_array(inputs, props, component_id)
         }
@@ -3248,6 +3251,80 @@ fn build_zscore(inputs: &NodeInputs, props: &JsonValue) -> Result<String, String
         col = qcol,
         out = quote_ident(&output),
         up = quote_ident(upstream)
+    ))
+}
+
+/// Text Reverse: reverse the characters in a string column.
+/// DuckDB reverse() function.
+fn build_text_reverse(inputs: &NodeInputs, props: &JsonValue) -> Result<String, String> {
+    let upstream = inputs.main().ok_or_else(|| missing_input_msg("xf.text.reverse"))?;
+    let column = string_prop(props, "column")
+        .filter(|s| !s.is_empty())
+        .ok_or_else(|| "Reverse needs a column".to_string())?;
+    let output = string_prop(props, "outputColumn")
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| format!("{}_reversed", column));
+    Ok(format!(
+        "SELECT *, reverse(CAST({col} AS VARCHAR)) AS {out} FROM {up}",
+        col = quote_ident(&column),
+        out = quote_ident(&output),
+        up = quote_ident(upstream)
+    ))
+}
+
+/// Text Repeat: repeat a string column N times via DuckDB repeat().
+fn build_text_repeat(inputs: &NodeInputs, props: &JsonValue) -> Result<String, String> {
+    let upstream = inputs.main().ok_or_else(|| missing_input_msg("xf.text.repeat"))?;
+    let column = string_prop(props, "column")
+        .filter(|s| !s.is_empty())
+        .ok_or_else(|| "Repeat needs a column".to_string())?;
+    let count = props
+        .get("count")
+        .and_then(|v| v.as_i64())
+        .filter(|n| *n >= 0)
+        .unwrap_or(2);
+    let output = string_prop(props, "outputColumn")
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| format!("{}_repeated", column));
+    Ok(format!(
+        "SELECT *, repeat(CAST({col} AS VARCHAR), {n}) AS {out} FROM {up}",
+        col = quote_ident(&column),
+        n = count,
+        out = quote_ident(&output),
+        up = quote_ident(upstream)
+    ))
+}
+
+/// Compare: produce a boolean column from a comparison of two
+/// upstream columns. op = eq / neq / lt / le / gt / ge. Useful for
+/// flagging mismatches between expected/actual columns.
+fn build_compare(inputs: &NodeInputs, props: &JsonValue) -> Result<String, String> {
+    let upstream = inputs.main().ok_or_else(|| missing_input_msg("xf.compare"))?;
+    let left = string_prop(props, "leftColumn")
+        .filter(|s| !s.is_empty())
+        .ok_or_else(|| "Compare needs a left column".to_string())?;
+    let right = string_prop(props, "rightColumn")
+        .filter(|s| !s.is_empty())
+        .ok_or_else(|| "Compare needs a right column".to_string())?;
+    let op = string_prop(props, "op").unwrap_or_else(|| "eq".into());
+    let sql_op = match op.as_str() {
+        "neq" => "!=",
+        "lt" => "<",
+        "le" => "<=",
+        "gt" => ">",
+        "ge" => ">=",
+        _ => "=",
+    };
+    let output = string_prop(props, "outputColumn")
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| format!("{}_{}_{}", left, op, right));
+    Ok(format!(
+        "SELECT *, ({} {} {}) AS {} FROM {}",
+        quote_ident(&left),
+        sql_op,
+        quote_ident(&right),
+        quote_ident(&output),
+        quote_ident(upstream)
     ))
 }
 

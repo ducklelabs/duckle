@@ -1455,6 +1455,32 @@ function synthFieldsTransform(comp: ComponentDef): ComponentManifest {
             ] },
         ], 'upstream');
     }
+    if (id === 'xf.compare') {
+        return base(comp, [
+            {
+                label: 'Compare columns',
+                fields: [
+                    { key: 'leftColumn', label: 'Left column', kind: 'column', required: true },
+                    {
+                        key: 'op',
+                        label: 'Operator',
+                        kind: 'select',
+                        defaultValue: 'eq',
+                        options: [
+                            { label: '= (equal)', value: 'eq' },
+                            { label: '!= (not equal)', value: 'neq' },
+                            { label: '< (less than)', value: 'lt' },
+                            { label: '<= (less or equal)', value: 'le' },
+                            { label: '> (greater)', value: 'gt' },
+                            { label: '>= (greater or equal)', value: 'ge' },
+                        ],
+                    },
+                    { key: 'rightColumn', label: 'Right column', kind: 'column', required: true },
+                    { key: 'outputColumn', label: 'Output column', kind: 'text', placeholder: '<left>_<op>_<right>' },
+                ],
+            },
+        ], 'upstream');
+    }
     return synthGeneric(comp, schemaSource);
 }
 
@@ -1767,6 +1793,19 @@ function synthStringTransform(comp: ComponentDef): ComponentManifest {
                 ],
             },
         ], 'upstream');
+    }
+    if (comp.id === 'xf.text.reverse') {
+        return base(comp, [{ label: 'Reverse', fields: [
+            { key: 'column', label: 'Column', kind: 'column', required: true },
+            { key: 'outputColumn', label: 'Output column', kind: 'text', placeholder: '<column>_reversed' },
+        ] }], 'upstream');
+    }
+    if (comp.id === 'xf.text.repeat') {
+        return base(comp, [{ label: 'Repeat', fields: [
+            { key: 'column', label: 'Column', kind: 'column', required: true },
+            { key: 'count', label: 'Times', kind: 'integer', defaultValue: 2 },
+            { key: 'outputColumn', label: 'Output column', kind: 'text', placeholder: '<column>_repeated' },
+        ] }], 'upstream');
     }
     if (comp.id === 'xf.text.padding') {
         return base(comp, [

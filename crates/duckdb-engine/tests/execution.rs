@@ -2343,6 +2343,56 @@ fn snk_webhook_posts_one_request_per_row() {
 }
 
 #[test]
+fn text_reverse_repeat_and_compare() {
+    let engine = engine_or_skip!();
+    let tmp = tempfile::tempdir().unwrap();
+    let csv = write_file(
+        tmp.path(),
+        "in.csv",
+        "id,a,b\n1,abc,xyz\n2,foo,foo\n",
+    );
+    let out = out_path(tmp.path(), "out.csv");
+    let r = engine.execute_pipeline(&doc(
+        json!([
+            node("s", "src.csv", json!({ "path": csv, "hasHeader": true })),
+            node("rv", "xf.text.reverse", json!({ "column": "a", "outputColumn": "a_rev" })),
+            node("rp", "xf.text.repeat", json!({ "column": "a", "count": 3, "outputColumn": "a_x3" })),
+            node("cp", "xf.compare", json!({
+                "leftColumn": "a", "rightColumn": "b", "op": "eq", "outputColumn": "match"
+            })),
+            node("k", "snk.csv", json!({ "path": out, "hasHeader": true })),
+        ]),
+        json!([
+            main_edge("e1", "s", "rv"),
+            main_edge("e2", "rv", "rp"),
+            main_edge("e3", "rp", "cp"),
+            main_edge("e4", "cp", "k"),
+        ]),
+    ));
+    assert_eq!(r.status, "ok", "reverse/repeat/compare failed: {:?}", r.error);
+    let row1_rev = scalar_string(&format!(
+        "SELECT a_rev FROM read_csv_auto('{}') WHERE id = 1",
+        out
+    ));
+    let row1_x3 = scalar_string(&format!(
+        "SELECT a_x3 FROM read_csv_auto('{}') WHERE id = 1",
+        out
+    ));
+    let row1_match = scalar_string(&format!(
+        "SELECT CAST(match AS VARCHAR) FROM read_csv_auto('{}') WHERE id = 1",
+        out
+    ));
+    let row2_match = scalar_string(&format!(
+        "SELECT CAST(match AS VARCHAR) FROM read_csv_auto('{}') WHERE id = 2",
+        out
+    ));
+    assert_eq!(row1_rev, "cba");
+    assert_eq!(row1_x3, "abcabcabc");
+    assert_eq!(row1_match, "false");
+    assert_eq!(row2_match, "true");
+}
+
+#[test]
 fn snk_pinecone_wraps_batch_in_vectors_key() {
     // Pinecone wants {"vectors": [...]}; we should see that exact wrap
     // in the single batched request the engine sends.
