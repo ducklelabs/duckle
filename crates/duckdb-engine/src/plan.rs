@@ -48,6 +48,10 @@ pub struct Stage {
     /// query) so the PRAGMA sees committed state. Works unchanged on
     /// v1.4 too.
     pub text_search: Option<TextSearchSpec>,
+    /// HTTP per-row sink (snk.webhook / snk.rest). When set, the
+    /// executor materializes the upstream view and dispatches requests
+    /// via ureq; stage SQL is empty (no DuckDB write).
+    pub webhook: Option<WebhookSpec>,
     /// Milliseconds the executor sleeps before running this stage.
     /// Set by ctl.wait and ctl.throttle. None = no delay.
     pub wait_ms: Option<u64>,
@@ -72,6 +76,20 @@ pub struct TextSearchSpec {
     /// Sanitized staging table name (so PRAGMA can reference a valid
     /// SQL identifier even when the node id has special characters).
     pub staging_table: String,
+}
+
+/// snk.webhook / snk.rest: HTTP POST/PUT one request per upstream row,
+/// using the row's JSON as the request body. Tauri-side reqwest would
+/// also work but ureq keeps the per-stage CLI shape we already use.
+#[derive(Debug, Clone)]
+pub struct WebhookSpec {
+    pub from_view: String,
+    pub url: String,
+    pub method: String,
+    pub headers: Vec<(String, String)>,
+    /// Body shape: 'row' (one POST per row, body = row JSON) or 'batch'
+    /// (single POST, body = entire result as JSON array).
+    pub body_shape: String,
 }
 
 #[derive(Debug, Clone)]
@@ -372,6 +390,7 @@ fn build_stage(
     let mut sink_mode: Option<String> = None;
     let mut upsert: Option<UpsertSpec> = None;
     let mut text_search: Option<TextSearchSpec> = None;
+    let mut webhook: Option<WebhookSpec> = None;
     let mut wait_ms: Option<u64> = None;
     // Advanced settings (universal across components, written by the
     // Properties Panel's Advanced tab). Engine honours them per stage.
@@ -392,7 +411,55 @@ fn build_stage(
     // ATTACH statements for external-DB nodes (DuckDB/SQLite). Each stage
     // runs in its own CLI process, so fixed aliases are collision-free.
     let attach = attach_prelude(component_id, &props);
-    let (sql, kind, from) = if component_id.starts_with("snk.") {
+    let (sql, kind, from) = if component_id == "snk.webhook" || component_id == "snk.rest" {
+        // HTTP sink. Stage SQL stays empty; the executor materializes
+        // the upstream view, then dispatches one ureq request per row
+        // (body_shape='row') or one batched request (body_shape='batch').
+        let from_view = inputs
+            .main()
+            .ok_or_else(|| missing_input(node, "main"))?;
+        let url = string_prop(&props, "url")
+            .filter(|s| !s.is_empty())
+            .ok_or_else(|| EngineError::Config(format!("{}: url required", component_id)))?;
+        let method = string_prop(&props, "method")
+            .filter(|s| !s.is_empty())
+            .unwrap_or_else(|| "POST".into())
+            .to_uppercase();
+        // Prefer bodyShape (engine-native), fall back to batchMode
+        // (form-native): 'one' -> per-row, 'array' -> batched.
+        let body_shape = string_prop(&props, "bodyShape")
+            .filter(|s| !s.is_empty())
+            .or_else(|| {
+                string_prop(&props, "batchMode").map(|m| match m.as_str() {
+                    "array" => "batch".into(),
+                    _ => "row".into(),
+                })
+            })
+            .unwrap_or_else(|| if component_id == "snk.webhook" { "row".into() } else { "batch".into() });
+        let mut headers = headers_from_props(&props);
+        // Translate the form's authType + authToken into a header so
+        // the executor doesn't need to know about auth shapes.
+        let auth_type = string_prop(&props, "authType").unwrap_or_else(|| "none".into());
+        let auth_token = string_prop(&props, "authToken").unwrap_or_default();
+        if !auth_token.is_empty() {
+            match auth_type.as_str() {
+                "bearer" => headers.push((
+                    "Authorization".into(),
+                    format!("Bearer {}", auth_token),
+                )),
+                "apikey" => headers.push(("X-API-Key".into(), auth_token)),
+                _ => {}
+            }
+        }
+        webhook = Some(WebhookSpec {
+            from_view: from_view.to_string(),
+            url,
+            method,
+            headers,
+            body_shape,
+        });
+        (String::new(), StageKind::Sink, Some(from_view.to_string()))
+    } else if component_id.starts_with("snk.") {
         let from_view = inputs
             .main()
             .ok_or_else(|| missing_input(node, "main"))?;
@@ -590,6 +657,7 @@ fn build_stage(
         sink_mode,
         upsert,
         text_search,
+        webhook,
         wait_ms,
         retry_attempts,
         retry_backoff_ms,
@@ -4109,6 +4177,33 @@ fn string_prop(props: &JsonValue, key: &str) -> Option<String> {
         .get(key)
         .and_then(JsonValue::as_str)
         .map(String::from)
+}
+
+/// Reads the `headers` key-value pairs from a HTTP connector's props.
+/// Forms write them as either an object ({k: v}) or an array of
+/// {key, value} entries; accept both shapes.
+fn headers_from_props(props: &JsonValue) -> Vec<(String, String)> {
+    let raw = match props.get("headers") {
+        Some(v) => v,
+        None => return Vec::new(),
+    };
+    if let Some(obj) = raw.as_object() {
+        return obj
+            .iter()
+            .filter_map(|(k, v)| v.as_str().map(|s| (k.clone(), s.to_string())))
+            .collect();
+    }
+    if let Some(arr) = raw.as_array() {
+        return arr
+            .iter()
+            .filter_map(|item| {
+                let k = item.get("key").and_then(|x| x.as_str())?;
+                let v = item.get("value").and_then(|x| x.as_str())?;
+                Some((k.to_string(), v.to_string()))
+            })
+            .collect();
+    }
+    Vec::new()
 }
 
 pub(crate) fn quote_ident(s: &str) -> String {

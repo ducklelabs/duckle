@@ -27,6 +27,7 @@ pub mod history;
 pub mod plan;
 pub use history::{append_run_record, load_run_history, RunRecord};
 pub use plan::{CompiledPipeline, PipelineDoc, Stage, StageKind};
+use plan::WebhookSpec;
 
 #[derive(Debug, Error)]
 pub enum EngineError {
@@ -332,7 +333,12 @@ impl DuckdbEngine {
                     let delay = stage.retry_backoff_ms.saturating_mul(attempt as u64);
                     std::thread::sleep(std::time::Duration::from_millis(delay));
                 }
-                result = if let Some(spec) = stage.upsert.as_ref() {
+                result = if let Some(spec) = stage.webhook.as_ref() {
+                    // HTTP sink (snk.webhook / snk.rest): materialize the
+                    // upstream as JSON via DuckDB, then dispatch one
+                    // request per row or one batched request via ureq.
+                    self.run_webhook(&db_path, &secret_prefix, spec)
+                } else if let Some(spec) = stage.upsert.as_ref() {
                     // Relational-DB upsert: DESCRIBE the upstream first to
                     // get the column list, then assemble INSERT ... ON
                     // CONFLICT (Postgres) or ON DUPLICATE KEY UPDATE (MySQL).
@@ -531,6 +537,74 @@ impl DuckdbEngine {
             sql = native_sql.replace('\'', "''")
         );
         self.run(Some(db), &exec_sql, false)
+    }
+
+    /// HTTP sink (snk.webhook / snk.rest). Materializes the upstream
+    /// view via DuckDB's -json output, then either
+    ///   - row mode: one ureq request per row, body = row JSON
+    ///   - batch mode: a single request with body = entire array JSON
+    /// Returns a synthetic 'sent N rows' report on success; aggregates
+    /// per-row HTTP errors into a single Err for the run feedback layer.
+    fn run_webhook(
+        &self,
+        db: &Path,
+        secret_prefix: &str,
+        spec: &WebhookSpec,
+    ) -> Result<String, EngineError> {
+        let select = format!(
+            "{}SELECT * FROM {}",
+            secret_prefix,
+            plan::quote_ident(&spec.from_view)
+        );
+        let rows = self.run_rows(Some(db), &select)?;
+        let method = if spec.method.is_empty() {
+            "POST".to_string()
+        } else {
+            spec.method.to_uppercase()
+        };
+        let dispatch = |body: String| -> Result<(), EngineError> {
+            let mut req = ureq::request(&method, &spec.url);
+            for (k, v) in &spec.headers {
+                req = req.set(k, v);
+            }
+            // Always set a content-type if the caller didn't, since
+            // every body we send here is JSON.
+            if !spec.headers.iter().any(|(k, _)| k.eq_ignore_ascii_case("content-type")) {
+                req = req.set("content-type", "application/json");
+            }
+            match req.send_string(&body) {
+                Ok(_) => Ok(()),
+                Err(ureq::Error::Status(code, response)) => {
+                    let body = response.into_string().unwrap_or_default();
+                    Err(EngineError::Query(format!(
+                        "HTTP {} from {}: {}",
+                        code,
+                        spec.url,
+                        body.chars().take(200).collect::<String>()
+                    )))
+                }
+                Err(e) => Err(EngineError::Query(format!(
+                    "HTTP transport error to {}: {}",
+                    spec.url, e
+                ))),
+            }
+        };
+        match spec.body_shape.as_str() {
+            "batch" => {
+                let body = serde_json::to_string(&rows).unwrap_or_else(|_| "[]".into());
+                dispatch(body)?;
+                Ok(format!("sent 1 batch ({} rows) to {}", rows.len(), spec.url))
+            }
+            _ => {
+                let mut sent = 0_usize;
+                for row in &rows {
+                    let body = serde_json::to_string(row).unwrap_or_else(|_| "{}".into());
+                    dispatch(body)?;
+                    sent += 1;
+                }
+                Ok(format!("sent {} rows to {}", sent, spec.url))
+            }
+        }
     }
 
     /// Full-Text Search runs in two CLI invocations sharing the same

@@ -2263,6 +2263,124 @@ fn geo_distance_computes_point_distance() {
 }
 
 #[test]
+fn snk_webhook_posts_one_request_per_row() {
+    // Spins up a tiny TCP/HTTP listener, runs snk.webhook against it,
+    // and verifies (a) two requests arrived (one per CSV row) and (b)
+    // the row JSON shows up in the request bodies.
+    use std::io::{Read, Write};
+    use std::net::TcpListener;
+    use std::sync::mpsc;
+    use std::time::Duration;
+
+    let engine = engine_or_skip!();
+    let (tx, rx) = mpsc::channel::<Vec<u8>>();
+    let listener = TcpListener::bind("127.0.0.1:0").expect("bind mock http");
+    let addr = listener.local_addr().unwrap();
+    let url = format!("http://{}/hook", addr);
+
+    let handle = std::thread::spawn(move || {
+        // Accept exactly 2 connections; close each after one round-trip.
+        for stream in listener.incoming().take(2) {
+            let mut stream = match stream {
+                Ok(s) => s,
+                Err(_) => break,
+            };
+            stream.set_read_timeout(Some(Duration::from_secs(5))).ok();
+            let mut buf = [0u8; 8192];
+            let n = stream.read(&mut buf).unwrap_or(0);
+            let _ = tx.send(buf[..n].to_vec());
+            let body = b"ok";
+            let resp = format!(
+                "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                body.len()
+            );
+            let _ = stream.write_all(resp.as_bytes());
+            let _ = stream.write_all(body);
+        }
+    });
+
+    let tmp = tempfile::tempdir().unwrap();
+    let csv = write_file(tmp.path(), "in.csv", "id,name\n1,alice\n2,bob\n");
+    let r = engine.execute_pipeline(&doc(
+        json!([
+            node("s", "src.csv", json!({ "path": csv, "hasHeader": true })),
+            node("w", "snk.webhook", json!({ "url": url })),
+        ]),
+        json!([main_edge("e1", "s", "w")]),
+    ));
+    assert_eq!(r.status, "ok", "webhook pipeline failed: {:?}", r.error);
+
+    // Drain received requests with a generous timeout so slow CI hosts
+    // don't flake.
+    let mut requests = Vec::new();
+    for _ in 0..2 {
+        if let Ok(req) = rx.recv_timeout(Duration::from_secs(5)) {
+            requests.push(String::from_utf8_lossy(&req).to_string());
+        }
+    }
+    let _ = handle.join();
+    assert_eq!(requests.len(), 2, "expected 2 HTTP requests, got {}", requests.len());
+    let combined = requests.join("|");
+    assert!(combined.contains("alice"), "expected alice in payloads: {}", combined);
+    assert!(combined.contains("bob"), "expected bob in payloads: {}", combined);
+    assert!(combined.contains("POST"), "expected POST method: {}", combined);
+}
+
+#[test]
+fn snk_rest_batches_rows_into_one_request() {
+    // Same shape as the webhook test but bodyShape='batch' /
+    // batchMode='array' should produce ONE request containing both rows.
+    use std::io::{Read, Write};
+    use std::net::TcpListener;
+    use std::sync::mpsc;
+    use std::time::Duration;
+
+    let engine = engine_or_skip!();
+    let (tx, rx) = mpsc::channel::<Vec<u8>>();
+    let listener = TcpListener::bind("127.0.0.1:0").expect("bind mock http");
+    let addr = listener.local_addr().unwrap();
+    let url = format!("http://{}/batch", addr);
+
+    let handle = std::thread::spawn(move || {
+        for stream in listener.incoming().take(1) {
+            let mut stream = match stream {
+                Ok(s) => s,
+                Err(_) => break,
+            };
+            stream.set_read_timeout(Some(Duration::from_secs(5))).ok();
+            let mut buf = [0u8; 8192];
+            let n = stream.read(&mut buf).unwrap_or(0);
+            let _ = tx.send(buf[..n].to_vec());
+            let _ = stream.write_all(
+                b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok",
+            );
+        }
+    });
+
+    let tmp = tempfile::tempdir().unwrap();
+    let csv = write_file(tmp.path(), "in.csv", "id,name\n1,alice\n2,bob\n");
+    let r = engine.execute_pipeline(&doc(
+        json!([
+            node("s", "src.csv", json!({ "path": csv, "hasHeader": true })),
+            node("r", "snk.rest", json!({ "url": url, "batchMode": "array" })),
+        ]),
+        json!([main_edge("e1", "s", "r")]),
+    ));
+    assert_eq!(r.status, "ok", "rest pipeline failed: {:?}", r.error);
+
+    let req = rx
+        .recv_timeout(Duration::from_secs(5))
+        .expect("expected 1 batched request");
+    let _ = handle.join();
+    let body = String::from_utf8_lossy(&req).to_string();
+    // Both rows should be in the single request body (as JSON array).
+    assert!(body.contains("alice"), "expected alice in batch: {}", body);
+    assert!(body.contains("bob"), "expected bob in batch: {}", body);
+    // Should look like a JSON array start.
+    assert!(body.contains("["), "expected JSON array in body: {}", body);
+}
+
+#[test]
 fn retry_attempts_actually_retries_failing_stage() {
     // retryAttempts=3 with retryBackoffMs=80 should fail three times and
     // sleep 80ms + 160ms = 240ms of cumulative backoff. The stage targets

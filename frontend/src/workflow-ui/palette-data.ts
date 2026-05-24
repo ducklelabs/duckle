@@ -512,8 +512,8 @@ export const PALETTE: Category[] = [
                 id: 'snk.apis',
                 label: 'APIs',
                 components: [
-                    snk('rest', 'REST', 'planned'),
-                    snk('webhook', 'Webhook', 'planned'),
+                    snk('rest', 'REST', 'available', 'HTTP POST one batched request containing the result as a JSON array (configurable method, headers, body shape)'),
+                    snk('webhook', 'Webhook', 'available', 'HTTP POST one request per row, body = row JSON (configurable method + headers)'),
                     snk('graphql', 'GraphQL Mutation', 'planned'),
                 ],
             },

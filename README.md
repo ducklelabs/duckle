@@ -169,7 +169,9 @@ The whole group runs today. Validators split their input: passing rows continue 
 | **Cloud warehouses** | MotherDuck | Available |
 | **Cloud warehouses** | Snowflake, BigQuery, Redshift, Databricks SQL | Planned (need vendor SDKs) |
 | **Network relational DBs** | SQL Server, Oracle, ClickHouse, generic JDBC | Planned |
-| **Streaming** | Kafka, Pulsar, NATS, Kinesis, REST / Webhook / GraphQL | Planned |
+| **HTTP APIs** | **REST** (POST/PUT/PATCH a single batched JSON-array request) and **Webhook** (one POST per row, body = row JSON). Bearer / API-key auth + custom headers via the form. Uses `ureq` blocking client (~20kb dep, no tokio). Vector DB and NoSQL HTTP APIs (Pinecone, Qdrant, Weaviate, Elasticsearch upsert) ride this same plumbing - point the URL at the vendor endpoint. | Available |
+| **Streaming** | Kafka, Pulsar, NATS, Kinesis | Planned (need vendor SDKs) |
+| **GraphQL Mutation / SOAP** | (use REST sink at the GraphQL endpoint until dedicated components land) | Planned |
 | **NoSQL** | MongoDB, Redis, Elasticsearch, OpenSearch | Planned |
 | **Vector / AI databases** | **pgvector** (Postgres ATTACH; server needs `CREATE EXTENSION vector`) | Available |
 | **Vector / AI databases** | Pinecone, Qdrant, Weaviate, Chroma, Milvus, LanceDB | Preview (need vendor SDKs) |
