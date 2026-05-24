@@ -28,14 +28,14 @@ pub mod plan;
 pub use history::{append_run_record, load_run_history, RunRecord};
 pub use plan::{CompiledPipeline, PipelineDoc, Stage, StageKind};
 use plan::{
-    AvroSourceSpec, CassandraSinkSpec, CassandraSourceSpec, ClickHouseSinkSpec,
+    AvroSinkSpec, AvroSourceSpec, CassandraSinkSpec, CassandraSourceSpec, ClickHouseSinkSpec,
     ClickHouseSourceSpec, DatabricksSinkSpec, DatabricksSourceSpec, ElasticSourceSpec,
     FormatFileSinkSpec, FormatFileSourceSpec, FormatKind, KafkaSinkSpec, KafkaSourceSpec,
     MilvusSourceSpec, MongoSinkSpec, MongoSourceSpec, NatsSinkSpec, NatsSourceSpec,
     OracleSinkSpec, OracleSourceSpec, PubSubSinkSpec, PubSubSourceSpec, QdrantSourceSpec,
     RedisSinkSpec, RedisSourceSpec, RestPagination, RestSourceSpec, SnowflakeAuth,
     SnowflakeSinkSpec, SnowflakeSourceSpec, SqlServerSinkSpec, SqlServerSourceSpec,
-    WeaviateSourceSpec, WebhookSpec,
+    WeaviateSourceSpec, WebhookSpec, XmlSinkSpec, XmlSourceSpec,
 };
 
 #[derive(Debug, Error)]
@@ -529,6 +529,12 @@ impl DuckdbEngine {
                     self.run_pubsub_sink(&db_path, spec)
                 } else if let Some(spec) = stage.pubsub_source.as_ref() {
                     self.run_pubsub_source(&db_path, spec)
+                } else if let Some(spec) = stage.xml_source.as_ref() {
+                    self.run_xml_source(&db_path, spec)
+                } else if let Some(spec) = stage.xml_sink.as_ref() {
+                    self.run_xml_sink(&db_path, spec)
+                } else if let Some(spec) = stage.avro_sink.as_ref() {
+                    self.run_avro_sink(&db_path, spec)
                 } else if let Some(spec) = stage.upsert.as_ref() {
                     // Relational-DB upsert: DESCRIBE the upstream first to
                     // get the column list, then assemble INSERT ... ON
@@ -1776,6 +1782,262 @@ impl DuckdbEngine {
             "avro: materialized {} records into {}",
             count, spec.node_id
         ))
+    }
+
+    /// XML row-path source. Walks the document, builds a serde_json
+    /// tree per element, and emits every element matching the
+    /// trailing components of rowPath. Attributes become "@name"
+    /// keys, text content goes to "_text" (or the value directly if
+    /// the element has no children), nested elements nest naturally
+    /// and convert to arrays when the same tag repeats.
+    fn run_xml_source(
+        &self,
+        db: &Path,
+        spec: &XmlSourceSpec,
+    ) -> Result<String, EngineError> {
+        use quick_xml::events::Event;
+        use quick_xml::reader::Reader;
+
+        let content = std::fs::read_to_string(&spec.path)
+            .map_err(|e| EngineError::Query(format!("xml: read {}: {}", spec.path, e)))?;
+        let mut reader = Reader::from_str(&content);
+        reader.config_mut().trim_text(true);
+
+        let row_path: Vec<String> = spec
+            .row_path
+            .trim_matches('/')
+            .split('/')
+            .filter(|s| !s.is_empty())
+            .map(|s| s.to_string())
+            .collect();
+
+        // Stack frames: (element_name, attrs+children builder, text accumulator).
+        let mut stack: Vec<(String, serde_json::Map<String, JsonValue>, String)> = Vec::new();
+        let mut rows: Vec<JsonValue> = Vec::new();
+        let mut buf = Vec::new();
+        loop {
+            self.check_cancelled()?;
+            let event = reader
+                .read_event_into(&mut buf)
+                .map_err(|e| EngineError::Query(format!("xml: parse: {}", e)))?;
+            match event {
+                Event::Eof => break,
+                Event::Start(e) => {
+                    let name = String::from_utf8_lossy(e.name().as_ref()).to_string();
+                    let mut builder = serde_json::Map::new();
+                    for attr in e.attributes().flatten() {
+                        let k = format!(
+                            "@{}",
+                            String::from_utf8_lossy(attr.key.as_ref())
+                        );
+                        let v = String::from_utf8_lossy(&attr.value).to_string();
+                        builder.insert(k, JsonValue::String(v));
+                    }
+                    stack.push((name, builder, String::new()));
+                }
+                Event::Empty(e) => {
+                    let name = String::from_utf8_lossy(e.name().as_ref()).to_string();
+                    let mut builder = serde_json::Map::new();
+                    for attr in e.attributes().flatten() {
+                        let k = format!(
+                            "@{}",
+                            String::from_utf8_lossy(attr.key.as_ref())
+                        );
+                        let v = String::from_utf8_lossy(&attr.value).to_string();
+                        builder.insert(k, JsonValue::String(v));
+                    }
+                    xml_close_element(
+                        &mut stack,
+                        &mut rows,
+                        &row_path,
+                        &name,
+                        builder,
+                        String::new(),
+                    );
+                }
+                Event::Text(e) => {
+                    let text = String::from_utf8_lossy(
+                        e.unescape().unwrap_or_default().as_ref().as_bytes(),
+                    )
+                    .to_string();
+                    if let Some(last) = stack.last_mut() {
+                        last.2.push_str(&text);
+                    }
+                }
+                Event::End(_) => {
+                    if let Some((name, builder, text)) = stack.pop() {
+                        xml_close_element(&mut stack, &mut rows, &row_path, &name, builder, text);
+                    }
+                }
+                _ => {}
+            }
+            buf.clear();
+        }
+        let count = rows.len();
+        materialize_jsonobjects_as_table(db, &spec.node_id, &rows)?;
+        Ok(format!(
+            "xml: materialized {} rows into {}",
+            count, spec.node_id
+        ))
+    }
+
+    /// XML wrapper-element writer. Emits
+    ///   <root><row><col>val</col>...</row>...</root>
+    /// Values are XML-escaped via quick-xml's writer; complex types
+    /// (objects, arrays) get JSON-encoded inside CDATA so the file
+    /// round-trips back through src.xml losslessly.
+    fn run_xml_sink(
+        &self,
+        db: &Path,
+        spec: &XmlSinkSpec,
+    ) -> Result<String, EngineError> {
+        use quick_xml::events::{BytesCData, BytesEnd, BytesStart, BytesText, Event};
+        use quick_xml::writer::Writer;
+
+        let select = format!("SELECT * FROM {}", plan::quote_ident(&spec.from_view));
+        let rows = self.run_rows(Some(db), &select)?;
+        let mut buf: Vec<u8> = Vec::with_capacity(4096);
+        let mut writer = Writer::new_with_indent(&mut buf, b' ', 2);
+        writer
+            .write_event(Event::Decl(quick_xml::events::BytesDecl::new(
+                "1.0", Some("UTF-8"), None,
+            )))
+            .map_err(|e| EngineError::Query(format!("xml: write decl: {}", e)))?;
+        writer
+            .write_event(Event::Start(BytesStart::new(spec.root_element.as_str())))
+            .map_err(|e| EngineError::Query(format!("xml: write root: {}", e)))?;
+        for row in &rows {
+            self.check_cancelled()?;
+            writer
+                .write_event(Event::Start(BytesStart::new(spec.row_element.as_str())))
+                .map_err(|e| EngineError::Query(format!("xml: write row: {}", e)))?;
+            if let Some(obj) = row.as_object() {
+                for (k, v) in obj {
+                    writer
+                        .write_event(Event::Start(BytesStart::new(k.as_str())))
+                        .map_err(|e| EngineError::Query(format!("xml: write col {}: {}", k, e)))?;
+                    match v {
+                        JsonValue::String(s) => {
+                            writer
+                                .write_event(Event::Text(BytesText::new(s)))
+                                .map_err(|e| EngineError::Query(format!("xml: write text: {}", e)))?;
+                        }
+                        JsonValue::Null => {}
+                        JsonValue::Bool(b) => {
+                            writer
+                                .write_event(Event::Text(BytesText::new(if *b {
+                                    "true"
+                                } else {
+                                    "false"
+                                })))
+                                .map_err(|e| EngineError::Query(format!("xml: write bool: {}", e)))?;
+                        }
+                        JsonValue::Number(n) => {
+                            writer
+                                .write_event(Event::Text(BytesText::new(&n.to_string())))
+                                .map_err(|e| EngineError::Query(format!("xml: write num: {}", e)))?;
+                        }
+                        JsonValue::Array(_) | JsonValue::Object(_) => {
+                            // Round-trip complex shapes via JSON-in-CDATA.
+                            let json = serde_json::to_string(v).unwrap_or_default();
+                            writer
+                                .write_event(Event::CData(BytesCData::new(json)))
+                                .map_err(|e| EngineError::Query(format!("xml: write cdata: {}", e)))?;
+                        }
+                    }
+                    writer
+                        .write_event(Event::End(BytesEnd::new(k.as_str())))
+                        .map_err(|e| EngineError::Query(format!("xml: close col: {}", e)))?;
+                }
+            }
+            writer
+                .write_event(Event::End(BytesEnd::new(spec.row_element.as_str())))
+                .map_err(|e| EngineError::Query(format!("xml: close row: {}", e)))?;
+        }
+        writer
+            .write_event(Event::End(BytesEnd::new(spec.root_element.as_str())))
+            .map_err(|e| EngineError::Query(format!("xml: close root: {}", e)))?;
+        std::fs::write(&spec.path, buf)
+            .map_err(|e| EngineError::Query(format!("xml: write {}: {}", spec.path, e)))?;
+        Ok(format!("xml: wrote {} rows to {}", rows.len(), spec.path))
+    }
+
+    /// Avro container-file writer. Schema is inferred from the first
+    /// row's column values (long / double / string / boolean / bytes /
+    /// nullable-union for nulls), unless schemaJson is provided in
+    /// which case it's parsed and used verbatim. Each row is written
+    /// as one Avro record; the OCF format embeds the schema in the
+    /// header so the file is self-describing.
+    fn run_avro_sink(
+        &self,
+        db: &Path,
+        spec: &AvroSinkSpec,
+    ) -> Result<String, EngineError> {
+        let select = format!("SELECT * FROM {}", plan::quote_ident(&spec.from_view));
+        let rows = self.run_rows(Some(db), &select)?;
+        if rows.is_empty() {
+            // Nothing to write - leave the file untouched rather than
+            // creating an empty OCF with an arbitrary schema.
+            return Ok(format!("avro: 0 rows to write to {}", spec.path));
+        }
+        let schema = if !spec.schema_json.is_empty() {
+            apache_avro::Schema::parse_str(&spec.schema_json).map_err(|e| {
+                EngineError::Query(format!("avro: parse schemaJson: {}", e))
+            })?
+        } else {
+            let Some(first) = rows[0].as_object() else {
+                return Err(EngineError::Query(
+                    "avro: upstream rows aren't JSON objects".into(),
+                ));
+            };
+            let fields: Vec<serde_json::Value> = first
+                .iter()
+                .map(|(name, val)| {
+                    let typ = infer_avro_field_type(val);
+                    serde_json::json!({ "name": name, "type": typ })
+                })
+                .collect();
+            let schema_json = serde_json::json!({
+                "type": "record",
+                "name": spec.record_name,
+                "fields": fields,
+            });
+            apache_avro::Schema::parse_str(&schema_json.to_string()).map_err(|e| {
+                EngineError::Query(format!("avro: parse inferred schema: {}", e))
+            })?
+        };
+        let file = std::fs::File::create(&spec.path)
+            .map_err(|e| EngineError::Query(format!("avro: create {}: {}", spec.path, e)))?;
+        let mut writer = apache_avro::Writer::new(&schema, file);
+        let mut total = 0_usize;
+        for row in &rows {
+            self.check_cancelled()?;
+            // Build an Avro Record explicitly - apache_avro::to_value
+            // on a JSON object returns Value::Map which the Record-
+            // typed schema rejects. Record::new + put per field uses
+            // the schema's known field list to coerce types.
+            let Some(obj) = row.as_object() else {
+                return Err(EngineError::Query(
+                    "avro: upstream rows aren't JSON objects".into(),
+                ));
+            };
+            let mut record = apache_avro::types::Record::new(&schema).ok_or_else(|| {
+                EngineError::Query(
+                    "avro: failed to build Record (schema is not a record type)".into(),
+                )
+            })?;
+            for (k, v) in obj {
+                record.put(k, json_to_avro_value(v));
+            }
+            writer
+                .append(record)
+                .map_err(|e| EngineError::Query(format!("avro: append: {}", e)))?;
+            total += 1;
+        }
+        writer
+            .flush()
+            .map_err(|e| EngineError::Query(format!("avro: flush: {}", e)))?;
+        Ok(format!("avro: wrote {} records to {}", total, spec.path))
     }
 
     /// NATS publisher via async-nats. Each upstream row becomes one
@@ -4228,4 +4490,110 @@ pub fn compile_pipeline_sql(doc: &PipelineDoc) -> Result<Vec<StageSql>, EngineEr
             sql: s.sql,
         })
         .collect())
+}
+
+/// Finalize an XML element being popped from the stack: convert it
+/// to a JSON value, push to rows if its path matches row_path, and
+/// merge it into its parent (multiple same-named children collapse
+/// to an array). Standalone (not a method) so the borrow checker
+/// doesn't complain about &mut stack + &mut rows at the same time.
+fn xml_close_element(
+    stack: &mut Vec<(String, serde_json::Map<String, JsonValue>, String)>,
+    rows: &mut Vec<JsonValue>,
+    row_path: &[String],
+    name: &str,
+    mut builder: serde_json::Map<String, JsonValue>,
+    text: String,
+) {
+    let text_trimmed = text.trim().to_string();
+    let value: JsonValue = if builder.is_empty() && !text_trimmed.is_empty() {
+        JsonValue::String(text_trimmed)
+    } else if builder.is_empty() {
+        JsonValue::Null
+    } else {
+        if !text_trimmed.is_empty() {
+            builder.insert("_text".into(), JsonValue::String(text_trimmed));
+        }
+        JsonValue::Object(builder)
+    };
+
+    // Check if (stack path + name) ends with row_path. Empty row_path
+    // matches every element - useful for "every immediate child" type
+    // use cases when combined with a single-segment path.
+    let mut current_path: Vec<&str> = stack.iter().map(|(n, _, _)| n.as_str()).collect();
+    current_path.push(name);
+    let matches = if row_path.is_empty() {
+        // No filter - match every direct child of the root only, to
+        // avoid emitting nested structures as separate rows.
+        current_path.len() == 1
+    } else {
+        current_path.len() >= row_path.len()
+            && current_path[current_path.len() - row_path.len()..]
+                .iter()
+                .zip(row_path.iter())
+                .all(|(a, b)| *a == b.as_str())
+    };
+
+    if matches {
+        rows.push(value.clone());
+    }
+
+    if let Some((_, parent_builder, _)) = stack.last_mut() {
+        match parent_builder.get_mut(name) {
+            Some(JsonValue::Array(arr)) => arr.push(value),
+            Some(existing) => {
+                let prev = std::mem::replace(existing, JsonValue::Null);
+                *existing = JsonValue::Array(vec![prev, value]);
+            }
+            None => {
+                parent_builder.insert(name.to_string(), value);
+            }
+        }
+    }
+}
+
+/// Convert a JSON value into an apache-avro Value matching the
+/// shapes the inferred schemas can hold. Objects + arrays JSON-
+/// stringify into a String field since the inferred schema treats
+/// them as strings.
+fn json_to_avro_value(v: &JsonValue) -> apache_avro::types::Value {
+    use apache_avro::types::Value as A;
+    match v {
+        JsonValue::Null => A::Null,
+        JsonValue::Bool(b) => A::Boolean(*b),
+        JsonValue::Number(n) => {
+            if let Some(i) = n.as_i64() {
+                A::Long(i)
+            } else if let Some(f) = n.as_f64() {
+                A::Double(f)
+            } else {
+                A::String(n.to_string())
+            }
+        }
+        JsonValue::String(s) => A::String(s.clone()),
+        JsonValue::Array(_) | JsonValue::Object(_) => {
+            A::String(serde_json::to_string(v).unwrap_or_default())
+        }
+    }
+}
+
+/// Infer an Avro JSON-schema type for a single JSON value. Used by
+/// snk.avro when schemaJson isn't supplied. Numeric values get the
+/// most-permissive numeric type (double); strings stay string;
+/// booleans stay boolean; nulls become "null"; everything else
+/// (objects, arrays) falls back to string with the JSON encoding.
+fn infer_avro_field_type(v: &JsonValue) -> JsonValue {
+    match v {
+        JsonValue::Null => JsonValue::String("null".into()),
+        JsonValue::Bool(_) => JsonValue::String("boolean".into()),
+        JsonValue::Number(n) => {
+            if n.is_i64() {
+                JsonValue::String("long".into())
+            } else {
+                JsonValue::String("double".into())
+            }
+        }
+        JsonValue::String(_) => JsonValue::String("string".into()),
+        JsonValue::Array(_) | JsonValue::Object(_) => JsonValue::String("string".into()),
+    }
 }

@@ -149,6 +149,12 @@ pub struct Stage {
     pub pubsub_sink: Option<PubSubSinkSpec>,
     /// GCP Pub/Sub pull via REST.
     pub pubsub_source: Option<PubSubSourceSpec>,
+    /// XML row-path reader (walks path -> JSON object per match).
+    pub xml_source: Option<XmlSourceSpec>,
+    /// XML wrapper-element writer (root/row shape).
+    pub xml_sink: Option<XmlSinkSpec>,
+    /// Avro container-file writer (schema inferred from first row).
+    pub avro_sink: Option<AvroSinkSpec>,
     /// Milliseconds the executor sleeps before running this stage.
     /// Set by ctl.wait and ctl.throttle. None = no delay.
     pub wait_ms: Option<u64>,
@@ -453,6 +459,55 @@ pub struct PubSubSourceSpec {
     pub subscription: String,
     pub access_token: String,
     pub max_messages: u64,
+}
+
+/// src.xml: walk an XML document, find every element matching a
+/// slash-separated path (e.g. "library/books/book"), and emit each
+/// match as a JSON object. Attributes prefix with '@'; text content
+/// goes to '_text'; nested elements become nested objects (or arrays
+/// when the same tag repeats inside a parent).
+#[derive(Debug, Clone)]
+pub struct XmlSourceSpec {
+    pub node_id: String,
+    pub path: String,
+    /// Slash-separated element names from the root. Empty = take
+    /// every immediate child of the root.
+    pub row_path: String,
+}
+
+/// snk.xml: write rows as
+///   <root>
+///     <row><col>val</col>...</row>
+///     ...
+///   </root>
+/// rootElement and rowElement are user-configurable. Values are
+/// XML-escaped; complex (object / array) values are JSON-encoded
+/// inside CDATA - schema-aware nested XML emission would need
+/// substantial design work.
+#[derive(Debug, Clone)]
+pub struct XmlSinkSpec {
+    pub from_view: String,
+    pub path: String,
+    pub root_element: String,
+    pub row_element: String,
+}
+
+/// snk.avro: write upstream rows as an Apache Avro container file.
+/// Schema is inferred from the first row's columns - long for
+/// integers, double for floats, string for text, boolean for bool,
+/// "string nullable" via union [null, string] when the first
+/// non-null example is a string but other rows have nulls. For
+/// fully-typed pipelines users can supply a JSON Avro schema via
+/// the schemaJson field which bypasses inference.
+#[derive(Debug, Clone)]
+pub struct AvroSinkSpec {
+    pub from_view: String,
+    pub path: String,
+    /// Optional - if non-empty, parsed as a JSON Avro schema and
+    /// used directly. Otherwise the engine infers from the first row.
+    pub schema_json: String,
+    /// Record name to use when inferring (Avro requires a name).
+    pub record_name: String,
 }
 
 /// snk.cassandra / snk.scylla: CQL INSERT via the scylla driver
@@ -1055,6 +1110,9 @@ fn build_stage(
     let mut nats_source: Option<NatsSourceSpec> = None;
     let mut pubsub_sink: Option<PubSubSinkSpec> = None;
     let mut pubsub_source: Option<PubSubSourceSpec> = None;
+    let mut xml_source: Option<XmlSourceSpec> = None;
+    let mut xml_sink: Option<XmlSinkSpec> = None;
+    let mut avro_sink: Option<AvroSinkSpec> = None;
     let mut wait_ms: Option<u64> = None;
     // Advanced settings (universal across components, written by the
     // Properties Panel's Advanced tab). Engine honours them per stage.
@@ -1559,6 +1617,43 @@ fn build_stage(
             bulk_action: Some(action_line),
         });
         (String::new(), StageKind::Sink, Some(from_view.to_string()))
+    } else if component_id == "snk.xml" {
+        // XML wrapper-element writer. Default shape:
+        //   <root><row><col>val</col>...</row>...</root>
+        // Custom rootElement / rowElement override the wrapper names.
+        let from_view = inputs.main().ok_or_else(|| missing_input(node, "main"))?;
+        let path = string_prop(&props, "path")
+            .filter(|s| !s.is_empty())
+            .ok_or_else(|| EngineError::Config(format!("{}: path required", component_id)))?;
+        xml_sink = Some(XmlSinkSpec {
+            from_view: from_view.to_string(),
+            path,
+            root_element: string_prop(&props, "rootElement")
+                .filter(|s| !s.is_empty())
+                .unwrap_or_else(|| "root".into()),
+            row_element: string_prop(&props, "rowElement")
+                .filter(|s| !s.is_empty())
+                .unwrap_or_else(|| "row".into()),
+        });
+        (String::new(), StageKind::Sink, Some(from_view.to_string()))
+    } else if component_id == "snk.avro" {
+        // Avro container-file writer. Schema either inferred from
+        // the first row's columns (long / double / string / boolean)
+        // or supplied verbatim as a JSON Avro schema via the
+        // schemaJson field.
+        let from_view = inputs.main().ok_or_else(|| missing_input(node, "main"))?;
+        let path = string_prop(&props, "path")
+            .filter(|s| !s.is_empty())
+            .ok_or_else(|| EngineError::Config(format!("{}: path required", component_id)))?;
+        avro_sink = Some(AvroSinkSpec {
+            from_view: from_view.to_string(),
+            path,
+            schema_json: string_prop(&props, "schemaJson").unwrap_or_default(),
+            record_name: string_prop(&props, "recordName")
+                .filter(|s| !s.is_empty())
+                .unwrap_or_else(|| "Row".into()),
+        });
+        (String::new(), StageKind::Sink, Some(from_view.to_string()))
     } else if component_id == "snk.nats" {
         // NATS publisher. urls (comma-separated nats:// URLs) +
         // subject + optional subjectSuffixColumn (row column whose
@@ -2020,6 +2115,20 @@ fn build_stage(
             partition_id: props.get("partitionId").and_then(|v| v.as_i64()).unwrap_or(0) as i32,
             start_offset: props.get("startOffset").and_then(|v| v.as_i64()).unwrap_or(-1),
             max_records: props.get("maxRecords").and_then(|v| v.as_u64()).filter(|n| *n > 0).unwrap_or(1000),
+        });
+        (String::new(), StageKind::View, None)
+    } else if component_id == "src.xml" {
+        // XML row-path source. rowPath is a slash-separated element
+        // walk from the root (e.g. "library/books/book"). Each match
+        // becomes a JSON object with attributes prefixed '@', text in
+        // '_text', and child elements nested.
+        let path = string_prop(&props, "path")
+            .filter(|s| !s.is_empty())
+            .ok_or_else(|| EngineError::Config(format!("{}: path required", component_id)))?;
+        xml_source = Some(XmlSourceSpec {
+            node_id: node.id.clone(),
+            path,
+            row_path: string_prop(&props, "rowPath").unwrap_or_default(),
         });
         (String::new(), StageKind::View, None)
     } else if component_id == "src.avro" {
@@ -2573,6 +2682,9 @@ fn build_stage(
         nats_source,
         pubsub_sink,
         pubsub_source,
+        xml_source,
+        xml_sink,
+        avro_sink,
         wait_ms,
         retry_attempts,
         retry_backoff_ms,

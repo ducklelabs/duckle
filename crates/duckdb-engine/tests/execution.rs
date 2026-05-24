@@ -5744,6 +5744,129 @@ fn src_fixedwidth_extracts_positional_columns() {
 }
 
 #[test]
+fn src_xml_walks_row_path_and_emits_matches_as_rows() {
+    // Read a small XML doc with a nested rowPath `library/books/book`.
+    // Each <book> element becomes one row with attributes (@id),
+    // text content (title, author), and nested <tags><tag>...</tag></tags>
+    // collapsed to an array.
+    let engine = engine_or_skip!();
+    let tmp = tempfile::tempdir().unwrap();
+    let xml = r#"<?xml version="1.0"?>
+<library name="Main">
+    <books>
+        <book id="1">
+            <title>Hyperion</title>
+            <author>Dan Simmons</author>
+        </book>
+        <book id="2">
+            <title>Dune</title>
+            <author>Frank Herbert</author>
+        </book>
+        <book id="3">
+            <title>Foundation</title>
+            <author>Isaac Asimov</author>
+        </book>
+    </books>
+</library>"#;
+    let xml_path = write_file(tmp.path(), "lib.xml", xml);
+    let out = out_path(tmp.path(), "out.csv");
+    let r = engine.execute_pipeline(&doc(
+        json!([
+            node("x", "src.xml", json!({
+                "path": xml_path,
+                "rowPath": "library/books/book",
+            })),
+            node("k", "snk.csv", json!({ "path": out, "hasHeader": true })),
+        ]),
+        json!([main_edge("e1", "x", "k")]),
+    ));
+    assert_eq!(r.status, "ok", "src.xml failed: {:?}", r.error);
+    assert_eq!(count(&format!("read_csv_auto('{}')", out)), 3);
+    // The @id attribute became a column called @id; we can't query it
+    // by that name through DuckDB without quoting, so probe the file
+    // text directly for the values we expect.
+    let raw = std::fs::read_to_string(&out).unwrap();
+    assert!(raw.contains("Hyperion"), "expected Hyperion in output: {}", raw);
+    assert!(raw.contains("Dune"), "expected Dune");
+    assert!(raw.contains("Foundation"), "expected Foundation");
+}
+
+#[test]
+fn xml_roundtrip_via_snk_then_src() {
+    // CSV -> snk.xml -> file -> src.xml -> CSV. Preserve 3 rows.
+    let engine = engine_or_skip!();
+    let tmp = tempfile::tempdir().unwrap();
+    let csv = write_file(tmp.path(), "in.csv", "id,name\n1,alpha\n2,beta\n3,gamma\n");
+    let xml_path = out_path(tmp.path(), "mid.xml");
+    let out_csv = out_path(tmp.path(), "out.csv");
+
+    let r1 = engine.execute_pipeline(&doc(
+        json!([
+            node("s", "src.csv", json!({ "path": csv, "hasHeader": true })),
+            node("x", "snk.xml", json!({ "path": xml_path })),
+        ]),
+        json!([main_edge("e1", "s", "x")]),
+    ));
+    assert_eq!(r1.status, "ok", "snk.xml failed: {:?}", r1.error);
+    let written = std::fs::read_to_string(&xml_path).unwrap();
+    assert!(written.contains("<root>"), "expected default root wrapper: {}", written);
+    assert!(written.contains("<row>"), "expected default row wrapper: {}", written);
+    assert!(written.contains("alpha"), "expected alpha in xml: {}", written);
+
+    let r2 = engine.execute_pipeline(&doc(
+        json!([
+            node("x", "src.xml", json!({ "path": xml_path, "rowPath": "root/row" })),
+            node("k", "snk.csv", json!({ "path": out_csv, "hasHeader": true })),
+        ]),
+        json!([main_edge("e1", "x", "k")]),
+    ));
+    assert_eq!(r2.status, "ok", "src.xml roundtrip failed: {:?}", r2.error);
+    assert_eq!(count(&format!("read_csv_auto('{}')", out_csv)), 3);
+}
+
+#[test]
+fn snk_avro_writes_container_file_with_inferred_schema() {
+    // CSV -> snk.avro -> file -> src.avro -> CSV.
+    // The 3-row CSV (id,name,active) gets its schema inferred from
+    // the first row: id=long, name=string, active=string (CSV reads
+    // booleans as strings unless explicitly cast).
+    let engine = engine_or_skip!();
+    let tmp = tempfile::tempdir().unwrap();
+    let csv = write_file(
+        tmp.path(),
+        "in.csv",
+        "id,name,note\n1,alpha,first\n2,beta,second\n3,gamma,third\n",
+    );
+    let avro_path = out_path(tmp.path(), "mid.avro");
+    let out_csv = out_path(tmp.path(), "out.csv");
+
+    let r1 = engine.execute_pipeline(&doc(
+        json!([
+            node("s", "src.csv", json!({ "path": csv, "hasHeader": true })),
+            node("a", "snk.avro", json!({ "path": avro_path })),
+        ]),
+        json!([main_edge("e1", "s", "a")]),
+    ));
+    assert_eq!(r1.status, "ok", "snk.avro failed: {:?}", r1.error);
+    assert!(std::path::Path::new(&avro_path).exists(), "avro file not written");
+
+    let r2 = engine.execute_pipeline(&doc(
+        json!([
+            node("a", "src.avro", json!({ "path": avro_path })),
+            node("k", "snk.csv", json!({ "path": out_csv, "hasHeader": true })),
+        ]),
+        json!([main_edge("e1", "a", "k")]),
+    ));
+    assert_eq!(r2.status, "ok", "src.avro readback failed: {:?}", r2.error);
+    assert_eq!(count(&format!("read_csv_auto('{}')", out_csv)), 3);
+    let alpha = scalar_string(&format!(
+        "SELECT name FROM read_csv_auto('{}') WHERE id = 1",
+        out_csv
+    ));
+    assert_eq!(alpha, "alpha");
+}
+
+#[test]
 fn src_avro_reads_container_file_records() {
     // Write a small Avro container file (3 records) using the
     // apache-avro crate itself, then verify the engine reads them

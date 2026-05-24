@@ -51,7 +51,7 @@ Duckle is in **early development**. The visual designer, the DuckDB execution en
 
 **Scope, stated plainly:** Duckle is a single-machine, embedded studio. If you outgrow one box, point Duckle's output at the system that scales. It will not pretend to be a cluster.
 
-The component palette ships **302 nodes** so the roadmap is visible in the product itself. As of the latest engine cut: **260 available**, **11 preview**, **31 planned**. Each node is tagged by availability:
+The component palette ships **302 nodes** so the roadmap is visible in the product itself. As of the latest engine cut: **263 available**, **11 preview**, **28 planned**. Each node is tagged by availability:
 
 - **Available** runs on the DuckDB engine today.
 - **Preview** is configurable in the designer now (drag, wire, set properties); execution is being wired engine-by-engine. This currently covers the AI transforms and some vector DB read sources.
@@ -98,6 +98,7 @@ Duckle is not a CSV tool with extras. It reads a broad set of formats and source
 | **Cloud warehouses** | MotherDuck (DuckDB-native) | Available |
 | **Cloud warehouses** | **Snowflake** (SQL API + PAT/JWT auth, paginated), **BigQuery** (community extension), **Redshift** (postgres ATTACH), **Databricks SQL** (Statement Execution API + chunk follow), **Azure Synapse** (TDS) | Available |
 | **Avro files** | Apache Avro container files (.avro / .ocf) via the pure-Rust `apache-avro` crate. The OCF header carries the schema; no schema config needed. | Available |
+| **XML** | Read XML via `quick-xml` with a slash-separated rowPath; attributes prefix `@`, text goes to `_text`, repeated siblings collapse to arrays | Available |
 | **Streaming** | **Apache Kafka / Redpanda** (batch-consume via the pure-Rust `rskafka` driver), **NATS JetStream** (subscribe-with-timeout via `async-nats`), **GCP Pub/Sub** (pull via REST API + auto-ack) | Available |
 | **Streaming** | Pulsar, Kinesis, Event Hubs, RabbitMQ | Planned |
 | **APIs and SaaS** | **REST** (cursor / offset / page / Link header pagination), **GraphQL**. Vendor tiles: **Salesforce, HubSpot, Pipedrive, Zendesk, Intercom, Stripe, QuickBooks, Xero, Shopify, Notion, Airtable, GitHub, GitLab, Linear, Jira, Mailchimp, SendGrid, Segment** (thin pre-configured wrappers over REST/GraphQL) | Available |
@@ -164,7 +165,7 @@ The whole group runs today. Validators split their input: passing rows continue 
 
 | Group | Connectors | Status |
 |---|---|---|
-| **Files** | CSV, TSV, Parquet (ZSTD), JSON, JSONL / NDJSON, Excel (.xlsx), **YAML**, **TOML** - Parquet and CSV support Hive-partitioned writes via `PARTITION_BY (col1, col2)` with `OVERWRITE_OR_IGNORE` semantics | Available |
+| **Files** | CSV, TSV, Parquet (ZSTD), JSON, JSONL / NDJSON, Excel (.xlsx), **YAML**, **TOML**, **XML** (configurable root + row element wrappers), **Avro** (schema inferred from first row, or supply JSON schema) - Parquet and CSV support Hive-partitioned writes via `PARTITION_BY (col1, col2)` with `OVERWRITE_OR_IGNORE` semantics | Available |
 | **Geospatial files** | GeoJSON, GeoPackage, Shapefile, KML, GPX via GDAL | Available (lazy-loaded) |
 | **Lakehouse table formats** | Apache Iceberg (full table layout), DuckLake | Available |
 | **Embedded databases** | SQLite, DuckDB (write a table) | Available |

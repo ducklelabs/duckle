@@ -73,6 +73,10 @@ rskafka = "0.5"
 apache-avro = "0.17"
 # NATS / JetStream. Pure-Rust client by the NATS team.
 async-nats = "0.37"
+# XML reader/writer. Used by src.xml (walks a row path, emits each
+# match as a JSON object) and snk.xml (wraps rows in row elements).
+# Pure Rust.
+quick-xml = "0.36"
 
 [features]
 default = ["oracle"]
