@@ -1438,6 +1438,27 @@ fn build_stage(
             bulk_action: Some(action_line),
         });
         (String::new(), StageKind::Sink, Some(from_view.to_string()))
+    } else if matches!(component_id, "snk.yaml" | "snk.toml") {
+        // Single-file YAML / TOML writer. SELECT the upstream view's
+        // rows, serialize as a single doc. YAML emits a top-level
+        // array; TOML wraps in a `rows` key (TOML disallows a bare
+        // top-level array). MUST come before the `starts_with("snk.")`
+        // catch-all below since that arm routes to build_sink_sql which
+        // doesn't know these formats.
+        let from_view = inputs.main().ok_or_else(|| missing_input(node, "main"))?;
+        let path = string_prop(&props, "path")
+            .filter(|s| !s.is_empty())
+            .ok_or_else(|| EngineError::Config(format!("{}: path required", component_id)))?;
+        format_sink = Some(FormatFileSinkSpec {
+            from_view: from_view.to_string(),
+            path,
+            format: if component_id == "snk.yaml" {
+                FormatKind::Yaml
+            } else {
+                FormatKind::Toml
+            },
+        });
+        (String::new(), StageKind::Sink, Some(from_view.to_string()))
     } else if component_id.starts_with("snk.") {
         let from_view = inputs
             .main()
@@ -1771,25 +1792,6 @@ fn build_stage(
             },
         });
         (String::new(), StageKind::View, None)
-    } else if matches!(component_id, "snk.yaml" | "snk.toml") {
-        // Single-file YAML / TOML writer. SELECT the upstream view's
-        // rows, serialize as a single doc. YAML emits a top-level
-        // array; TOML wraps in a `rows` key (TOML disallows a bare
-        // top-level array).
-        let from_view = inputs.main().ok_or_else(|| missing_input(node, "main"))?;
-        let path = string_prop(&props, "path")
-            .filter(|s| !s.is_empty())
-            .ok_or_else(|| EngineError::Config(format!("{}: path required", component_id)))?;
-        format_sink = Some(FormatFileSinkSpec {
-            from_view: from_view.to_string(),
-            path,
-            format: if component_id == "snk.yaml" {
-                FormatKind::Yaml
-            } else {
-                FormatKind::Toml
-            },
-        });
-        (String::new(), StageKind::Sink, Some(from_view.to_string()))
     } else if component_id == "src.qdrant" {
         // Qdrant points scroll source. clusterUrl + collection +
         // optional apiKey. with_vector defaults false (vectors are
