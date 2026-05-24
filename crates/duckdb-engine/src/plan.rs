@@ -828,7 +828,42 @@ fn build_stage(
     // ATTACH statements for external-DB nodes (DuckDB/SQLite). Each stage
     // runs in its own CLI process, so fixed aliases are collision-free.
     let attach = attach_prelude(component_id, &props);
-    let (sql, kind, from) = if component_id == "snk.webhook" || component_id == "snk.rest" {
+    let (sql, kind, from) = if component_id == "snk.graphql" {
+        // GraphQL mutation: POST one request per row with the row's
+        // JSON as `variables`. Rides the WebhookSpec pipeline.
+        let from_view = inputs.main().ok_or_else(|| missing_input(node, "main"))?;
+        let url = string_prop(&props, "url")
+            .or_else(|| string_prop(&props, "endpoint"))
+            .filter(|s| !s.is_empty())
+            .ok_or_else(|| EngineError::Config(format!("{}: url required (GraphQL endpoint)", component_id)))?;
+        let mutation = string_prop(&props, "mutation")
+            .or_else(|| string_prop(&props, "query"))
+            .filter(|s| !s.trim().is_empty())
+            .ok_or_else(|| EngineError::Config(format!("{}: mutation (GraphQL document) required", component_id)))?;
+        let mut headers = headers_from_props(&props);
+        let auth_type = string_prop(&props, "authType").unwrap_or_else(|| "none".into());
+        let auth_token = string_prop(&props, "authToken").unwrap_or_default();
+        if !auth_token.is_empty() {
+            match auth_type.as_str() {
+                "bearer" => headers.push(("Authorization".into(), format!("Bearer {}", auth_token))),
+                "apikey" => headers.push(("X-API-Key".into(), auth_token)),
+                _ => {}
+            }
+        }
+        // body_extras puts the mutation alongside the variables (batch
+        // mode wraps the row array as 'variables').
+        webhook = Some(WebhookSpec {
+            from_view: from_view.to_string(),
+            url,
+            method: "POST".into(),
+            headers,
+            body_shape: "batch".into(),
+            body_wrap: Some("variables".into()),
+            body_extras: vec![("query".into(), serde_json::Value::String(mutation))],
+            bulk_action: None,
+        });
+        (String::new(), StageKind::Sink, Some(from_view.to_string()))
+    } else if component_id == "snk.webhook" || component_id == "snk.rest" {
         // HTTP sink. Stage SQL stays empty; the executor materializes
         // the upstream view, then dispatches one ureq request per row
         // (body_shape='row') or one batched request (body_shape='batch').
@@ -1660,6 +1695,52 @@ fn build_stage(
             filter: string_prop(&props, "filter").filter(|s| !s.trim().is_empty()),
             projection: string_prop(&props, "projection").filter(|s| !s.trim().is_empty()),
             limit: props.get("limit").and_then(|v| v.as_i64()).filter(|n| *n > 0),
+        });
+        (String::new(), StageKind::View, None)
+    } else if component_id == "src.graphql" {
+        // GraphQL source: POST {query, variables} to the endpoint,
+        // walk the response data path. Rides RestSourceSpec.
+        let url = string_prop(&props, "url")
+            .or_else(|| string_prop(&props, "endpoint"))
+            .filter(|s| !s.is_empty())
+            .ok_or_else(|| EngineError::Config(format!("{}: url required", component_id)))?;
+        let query = string_prop(&props, "query")
+            .filter(|s| !s.trim().is_empty())
+            .ok_or_else(|| EngineError::Config(format!("{}: query required", component_id)))?;
+        let variables = string_prop(&props, "variables")
+            .filter(|s| !s.trim().is_empty())
+            .map(|s| {
+                serde_json::from_str::<serde_json::Value>(&s)
+                    .unwrap_or(serde_json::Value::Object(Default::default()))
+            })
+            .unwrap_or(serde_json::Value::Object(Default::default()));
+        let body = serde_json::json!({
+            "query": query,
+            "variables": variables,
+        });
+        let mut headers = headers_from_props(&props);
+        let auth_type = string_prop(&props, "authType").unwrap_or_else(|| "none".into());
+        let auth_token = string_prop(&props, "authToken").unwrap_or_default();
+        if !auth_token.is_empty() {
+            match auth_type.as_str() {
+                "bearer" => headers.push(("Authorization".into(), format!("Bearer {}", auth_token))),
+                "apikey" => headers.push(("X-API-Key".into(), auth_token)),
+                _ => {}
+            }
+        }
+        // responsePath defaults to /data which is the GraphQL convention.
+        let response_path = string_prop(&props, "responsePath")
+            .filter(|s| !s.is_empty())
+            .unwrap_or_else(|| "/data".into());
+        rest_source = Some(RestSourceSpec {
+            node_id: node.id.clone(),
+            url,
+            method: "POST".into(),
+            headers,
+            body: Some(serde_json::to_string(&body).unwrap_or_else(|_| "{}".into())),
+            response_path,
+            pagination: RestPagination::None,
+            max_pages: 1,
         });
         (String::new(), StageKind::View, None)
     } else if component_id == "src.rest" {

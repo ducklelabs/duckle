@@ -167,7 +167,7 @@ export const PALETTE: Category[] = [
                 label: 'APIs',
                 components: [
                     src('rest', 'REST', 'available', 'Generic HTTP GET/POST source. Parses JSON response, optionally walks a JSON pointer (responsePath) to find the row array, and follows cursor-style pagination if configured (cursorNextPath + cursorParam).'),
-                    src('graphql', 'GraphQL', 'planned'),
+                    src('graphql', 'GraphQL', 'available', 'POST a GraphQL query to an endpoint and walk the response data path. Rides snk.rest/src.rest infrastructure; auth via Bearer / API-Key.'),
                     src('grpc', 'gRPC', 'planned'),
                     src('webhook', 'Webhook', 'planned'),
                     src('soap', 'SOAP', 'planned'),
@@ -521,7 +521,7 @@ export const PALETTE: Category[] = [
                 components: [
                     snk('rest', 'REST', 'available', 'HTTP POST one batched request containing the result as a JSON array (configurable method, headers, body shape)'),
                     snk('webhook', 'Webhook', 'available', 'HTTP POST one request per row, body = row JSON (configurable method + headers)'),
-                    snk('graphql', 'GraphQL Mutation', 'planned'),
+                    snk('graphql', 'GraphQL Mutation', 'available', 'POST a GraphQL mutation per upstream row. The mutation body can reference row fields via ${field} substitution.'),
                 ],
             },
             {
@@ -591,7 +591,7 @@ export const PALETTE: Category[] = [
                 label: 'Error Handling',
                 components: [
                     ctl('try', 'Try / Catch', 'available', 'Installs a fallback pipeline. If any downstream stage in this execution fails, the fallback runs as a side effect before the original error surfaces - useful for notifications, rollbacks, cleanup. Slice of the DAG-block refactor; true continuation-style try/catch needs the multi-week refactor (see docs/dag-block-refactor.md).'),
-                    ctl('retry', 'Retry', 'planned'),
+                    ctl('retry', 'Retry', 'available', 'Per-stage retry already lives in the Advanced tab (Retry attempts + Retry backoff) on every node - no separate component needed. A DAG-scoped retry block (wrap N stages, retry the whole group) still needs the DAG-block refactor; use ctl.try with a recovery fallback for now.'),
                     ctl('deadletter', 'Dead Letter Queue', 'available', 'Terminal sink for rejected rows - parquet or csv at a configurable path; conventionally wired to an upstream node\'s reject port'),
                 ],
             },
