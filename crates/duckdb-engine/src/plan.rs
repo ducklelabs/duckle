@@ -85,12 +85,22 @@ pub struct TextSearchSpec {
     pub staging_table: String,
 }
 
+/// Snowflake auth mode. PAT (Personal Access Token) is a simple
+/// Bearer-token flow; JWT (RS256) is the older standard - the
+/// executor reads a PEM-encoded private key, derives the public-key
+/// fingerprint, and signs Snowflake-shaped claims (iss/sub/iat/exp).
+#[derive(Debug, Clone)]
+pub enum SnowflakeAuth {
+    Pat { token: String },
+    Jwt {
+        user: String,
+        private_key_pem: String,
+    },
+}
+
 /// snk.snowflake: SQL API insert. The executor reads upstream rows,
 /// chunks them into batch_size groups, and POSTs one multi-row INSERT
-/// per chunk to the account's /api/v2/statements endpoint. PAT
-/// (Personal Access Token) bearer auth - simpler than JWT RS256
-/// which we'll add as a follow-up once a signing crate is on the
-/// dep budget.
+/// per chunk to the account's /api/v2/statements endpoint.
 #[derive(Debug, Clone)]
 pub struct SnowflakeSinkSpec {
     pub from_view: String,
@@ -100,7 +110,7 @@ pub struct SnowflakeSinkSpec {
     pub account: String,
     /// Optional explicit endpoint override, e.g. http://127.0.0.1:8080/api/v2/statements.
     pub endpoint: Option<String>,
-    pub pat: String,
+    pub auth: SnowflakeAuth,
     pub database: String,
     pub schema: Option<String>,
     pub warehouse: Option<String>,
@@ -694,16 +704,36 @@ fn build_stage(
         });
         (String::new(), StageKind::Sink, Some(from_view.to_string()))
     } else if component_id == "snk.snowflake" {
-        // Snowflake SQL API sink. PAT (Personal Access Token) bearer
-        // auth - JWT RS256 follow-up. Engine batches into multi-row
-        // INSERT statements at batchSize rows each.
+        // Snowflake SQL API sink. Supports two auth modes:
+        //   - 'pat': Bearer Personal Access Token (simple, modern)
+        //   - 'jwt': RS256-signed JWT from a PEM private key (older standard)
         let from_view = inputs.main().ok_or_else(|| missing_input(node, "main"))?;
         let account = string_prop(&props, "account")
             .filter(|s| !s.is_empty())
             .ok_or_else(|| EngineError::Config(format!("{}: account required (e.g. 'xy12345.us-east-1')", component_id)))?;
-        let pat = string_prop(&props, "pat")
-            .filter(|s| !s.is_empty())
-            .ok_or_else(|| EngineError::Config(format!("{}: pat (Personal Access Token) required", component_id)))?;
+        let auth_type = string_prop(&props, "authType").unwrap_or_else(|| "pat".into());
+        let auth = match auth_type.as_str() {
+            "jwt" => {
+                let user = string_prop(&props, "user")
+                    .filter(|s| !s.is_empty())
+                    .ok_or_else(|| EngineError::Config(format!("{}: user required for JWT auth", component_id)))?;
+                let pem = string_prop(&props, "privateKeyPem")
+                    .filter(|s| !s.is_empty())
+                    .or_else(|| {
+                        string_prop(&props, "privateKeyPath")
+                            .filter(|s| !s.is_empty())
+                            .and_then(|p| std::fs::read_to_string(&p).ok())
+                    })
+                    .ok_or_else(|| EngineError::Config(format!("{}: privateKeyPem or privateKeyPath required for JWT auth", component_id)))?;
+                SnowflakeAuth::Jwt { user, private_key_pem: pem }
+            }
+            _ => {
+                let token = string_prop(&props, "pat")
+                    .filter(|s| !s.is_empty())
+                    .ok_or_else(|| EngineError::Config(format!("{}: pat (Personal Access Token) required for PAT auth", component_id)))?;
+                SnowflakeAuth::Pat { token }
+            }
+        };
         let database = string_prop(&props, "database")
             .filter(|s| !s.is_empty())
             .ok_or_else(|| EngineError::Config(format!("{}: database required", component_id)))?;
@@ -715,7 +745,7 @@ fn build_stage(
             from_view: from_view.to_string(),
             account,
             endpoint: string_prop(&props, "endpoint").filter(|s| !s.is_empty()),
-            pat,
+            auth,
             database,
             schema: string_prop(&props, "schema").filter(|s| !s.is_empty()),
             warehouse: string_prop(&props, "warehouse").filter(|s| !s.is_empty()),

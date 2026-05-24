@@ -27,7 +27,7 @@ pub mod history;
 pub mod plan;
 pub use history::{append_run_record, load_run_history, RunRecord};
 pub use plan::{CompiledPipeline, PipelineDoc, Stage, StageKind};
-use plan::{DatabricksSinkSpec, SnowflakeSinkSpec, WebhookSpec};
+use plan::{DatabricksSinkSpec, SnowflakeAuth, SnowflakeSinkSpec, WebhookSpec};
 
 #[derive(Debug, Error)]
 pub enum EngineError {
@@ -697,6 +697,10 @@ impl DuckdbEngine {
                 spec.account
             )
         });
+        // Compute the Authorization header once per stage. JWT lifetime
+        // is 1 hour; PAT is the token verbatim. Either way it gets
+        // reused across every chunk's POST.
+        let auth_header = build_snowflake_auth_header(&spec.account, &spec.auth)?;
         let mut total_inserted = 0_usize;
         for chunk in rows.chunks(spec.batch_size) {
             let values: Vec<String> = chunk
@@ -734,10 +738,16 @@ impl DuckdbEngine {
             }
             let body = serde_json::to_string(&JsonValue::Object(body_obj))
                 .unwrap_or_else(|_| "{}".into());
-            let req = ureq::post(&url)
-                .set("Authorization", &format!("Bearer {}", spec.pat))
+            let mut req = ureq::post(&url)
+                .set("Authorization", &auth_header)
                 .set("Content-Type", "application/json")
                 .set("Accept", "application/json");
+            // Snowflake's JWT auth needs this header so the server
+            // routes the bearer through the keypair JWT validator
+            // instead of the OAuth / PAT one.
+            if matches!(spec.auth, SnowflakeAuth::Jwt { .. }) {
+                req = req.set("X-Snowflake-Authorization-Token-Type", "KEYPAIR_JWT");
+            }
             match req.send_string(&body) {
                 Ok(_) => total_inserted += chunk.len(),
                 Err(ureq::Error::Status(code, response)) => {
@@ -1008,6 +1018,59 @@ fn now_nanos() -> u128 {
 /// doubled, and the identifier is treated case-sensitive.
 fn sf_quote_ident(s: &str) -> String {
     format!("\"{}\"", s.replace('"', "\"\""))
+}
+
+/// Build the Authorization header value for a Snowflake request.
+/// PAT: just "Bearer <token>". JWT: read the PEM private key,
+/// compute the public-key fingerprint Snowflake wants
+/// (SHA256:<base64(SHA-256 of SubjectPublicKeyInfo DER)>), build the
+/// claims (iss = "ACCOUNT.USER.SHA256:fp", sub = "ACCOUNT.USER",
+/// iat = now, exp = now + 3600), sign RS256, and prefix with
+/// "Bearer ". Snowflake also wants the X-Snowflake-Authorization-
+/// Token-Type: KEYPAIR_JWT header for JWT requests, set at the
+/// dispatch point.
+fn build_snowflake_auth_header(
+    account: &str,
+    auth: &SnowflakeAuth,
+) -> Result<String, EngineError> {
+    match auth {
+        SnowflakeAuth::Pat { token } => Ok(format!("Bearer {}", token)),
+        SnowflakeAuth::Jwt { user, private_key_pem } => {
+            use base64::Engine as _;
+            use rsa::pkcs8::{DecodePrivateKey, EncodePublicKey};
+            use rsa::RsaPrivateKey;
+            use sha2::{Digest, Sha256};
+            let private_key = RsaPrivateKey::from_pkcs8_pem(private_key_pem).map_err(|e| {
+                EngineError::Config(format!("snowflake jwt: bad PEM: {}", e))
+            })?;
+            let public_key = private_key.to_public_key();
+            let der = public_key
+                .to_public_key_der()
+                .map_err(|e| EngineError::Config(format!("snowflake jwt: DER encode: {}", e)))?;
+            let fp = Sha256::digest(der.as_bytes());
+            let fp_b64 = base64::engine::general_purpose::STANDARD.encode(fp);
+            let account_upper = account.to_uppercase();
+            let user_upper = user.to_uppercase();
+            let qualified_user = format!("{}.{}", account_upper, user_upper);
+            let iss = format!("{}.SHA256:{}", qualified_user, fp_b64);
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_secs())
+                .unwrap_or(0);
+            let claims = serde_json::json!({
+                "iss": iss,
+                "sub": qualified_user,
+                "iat": now,
+                "exp": now + 3600,
+            });
+            let header = jsonwebtoken::Header::new(jsonwebtoken::Algorithm::RS256);
+            let key = jsonwebtoken::EncodingKey::from_rsa_pem(private_key_pem.as_bytes())
+                .map_err(|e| EngineError::Config(format!("snowflake jwt: key encode: {}", e)))?;
+            let token = jsonwebtoken::encode(&header, &claims, &key)
+                .map_err(|e| EngineError::Config(format!("snowflake jwt: sign: {}", e)))?;
+            Ok(format!("Bearer {}", token))
+        }
+    }
 }
 
 /// Databricks SQL identifier quoting: backticks, internal backticks

@@ -20,6 +20,15 @@ duckle-plugin-sdk = { workspace = true }
 # vs ~100kb for reqwest + tokio, and it matches the per-stage CLI
 # shell-out model we already use (one synchronous round-trip).
 ureq = { version = "2.10", default-features = false, features = ["tls", "json"] }
+# Snowflake JWT RS256 auth path. Reads a PEM-encoded private key,
+# derives the public-key fingerprint, and signs the standard
+# Snowflake claims (iss / sub / iat / exp). PAT bearer auth is also
+# supported and doesn't pull these in.
+jsonwebtoken = { version = "9", default-features = false, features = ["use_pem"] }
+rsa = { version = "0.9", features = ["pem", "sha2"] }
+sha2 = "0.10"
+base64 = "0.22"
 
 [dev-dependencies]
 tempfile = "3.10"
+rand = "0.8"

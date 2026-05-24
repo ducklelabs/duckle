@@ -892,7 +892,19 @@ function synthWarehouseSink(comp: ComponentDef): ComponentManifest {
                 label: 'Snowflake account',
                 fields: [
                     { key: 'account', label: 'Account identifier', kind: 'text', required: true, placeholder: 'xy12345.us-east-1' },
-                    { key: 'pat', label: 'Personal Access Token', kind: 'text', required: true, placeholder: '••••••••' },
+                    {
+                        key: 'authType',
+                        label: 'Auth type',
+                        kind: 'select',
+                        defaultValue: 'pat',
+                        options: [
+                            { label: 'Personal Access Token (Bearer)', value: 'pat' },
+                            { label: 'JWT (key-pair, RS256)', value: 'jwt' },
+                        ],
+                    },
+                    { key: 'pat', label: 'Personal Access Token (PAT mode)', kind: 'text', placeholder: '••••••••', description: 'Required when Auth type is PAT.' },
+                    { key: 'user', label: 'User (JWT mode)', kind: 'text', placeholder: 'MY_USER', description: 'Required when Auth type is JWT. Uppercased automatically.' },
+                    { key: 'privateKeyPath', label: 'PEM private key path (JWT mode)', kind: 'file-path', description: 'Required when Auth type is JWT. Reads PKCS#8-encoded RSA private key from disk; the engine signs RS256 claims and computes the public-key fingerprint.' },
                     { key: 'warehouse', label: 'Warehouse', kind: 'text', placeholder: 'compute_wh' },
                     { key: 'role', label: 'Role', kind: 'text', placeholder: 'analyst' },
                 ],
