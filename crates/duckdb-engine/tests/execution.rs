@@ -7321,6 +7321,59 @@ fn src_clipboard_reads_json_array_and_plain_text() {
     assert_eq!(len, "12");
 }
 
+/// snk.email: env-gated integration test against a real SMTP server.
+/// Set DUCKLE_SMTP_HOST + USER + PASSWORD + FROM (and optionally
+/// PORT + TO_OVERRIDE) to run. Skips otherwise.
+#[test]
+fn snk_email_sends_messages_via_real_smtp() {
+    let engine = engine_or_skip!();
+    let host = match std::env::var("DUCKLE_SMTP_HOST").ok() {
+        Some(h) if !h.is_empty() => h,
+        _ => {
+            eprintln!("skipping: set DUCKLE_SMTP_HOST to run SMTP tests");
+            return;
+        }
+    };
+    let user = std::env::var("DUCKLE_SMTP_USER").unwrap_or_default();
+    let password = std::env::var("DUCKLE_SMTP_PASSWORD").unwrap_or_default();
+    let from = std::env::var("DUCKLE_SMTP_FROM").unwrap_or_default();
+    if from.is_empty() {
+        eprintln!("skipping: need DUCKLE_SMTP_FROM");
+        return;
+    }
+    let port = std::env::var("DUCKLE_SMTP_PORT")
+        .ok()
+        .and_then(|s| s.parse::<u64>().ok())
+        .unwrap_or(587);
+    // To address: default to a per-row column in the CSV; if
+    // DUCKLE_SMTP_TO_OVERRIDE is set, all rows go there instead.
+    let to_override = std::env::var("DUCKLE_SMTP_TO_OVERRIDE").ok();
+    let tmp = tempfile::tempdir().unwrap();
+    let to_addr = to_override.as_deref().unwrap_or("test@duckle.local");
+    let in_csv = write_file(
+        tmp.path(),
+        "in.csv",
+        &format!(
+            "to,subject,body\n{to},duckle test 1,hello from duckle\n{to},duckle test 2,second test message\n",
+            to = to_addr
+        ),
+    );
+    let r = engine.execute_pipeline(&doc(
+        json!([
+            node("s", "src.csv", json!({ "path": in_csv, "hasHeader": true })),
+            node("k", "snk.email", json!({
+                "host": host,
+                "port": port,
+                "user": user,
+                "password": password,
+                "fromAddress": from,
+            })),
+        ]),
+        json!([main_edge("e", "s", "k")]),
+    ));
+    assert_eq!(r.status, "ok", "snk.email failed: {:?}", r.error);
+}
+
 /// src.email: env-gated integration test. Set DUCKLE_IMAP_HOST,
 /// USER, PASSWORD (and optionally PORT, MAILBOX) to a working IMAP
 /// account. Skips cleanly otherwise.

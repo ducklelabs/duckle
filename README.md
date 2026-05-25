@@ -51,7 +51,7 @@ Duckle is in **early development**. The visual designer, the DuckDB execution en
 
 **Scope, stated plainly:** Duckle is a single-machine, embedded studio. If you outgrow one box, point Duckle's output at the system that scales. It will not pretend to be a cluster.
 
-The component palette ships **311 nodes** so the roadmap is visible in the product itself. As of the latest engine cut: **289 available**, **5 preview**, **17 planned**. Each node is tagged by availability:
+The component palette ships **312 nodes** so the roadmap is visible in the product itself. As of the latest engine cut: **290 available**, **5 preview**, **17 planned**. Each node is tagged by availability:
 
 - **Available** runs on the DuckDB engine today.
 - **Preview** is configurable in the designer now (drag, wire, set properties); execution is being wired engine-by-engine. This currently covers the AI transforms and some vector DB read sources.
@@ -186,6 +186,7 @@ The whole group runs today. Validators split their input: passing rows continue 
 | **Cloud warehouses** | MotherDuck | Available |
 | **Cloud warehouses** | **Snowflake** (SQL API; PAT or JWT RS256 auth), **BigQuery** (community extension), **Redshift** (postgres ATTACH; all PG write modes), **Databricks SQL** (Statement Execution API + PAT), **Azure Synapse** (TDS) | Available |
 | **HTTP APIs** | **REST** (POST/PUT/PATCH a single batched JSON-array request) and **Webhook** (one POST per row). Bearer / API-key auth + custom headers via the form. Uses `ureq` blocking client. **GraphQL** sink for mutations. | Available |
+| **Email (SMTP)** | Per-row SMTP send via pure-Rust `lettre` + rustls TLS. Each upstream row -> one message using `toColumn` / `subjectColumn` / `bodyColumn`. Plain text for v1; HTML + attachments are follow-ups. | Available |
 | **NoSQL** | **MongoDB** (official driver, insert_many batched), **Cassandra / ScyllaDB** (CQL prepared INSERT), **Elasticsearch / OpenSearch** (`_bulk` NDJSON), **Redis** (pipelined SET with optional EXPIRE) | Available |
 | **NoSQL** | DynamoDB | Planned |
 | **Streaming** | **Apache Kafka / Redpanda** (batch-produce via the pure-Rust `rskafka` driver), **NATS JetStream** (publish via `async-nats`; optional per-row subject suffix), **GCP Pub/Sub** (publish via REST API; OAuth2 Bearer auth), **RabbitMQ** (persistent-delivery publish via the pure-Rust `lapin` AMQP driver; exchange + routing key) | Available |

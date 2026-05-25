@@ -169,6 +169,8 @@ pub struct Stage {
     pub clipboard_source: Option<ClipboardSourceSpec>,
     /// IMAP mailbox reader.
     pub email_source: Option<EmailSourceSpec>,
+    /// SMTP per-row sender.
+    pub email_sink: Option<EmailSinkSpec>,
     /// Local webhook listener (binds a TCP port, collects N requests).
     pub webhook_source: Option<WebhookSourceSpec>,
     /// xf.ai.embed (per-row embedding).
@@ -636,6 +638,21 @@ pub struct EmailSourceSpec {
     pub password: String,
     pub mailbox: String,
     pub max_messages: u64,
+}
+
+/// snk.email: per-row SMTP send via lettre. Per-row to/subject/body
+/// columns let one stage send N personalized messages.
+#[derive(Debug, Clone)]
+pub struct EmailSinkSpec {
+    pub from_view: String,
+    pub host: String,
+    pub port: u16,
+    pub user: String,
+    pub password: String,
+    pub from_address: String,
+    pub to_column: String,
+    pub subject_column: String,
+    pub body_column: String,
 }
 
 /// src.webhook: bind 127.0.0.1:port, accept up to `max_requests`
@@ -1417,6 +1434,7 @@ fn build_stage(
     let mut ftp_source: Option<FtpSourceSpec> = None;
     let mut clipboard_source: Option<ClipboardSourceSpec> = None;
     let mut email_source: Option<EmailSourceSpec> = None;
+    let mut email_sink: Option<EmailSinkSpec> = None;
     let mut webhook_source: Option<WebhookSourceSpec> = None;
     let mut ai_embed: Option<AiEmbedSpec> = None;
     let mut wasm: Option<WasmSpec> = None;
@@ -1928,6 +1946,41 @@ fn build_stage(
             body_wrap: None,
             body_extras: Vec::new(),
             bulk_action: Some(action_line),
+        });
+        (String::new(), StageKind::Sink, Some(from_view.to_string()))
+    } else if component_id == "snk.email" {
+        // SMTP per-row send via lettre. host required; user/password
+        // optional (for relay servers that don't require auth).
+        // to/subject/body all from per-row columns so one stage can
+        // send N personalized messages.
+        let from_view = inputs.main().ok_or_else(|| missing_input(node, "main"))?;
+        let host = string_prop(&props, "host")
+            .filter(|s| !s.is_empty())
+            .ok_or_else(|| EngineError::Config(format!("{}: host required", component_id)))?;
+        let from_address = string_prop(&props, "fromAddress")
+            .filter(|s| !s.is_empty())
+            .ok_or_else(|| EngineError::Config(format!("{}: fromAddress required", component_id)))?;
+        email_sink = Some(EmailSinkSpec {
+            from_view: from_view.to_string(),
+            host,
+            port: props
+                .get("port")
+                .and_then(|v| v.as_u64())
+                .filter(|n| *n > 0 && *n < 65536)
+                .map(|n| n as u16)
+                .unwrap_or(587),
+            user: string_prop(&props, "user").unwrap_or_default(),
+            password: string_prop(&props, "password").unwrap_or_default(),
+            from_address,
+            to_column: string_prop(&props, "toColumn")
+                .filter(|s| !s.is_empty())
+                .unwrap_or_else(|| "to".into()),
+            subject_column: string_prop(&props, "subjectColumn")
+                .filter(|s| !s.is_empty())
+                .unwrap_or_else(|| "subject".into()),
+            body_column: string_prop(&props, "bodyColumn")
+                .filter(|s| !s.is_empty())
+                .unwrap_or_else(|| "body".into()),
         });
         (String::new(), StageKind::Sink, Some(from_view.to_string()))
     } else if component_id == "snk.rabbit" {
@@ -3504,6 +3557,7 @@ fn build_stage(
         ai_classify,
         ai_dedupe,
         email_source,
+        email_sink,
         webhook_source,
         wait_ms,
         retry_attempts,

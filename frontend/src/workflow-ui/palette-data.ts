@@ -529,6 +529,7 @@ export const PALETTE: Category[] = [
                     snk('rest', 'REST', 'available', 'HTTP POST one batched request containing the result as a JSON array (configurable method, headers, body shape)'),
                     snk('webhook', 'Webhook', 'available', 'HTTP POST one request per row, body = row JSON (configurable method + headers)'),
                     snk('graphql', 'GraphQL Mutation', 'available', 'POST a GraphQL mutation per upstream row. The mutation body can reference row fields via ${field} substitution.'),
+                    snk('email', 'Email (SMTP)', 'available', 'Per-row SMTP send via pure-Rust `lettre` + rustls TLS. Props: host (required), port (default 587), user/password (optional - skip for relay-only servers), fromAddress (required), toColumn (default `to`), subjectColumn (default `subject`), bodyColumn (default `body`). Plain text only for v1; HTML / attachments are follow-ups.'),
                 ],
             },
             {

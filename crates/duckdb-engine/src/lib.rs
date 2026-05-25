@@ -31,13 +31,14 @@ use plan::{
     quote_ident, AiChunkSpec, AiClassifySpec, AiDedupeSpec, AiEmbedSpec, AiLlmSpec, AiPiiSpec,
     AvroSinkSpec, AvroSourceSpec, CassandraSinkSpec, CassandraSourceSpec, ClickHouseSinkSpec,
     ClickHouseSourceSpec, ClipboardSourceSpec, DatabricksSinkSpec, DatabricksSourceSpec,
-    ElasticSourceSpec, EmailSourceSpec, FormatFileSinkSpec, FormatFileSourceSpec, FormatKind,
-    FtpSourceSpec, GitSourceSpec, JavaScriptSpec, KafkaSinkSpec, KafkaSourceSpec, MilvusSourceSpec,
-    MongoSinkSpec, MongoSourceSpec, NatsSinkSpec, NatsSourceSpec, OracleSinkSpec, OracleSourceSpec,
-    PubSubSinkSpec, PubSubSourceSpec, QdrantSourceSpec, RabbitSinkSpec, RabbitSourceSpec,
-    RedisSinkSpec, RedisSourceSpec, RestPagination, RestResponseFormat, RestSourceSpec, ShellSpec,
-    SnowflakeAuth, SnowflakeSinkSpec, SnowflakeSourceSpec, SqlServerSinkSpec, SqlServerSourceSpec,
-    WasmSpec, WeaviateSourceSpec, WebhookSourceSpec, WebhookSpec, XmlSinkSpec, XmlSourceSpec,
+    ElasticSourceSpec, EmailSinkSpec, EmailSourceSpec, FormatFileSinkSpec, FormatFileSourceSpec,
+    FormatKind, FtpSourceSpec, GitSourceSpec, JavaScriptSpec, KafkaSinkSpec, KafkaSourceSpec,
+    MilvusSourceSpec, MongoSinkSpec, MongoSourceSpec, NatsSinkSpec, NatsSourceSpec, OracleSinkSpec,
+    OracleSourceSpec, PubSubSinkSpec, PubSubSourceSpec, QdrantSourceSpec, RabbitSinkSpec,
+    RabbitSourceSpec, RedisSinkSpec, RedisSourceSpec, RestPagination, RestResponseFormat,
+    RestSourceSpec, ShellSpec, SnowflakeAuth, SnowflakeSinkSpec, SnowflakeSourceSpec,
+    SqlServerSinkSpec, SqlServerSourceSpec, WasmSpec, WeaviateSourceSpec, WebhookSourceSpec,
+    WebhookSpec, XmlSinkSpec, XmlSourceSpec,
 };
 
 #[derive(Debug, Error)]
@@ -569,6 +570,8 @@ impl DuckdbEngine {
                     self.run_email_source(&db_path, spec)
                 } else if let Some(spec) = stage.webhook_source.as_ref() {
                     self.run_webhook_source(&db_path, spec)
+                } else if let Some(spec) = stage.email_sink.as_ref() {
+                    self.run_email_sink(&db_path, spec)
                 } else if let Some(spec) = stage.upsert.as_ref() {
                     // Relational-DB upsert: DESCRIBE the upstream first to
                     // get the column list, then assemble INSERT ... ON
@@ -2475,6 +2478,78 @@ impl DuckdbEngine {
         Ok(format!(
             "ai.embed ({}): embedded {} row(s) into {}",
             spec.model, count, spec.node_id
+        ))
+    }
+
+    /// snk.email: per-row SMTP send via lettre. For each upstream
+    /// row, build an email from {to_column, subject_column,
+    /// body_column}, send via SMTPS on `port` to `host`. Optional
+    /// credentials (host doesn't always require auth for relay).
+    fn run_email_sink(&self, db: &Path, spec: &EmailSinkSpec) -> Result<String, EngineError> {
+        use lettre::message::{header, Message};
+        use lettre::transport::smtp::authentication::Credentials;
+        use lettre::{SmtpTransport, Transport};
+        self.check_cancelled()?;
+        let rows = self.run_rows(
+            Some(db),
+            &format!("SELECT * FROM {};", quote_ident(&spec.from_view)),
+        )?;
+        if rows.is_empty() {
+            return Ok(format!("email sink: 0 upstream rows"));
+        }
+        // Build the SMTP transport once per stage.
+        let mut builder = SmtpTransport::relay(&spec.host)
+            .map_err(|e| EngineError::Query(format!("smtp relay setup: {}", e)))?
+            .port(spec.port);
+        if !spec.user.is_empty() {
+            builder = builder.credentials(Credentials::new(
+                spec.user.clone(),
+                spec.password.clone(),
+            ));
+        }
+        let mailer = builder.build();
+        let from_parsed: lettre::message::Mailbox = spec
+            .from_address
+            .parse()
+            .map_err(|e| EngineError::Query(format!("from address: {}", e)))?;
+        let mut sent = 0usize;
+        for row in rows.iter() {
+            self.check_cancelled()?;
+            let to_str = row
+                .get(&spec.to_column)
+                .and_then(|v| v.as_str())
+                .ok_or_else(|| {
+                    EngineError::Query(format!(
+                        "snk.email: row missing `{}` column",
+                        spec.to_column
+                    ))
+                })?;
+            let subject_str = row
+                .get(&spec.subject_column)
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            let body_str = row
+                .get(&spec.body_column)
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            let to_parsed: lettre::message::Mailbox = to_str
+                .parse()
+                .map_err(|e| EngineError::Query(format!("to address `{}`: {}", to_str, e)))?;
+            let msg = Message::builder()
+                .from(from_parsed.clone())
+                .to(to_parsed)
+                .subject(subject_str)
+                .header(header::ContentType::TEXT_PLAIN)
+                .body(body_str.to_string())
+                .map_err(|e| EngineError::Query(format!("snk.email build: {}", e)))?;
+            mailer
+                .send(&msg)
+                .map_err(|e| EngineError::Query(format!("snk.email send: {}", e)))?;
+            sent += 1;
+        }
+        Ok(format!(
+            "email sink: sent {} message(s) via {}:{}",
+            sent, spec.host, spec.port
         ))
     }
 
