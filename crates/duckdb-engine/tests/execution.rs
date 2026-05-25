@@ -6525,3 +6525,151 @@ fn snk_and_src_redis_roundtrip_via_real_url() {
     let n = count(&format!("read_csv_auto('{}')", out));
     assert_eq!(n, 3, "expected 3 keys round-tripped, got {}", n);
 }
+
+/// src.git mode=log: walk commit history of a freshly-built test repo
+/// and verify each commit lands as one row with the expected columns.
+/// Builds the repo with the `git` CLI itself - same dep src.git uses.
+#[test]
+fn src_git_log_emits_one_row_per_commit() {
+    let engine = engine_or_skip!();
+    if std::process::Command::new("git")
+        .arg("--version")
+        .output()
+        .map(|o| !o.status.success())
+        .unwrap_or(true)
+    {
+        eprintln!("skipping src_git_log test: `git` CLI not available");
+        return;
+    }
+    let tmp = tempfile::tempdir().unwrap();
+    let repo = tmp.path().to_string_lossy().to_string();
+    // Build a 3-commit repo. -c flags set author so the test doesn't
+    // depend on the user's global git config.
+    let g = |args: &[&str]| {
+        let mut cmd = std::process::Command::new("git");
+        cmd.arg("-C").arg(&repo);
+        cmd.arg("-c").arg("user.email=test@duckle.local");
+        cmd.arg("-c").arg("user.name=Test User");
+        cmd.arg("-c").arg("commit.gpgsign=false");
+        cmd.arg("-c").arg("init.defaultBranch=main");
+        for a in args {
+            cmd.arg(a);
+        }
+        let out = cmd.output().expect("git spawn");
+        assert!(
+            out.status.success(),
+            "git {:?} failed: {}",
+            args,
+            String::from_utf8_lossy(&out.stderr)
+        );
+    };
+    g(&["init", "-q"]);
+    for (i, msg) in [
+        "Initial: add README",
+        "Add a config file",
+        "Tweak: pipe | in subject",
+    ]
+    .iter()
+    .enumerate()
+    {
+        std::fs::write(format!("{}/file{}.txt", repo, i), format!("content {}", i)).unwrap();
+        g(&["add", "."]);
+        g(&["commit", "-q", "-m", msg]);
+    }
+
+    let out = out_path(tmp.path(), "log.csv");
+    let r = engine.execute_pipeline(&doc(
+        json!([
+            node("g", "src.git", json!({
+                "repo": &repo,
+                "mode": "log",
+                "maxRows": 100,
+            })),
+            node("k", "snk.csv", json!({ "path": out, "hasHeader": true })),
+        ]),
+        json!([main_edge("e", "g", "k")]),
+    ));
+    assert_eq!(r.status, "ok", "src.git log failed: {:?}", r.error);
+    let n = count(&format!("read_csv_auto('{}')", out));
+    assert_eq!(n, 3, "expected 3 commits, got {}", n);
+    // Verify the author email made it through.
+    let email = scalar_string(&format!(
+        "SELECT author_email FROM read_csv_auto('{}') LIMIT 1",
+        out
+    ));
+    assert_eq!(email, "test@duckle.local");
+    // Verify a subject containing a `|` survives the TAB-framed
+    // pretty=format - we deliberately picked a subject with a pipe to
+    // catch the easy-to-make `|`-as-delimiter mistake.
+    let tweak = scalar_string(&format!(
+        "SELECT subject FROM read_csv_auto('{}') WHERE subject LIKE '%pipe%'",
+        out
+    ));
+    assert_eq!(tweak, "Tweak: pipe | in subject");
+}
+
+/// src.git mode=files: list the tracked tree at HEAD and verify each
+/// file lands as one row with mode/type/hash/size/path columns.
+#[test]
+fn src_git_files_lists_tracked_tree() {
+    let engine = engine_or_skip!();
+    if std::process::Command::new("git")
+        .arg("--version")
+        .output()
+        .map(|o| !o.status.success())
+        .unwrap_or(true)
+    {
+        eprintln!("skipping src_git_files test: `git` CLI not available");
+        return;
+    }
+    let tmp = tempfile::tempdir().unwrap();
+    let repo = tmp.path().to_string_lossy().to_string();
+    let g = |args: &[&str]| {
+        let mut cmd = std::process::Command::new("git");
+        cmd.arg("-C").arg(&repo);
+        cmd.arg("-c").arg("user.email=test@duckle.local");
+        cmd.arg("-c").arg("user.name=Test User");
+        cmd.arg("-c").arg("commit.gpgsign=false");
+        cmd.arg("-c").arg("init.defaultBranch=main");
+        for a in args {
+            cmd.arg(a);
+        }
+        let out = cmd.output().expect("git spawn");
+        assert!(out.status.success(), "git {:?}", args);
+    };
+    g(&["init", "-q"]);
+    std::fs::write(format!("{}/a.txt", repo), "alpha").unwrap();
+    std::fs::write(format!("{}/b.txt", repo), "bravo").unwrap();
+    std::fs::create_dir(format!("{}/sub", repo)).unwrap();
+    std::fs::write(format!("{}/sub/c.txt", repo), "charlie").unwrap();
+    g(&["add", "."]);
+    g(&["commit", "-q", "-m", "seed"]);
+
+    let out = out_path(tmp.path(), "files.csv");
+    let r = engine.execute_pipeline(&doc(
+        json!([
+            node("g", "src.git", json!({
+                "repo": &repo,
+                "mode": "files",
+            })),
+            node("k", "snk.csv", json!({ "path": out, "hasHeader": true })),
+        ]),
+        json!([main_edge("e", "g", "k")]),
+    ));
+    assert_eq!(r.status, "ok", "src.git files failed: {:?}", r.error);
+    let n = count(&format!("read_csv_auto('{}')", out));
+    assert_eq!(n, 3, "expected 3 files, got {}", n);
+    // size of "alpha" is 5 bytes.
+    let size = scalar_string(&format!(
+        "SELECT size FROM read_csv_auto('{}') WHERE path = 'a.txt'",
+        out
+    ));
+    assert_eq!(size, "5");
+    // Nested path survives - the tab-then-path framing should not
+    // mangle the `sub/` prefix.
+    let nested = scalar_string(&format!(
+        "SELECT path FROM read_csv_auto('{}') WHERE path LIKE 'sub/%'",
+        out
+    ));
+    assert_eq!(nested, "sub/c.txt");
+}

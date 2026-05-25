@@ -6,10 +6,10 @@ reel; this is the full ledger.
 
 The palette currently carries **303 components**, broken down:
 
-- **265 available** - executes on the DuckDB engine today
+- **266 available** - executes on the DuckDB engine today
 - **11 preview** - configurable in the designer (drag, wire, set
   properties); execution is being wired engine-by-engine
-- **27 planned** - reserved in the palette so the roadmap is visible,
+- **26 planned** - reserved in the palette so the roadmap is visible,
   not yet executable
 
 If you drop a planned or preview tile and try to run, the executor
@@ -72,9 +72,13 @@ OAuth-heavy vendors need a stored-credential flow + token-refresh worker.
 | `src.email` | IMAP/POP3 - more useful as a trigger source than a batch read |
 | `src.ftp` | SFTP / FTP read - DuckDB already reads HTTPS via httpfs; FTP is rarer |
 | `src.webhook` | Inbound HTTP listener - Duckle is desktop-only, not a server; needs a tunneling story |
-| `src.git` | libgit2 - file-from-repo source; tractable but niche |
 | `src.clipboard` | Desktop-only, niche |
 | `src.airtable` / `src.notion` etc. | All **available** via the simple-auth REST aliases - see SaaS section in the README |
+
+`src.git` shipped via shell-out to the system `git` CLI (no libgit2
+dep, no extra Rust crate). Two modes: `log` emits commit history,
+`files` emits the tracked-file tree at a revision. See the
+Capabilities table in the README.
 
 ### NoSQL
 

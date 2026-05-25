@@ -30,12 +30,13 @@ pub use plan::{CompiledPipeline, PipelineDoc, Stage, StageKind};
 use plan::{
     AvroSinkSpec, AvroSourceSpec, CassandraSinkSpec, CassandraSourceSpec, ClickHouseSinkSpec,
     ClickHouseSourceSpec, DatabricksSinkSpec, DatabricksSourceSpec, ElasticSourceSpec,
-    FormatFileSinkSpec, FormatFileSourceSpec, FormatKind, KafkaSinkSpec, KafkaSourceSpec,
-    MilvusSourceSpec, MongoSinkSpec, MongoSourceSpec, NatsSinkSpec, NatsSourceSpec,
-    OracleSinkSpec, OracleSourceSpec, PubSubSinkSpec, PubSubSourceSpec, QdrantSourceSpec,
-    RabbitSinkSpec, RabbitSourceSpec, RedisSinkSpec, RedisSourceSpec, RestPagination,
-    RestSourceSpec, SnowflakeAuth, SnowflakeSinkSpec, SnowflakeSourceSpec, SqlServerSinkSpec,
-    SqlServerSourceSpec, WeaviateSourceSpec, WebhookSpec, XmlSinkSpec, XmlSourceSpec,
+    FormatFileSinkSpec, FormatFileSourceSpec, FormatKind, GitSourceSpec, KafkaSinkSpec,
+    KafkaSourceSpec, MilvusSourceSpec, MongoSinkSpec, MongoSourceSpec, NatsSinkSpec,
+    NatsSourceSpec, OracleSinkSpec, OracleSourceSpec, PubSubSinkSpec, PubSubSourceSpec,
+    QdrantSourceSpec, RabbitSinkSpec, RabbitSourceSpec, RedisSinkSpec, RedisSourceSpec,
+    RestPagination, RestSourceSpec, SnowflakeAuth, SnowflakeSinkSpec, SnowflakeSourceSpec,
+    SqlServerSinkSpec, SqlServerSourceSpec, WeaviateSourceSpec, WebhookSpec, XmlSinkSpec,
+    XmlSourceSpec,
 };
 
 #[derive(Debug, Error)]
@@ -539,6 +540,8 @@ impl DuckdbEngine {
                     self.run_rabbit_sink(&db_path, spec)
                 } else if let Some(spec) = stage.rabbit_source.as_ref() {
                     self.run_rabbit_source(&db_path, spec)
+                } else if let Some(spec) = stage.git_source.as_ref() {
+                    self.run_git_source(&db_path, spec)
                 } else if let Some(spec) = stage.upsert.as_ref() {
                     // Relational-DB upsert: DESCRIBE the upstream first to
                     // get the column list, then assemble INSERT ... ON
@@ -2183,6 +2186,83 @@ impl DuckdbEngine {
         Ok(format!(
             "rabbit: materialized {} message(s) into {}",
             count, spec.node_id
+        ))
+    }
+
+    /// Local git repo reader. Shells out to the system `git` CLI -
+    /// no libgit2 dependency, no extra Rust crate. mode=log captures
+    /// commit history as one row per commit; mode=files captures the
+    /// tracked-file tree at a revision as one row per file. NUL-record
+    /// + TAB-field framing avoids the usual `|` / newline pitfalls in
+    /// commit subjects.
+    fn run_git_source(&self, db: &Path, spec: &GitSourceSpec) -> Result<String, EngineError> {
+        self.check_cancelled()?;
+        let mode = spec.mode.as_str();
+        let max = spec.max_rows.to_string();
+        let rows: Vec<JsonValue> = match mode {
+            "log" => {
+                let mut cmd = std::process::Command::new("git");
+                cmd.arg("-C")
+                    .arg(&spec.repo)
+                    .arg("log")
+                    .arg("-z")
+                    .arg("--max-count")
+                    .arg(&max)
+                    .arg("--date=iso-strict")
+                    .arg("--pretty=format:%H%x09%h%x09%an%x09%ae%x09%ad%x09%s")
+                    .arg(&spec.revision);
+                if let Some(p) = &spec.path_filter {
+                    cmd.arg("--").arg(p);
+                }
+                let out = cmd
+                    .output()
+                    .map_err(|e| EngineError::Query(format!("git log: spawn: {}", e)))?;
+                if !out.status.success() {
+                    return Err(EngineError::Query(format!(
+                        "git log exited {}: {}",
+                        out.status,
+                        String::from_utf8_lossy(&out.stderr)
+                    )));
+                }
+                parse_git_log(&out.stdout)
+            }
+            "files" => {
+                let mut cmd = std::process::Command::new("git");
+                cmd.arg("-C")
+                    .arg(&spec.repo)
+                    .arg("ls-tree")
+                    .arg("-r")
+                    .arg("-z")
+                    .arg("--long")
+                    .arg(&spec.revision);
+                if let Some(p) = &spec.path_filter {
+                    cmd.arg("--").arg(p);
+                }
+                let out = cmd
+                    .output()
+                    .map_err(|e| EngineError::Query(format!("git ls-tree: spawn: {}", e)))?;
+                if !out.status.success() {
+                    return Err(EngineError::Query(format!(
+                        "git ls-tree exited {}: {}",
+                        out.status,
+                        String::from_utf8_lossy(&out.stderr)
+                    )));
+                }
+                parse_git_ls_tree(&out.stdout, spec.max_rows as usize)
+            }
+            other => {
+                return Err(EngineError::Config(format!(
+                    "src.git: mode '{}' not supported (use 'log' or 'files')",
+                    other
+                )))
+            }
+        };
+        self.check_cancelled()?;
+        let count = rows.len();
+        materialize_jsonobjects_as_table(db, &spec.node_id, &rows)?;
+        Ok(format!(
+            "git ({}): materialized {} row(s) into {}",
+            mode, count, spec.node_id
         ))
     }
 
@@ -4742,4 +4822,70 @@ fn infer_avro_field_type(v: &JsonValue) -> JsonValue {
         JsonValue::String(_) => JsonValue::String("string".into()),
         JsonValue::Array(_) | JsonValue::Object(_) => JsonValue::String("string".into()),
     }
+}
+
+/// Parse `git log -z --pretty=format:%H%x09%h%x09%an%x09%ae%x09%ad%x09%s`
+/// output. Records are NUL-separated; fields are TAB-separated. Subjects
+/// may contain anything except NUL.
+fn parse_git_log(bytes: &[u8]) -> Vec<JsonValue> {
+    let mut out: Vec<JsonValue> = Vec::new();
+    for rec in bytes.split(|b| *b == 0) {
+        if rec.is_empty() {
+            continue;
+        }
+        let s = String::from_utf8_lossy(rec);
+        let parts: Vec<&str> = s.splitn(6, '\t').collect();
+        if parts.len() < 6 {
+            continue;
+        }
+        let mut row = serde_json::Map::new();
+        row.insert("hash".into(), JsonValue::String(parts[0].to_string()));
+        row.insert("short_hash".into(), JsonValue::String(parts[1].to_string()));
+        row.insert(
+            "author_name".into(),
+            JsonValue::String(parts[2].to_string()),
+        );
+        row.insert(
+            "author_email".into(),
+            JsonValue::String(parts[3].to_string()),
+        );
+        row.insert("date".into(), JsonValue::String(parts[4].to_string()));
+        row.insert("subject".into(), JsonValue::String(parts[5].to_string()));
+        out.push(JsonValue::Object(row));
+    }
+    out
+}
+
+/// Parse `git ls-tree -r -z --long <rev>` output. Records are NUL-
+/// separated; each record is `<mode> <type> <hash> <size>\t<path>`.
+fn parse_git_ls_tree(bytes: &[u8], max_rows: usize) -> Vec<JsonValue> {
+    let mut out: Vec<JsonValue> = Vec::new();
+    for rec in bytes.split(|b| *b == 0) {
+        if rec.is_empty() {
+            continue;
+        }
+        if out.len() >= max_rows {
+            break;
+        }
+        let s = String::from_utf8_lossy(rec);
+        let mut split = s.splitn(2, '\t');
+        let meta = split.next().unwrap_or("");
+        let path = split.next().unwrap_or("");
+        let meta_parts: Vec<&str> = meta.split_whitespace().collect();
+        if meta_parts.len() < 4 {
+            continue;
+        }
+        let size: JsonValue = meta_parts[3]
+            .parse::<i64>()
+            .map(JsonValue::from)
+            .unwrap_or(JsonValue::Null);
+        let mut row = serde_json::Map::new();
+        row.insert("mode".into(), JsonValue::String(meta_parts[0].to_string()));
+        row.insert("type".into(), JsonValue::String(meta_parts[1].to_string()));
+        row.insert("hash".into(), JsonValue::String(meta_parts[2].to_string()));
+        row.insert("size".into(), size);
+        row.insert("path".into(), JsonValue::String(path.to_string()));
+        out.push(JsonValue::Object(row));
+    }
+    out
 }

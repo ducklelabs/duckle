@@ -159,6 +159,8 @@ pub struct Stage {
     pub rabbit_sink: Option<RabbitSinkSpec>,
     /// RabbitMQ / AMQP 0.9.1 batch consumer.
     pub rabbit_source: Option<RabbitSourceSpec>,
+    /// Local git repo reader (shells out to system `git`).
+    pub git_source: Option<GitSourceSpec>,
     /// Milliseconds the executor sleeps before running this stage.
     /// Set by ctl.wait and ctl.throttle. None = no delay.
     pub wait_ms: Option<u64>,
@@ -539,6 +541,21 @@ pub struct RabbitSourceSpec {
     pub queue: String,
     pub max_messages: u64,
     pub timeout_ms: u64,
+}
+
+/// src.git: read either commit log or tracked-file list from a local
+/// git working copy by shelling out to the system `git` CLI. mode=log
+/// emits {hash, short_hash, author_name, author_email, date, subject}
+/// rows; mode=files emits {mode, type, hash, size, path} rows. Useful
+/// for engineering-analytics pipelines, repo audits, and CI dashboards.
+#[derive(Debug, Clone)]
+pub struct GitSourceSpec {
+    pub node_id: String,
+    pub repo: String,
+    pub mode: String,
+    pub revision: String,
+    pub path_filter: Option<String>,
+    pub max_rows: u64,
 }
 
 /// snk.cassandra / snk.scylla: CQL INSERT via the scylla driver
@@ -1146,6 +1163,7 @@ fn build_stage(
     let mut avro_sink: Option<AvroSinkSpec> = None;
     let mut rabbit_sink: Option<RabbitSinkSpec> = None;
     let mut rabbit_source: Option<RabbitSourceSpec> = None;
+    let mut git_source: Option<GitSourceSpec> = None;
     let mut wait_ms: Option<u64> = None;
     // Advanced settings (universal across components, written by the
     // Properties Panel's Advanced tab). Engine honours them per stage.
@@ -2187,6 +2205,29 @@ fn build_stage(
             timeout_ms: props.get("timeoutMs").and_then(|v| v.as_u64()).unwrap_or(5000),
         });
         (String::new(), StageKind::View, None)
+    } else if component_id == "src.git" {
+        // Local git repo reader. mode=log walks `git log`; mode=files
+        // walks `git ls-tree -r`. Both shell out to the system `git`.
+        let repo = string_prop(&props, "repo")
+            .filter(|s| !s.is_empty())
+            .ok_or_else(|| EngineError::Config(format!("{}: repo required (path to local clone)", component_id)))?;
+        git_source = Some(GitSourceSpec {
+            node_id: node.id.clone(),
+            repo,
+            mode: string_prop(&props, "mode")
+                .filter(|s| !s.is_empty())
+                .unwrap_or_else(|| "log".to_string()),
+            revision: string_prop(&props, "revision")
+                .filter(|s| !s.is_empty())
+                .unwrap_or_else(|| "HEAD".to_string()),
+            path_filter: string_prop(&props, "pathFilter").filter(|s| !s.is_empty()),
+            max_rows: props
+                .get("maxRows")
+                .and_then(|v| v.as_u64())
+                .filter(|n| *n > 0)
+                .unwrap_or(1000),
+        });
+        (String::new(), StageKind::View, None)
     } else if component_id == "src.xml" {
         // XML row-path source. rowPath is a slash-separated element
         // walk from the root (e.g. "library/books/book"). Each match
@@ -2757,6 +2798,7 @@ fn build_stage(
         avro_sink,
         rabbit_sink,
         rabbit_source,
+        git_source,
         wait_ms,
         retry_attempts,
         retry_backoff_ms,
