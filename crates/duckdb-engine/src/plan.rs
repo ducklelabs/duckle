@@ -177,6 +177,12 @@ pub struct Stage {
     pub ai_chunk: Option<AiChunkSpec>,
     /// xf.ai.pii (regex-based PII redaction).
     pub ai_pii: Option<AiPiiSpec>,
+    /// xf.ai.llm (per-row chat completion).
+    pub ai_llm: Option<AiLlmSpec>,
+    /// xf.ai.classify (LLM-backed classification).
+    pub ai_classify: Option<AiClassifySpec>,
+    /// xf.ai.dedupe (embedding-based semantic dedupe).
+    pub ai_dedupe: Option<AiDedupeSpec>,
     /// Milliseconds the executor sleeps before running this stage.
     /// Set by ctl.wait and ctl.throttle. None = no delay.
     pub wait_ms: Option<u64>,
@@ -693,6 +699,56 @@ pub struct AiPiiSpec {
     pub output_column: String,
     /// Subset of {"email","phone","ssn","credit_card"}. Empty = all.
     pub types: Vec<String>,
+}
+
+/// xf.ai.llm: per-row chat completion. POSTs to {base_url}/v1/chat/
+/// completions with Bearer api_key. Prompt is rendered from
+/// `prompt_template` with {column_name} substitution; if empty, the
+/// row's `input_column` text is sent as the user message verbatim.
+/// Optional `system_prompt`. Result lands in `output_column`.
+#[derive(Debug, Clone)]
+pub struct AiLlmSpec {
+    pub node_id: String,
+    pub from_view: String,
+    pub input_column: String,
+    pub output_column: String,
+    pub model: String,
+    pub api_key: String,
+    pub base_url: String,
+    pub prompt_template: String,
+    pub system_prompt: Option<String>,
+    pub temperature: f64,
+}
+
+/// xf.ai.classify: per-row LLM-backed classifier. Pins each row's
+/// input_column text into one of `categories`. Builds a constrained
+/// classification prompt and sends to the same chat completions
+/// endpoint as xf.ai.llm. Result is the chosen category name in
+/// output_column (or "UNKNOWN" if the model returns something
+/// not in the category list).
+#[derive(Debug, Clone)]
+pub struct AiClassifySpec {
+    pub node_id: String,
+    pub from_view: String,
+    pub input_column: String,
+    pub output_column: String,
+    pub categories: Vec<String>,
+    pub model: String,
+    pub api_key: String,
+    pub base_url: String,
+}
+
+/// xf.ai.dedupe: semantic dedupe via cosine similarity over a
+/// pre-computed embedding column (typically from xf.ai.embed). Keeps
+/// the first occurrence; drops any subsequent row whose embedding is
+/// within `threshold` cosine similarity of a kept row. No API call -
+/// pure local math. O(N^2) per stage - fine for ETL-scale datasets.
+#[derive(Debug, Clone)]
+pub struct AiDedupeSpec {
+    pub node_id: String,
+    pub from_view: String,
+    pub embedding_column: String,
+    pub threshold: f64,
 }
 
 /// snk.cassandra / snk.scylla: CQL INSERT via the scylla driver
@@ -1329,6 +1385,9 @@ fn build_stage(
     let mut wasm: Option<WasmSpec> = None;
     let mut ai_chunk: Option<AiChunkSpec> = None;
     let mut ai_pii: Option<AiPiiSpec> = None;
+    let mut ai_llm: Option<AiLlmSpec> = None;
+    let mut ai_classify: Option<AiClassifySpec> = None;
+    let mut ai_dedupe: Option<AiDedupeSpec> = None;
     let mut wait_ms: Option<u64> = None;
     // Advanced settings (universal across components, written by the
     // Properties Panel's Advanced tab). Engine honours them per stage.
@@ -3148,6 +3207,96 @@ fn build_stage(
                 .unwrap_or_else(|| "explode".into()),
         });
         (String::new(), StageKind::View, None)
+    } else if component_id == "xf.ai.dedupe" {
+        let from_view = inputs
+            .main()
+            .ok_or_else(|| EngineError::Config(format!("{}: upstream input required", component_id)))?;
+        ai_dedupe = Some(AiDedupeSpec {
+            node_id: node.id.clone(),
+            from_view: from_view.to_string(),
+            embedding_column: string_prop(&props, "embeddingColumn")
+                .filter(|s| !s.is_empty())
+                .unwrap_or_else(|| "embedding".into()),
+            threshold: props
+                .get("threshold")
+                .and_then(|v| v.as_f64())
+                .unwrap_or(0.95),
+        });
+        (String::new(), StageKind::View, None)
+    } else if component_id == "xf.ai.classify" {
+        let from_view = inputs
+            .main()
+            .ok_or_else(|| EngineError::Config(format!("{}: upstream input required", component_id)))?;
+        let api_key = string_prop(&props, "apiKey")
+            .filter(|s| !s.is_empty())
+            .ok_or_else(|| EngineError::Config(format!("{}: apiKey required", component_id)))?;
+        let categories: Vec<String> = string_prop(&props, "categories")
+            .filter(|s| !s.is_empty())
+            .map(|s| {
+                s.split(',')
+                    .map(|c| c.trim().to_string())
+                    .filter(|c| !c.is_empty())
+                    .collect()
+            })
+            .unwrap_or_default();
+        if categories.is_empty() {
+            return Err(EngineError::Config(format!(
+                "{}: categories required (comma-separated list)",
+                component_id
+            )));
+        }
+        ai_classify = Some(AiClassifySpec {
+            node_id: node.id.clone(),
+            from_view: from_view.to_string(),
+            input_column: string_prop(&props, "inputColumn")
+                .filter(|s| !s.is_empty())
+                .unwrap_or_else(|| "text".into()),
+            output_column: string_prop(&props, "outputColumn")
+                .filter(|s| !s.is_empty())
+                .unwrap_or_else(|| "category".into()),
+            categories,
+            model: string_prop(&props, "model")
+                .filter(|s| !s.is_empty())
+                .unwrap_or_else(|| "gpt-4o-mini".into()),
+            api_key,
+            base_url: string_prop(&props, "baseUrl")
+                .filter(|s| !s.is_empty())
+                .unwrap_or_else(|| "https://api.openai.com".into()),
+        });
+        (String::new(), StageKind::View, None)
+    } else if component_id == "xf.ai.llm" {
+        // Per-row LLM call. Renders promptTemplate with {col} subst.
+        // Same credential pattern as xf.ai.embed.
+        let from_view = inputs
+            .main()
+            .ok_or_else(|| EngineError::Config(format!("{}: upstream input required", component_id)))?;
+        let api_key = string_prop(&props, "apiKey")
+            .filter(|s| !s.is_empty())
+            .ok_or_else(|| EngineError::Config(format!("{}: apiKey required", component_id)))?;
+        ai_llm = Some(AiLlmSpec {
+            node_id: node.id.clone(),
+            from_view: from_view.to_string(),
+            input_column: string_prop(&props, "inputColumn")
+                .filter(|s| !s.is_empty())
+                .unwrap_or_else(|| "text".into()),
+            output_column: string_prop(&props, "outputColumn")
+                .filter(|s| !s.is_empty())
+                .unwrap_or_else(|| "completion".into()),
+            model: string_prop(&props, "model")
+                .filter(|s| !s.is_empty())
+                .unwrap_or_else(|| "gpt-4o-mini".into()),
+            api_key,
+            base_url: string_prop(&props, "baseUrl")
+                .filter(|s| !s.is_empty())
+                .unwrap_or_else(|| "https://api.openai.com".into()),
+            prompt_template: string_prop(&props, "promptTemplate").unwrap_or_default(),
+            system_prompt: string_prop(&props, "systemPrompt").filter(|s| !s.is_empty()),
+            temperature: props
+                .get("temperature")
+                .and_then(|v| v.as_f64())
+                .unwrap_or(0.0),
+        });
+        (String::new(), StageKind::View, None)
     } else if component_id == "xf.ai.embed" {
         // Per-row embedding via an OpenAI-compatible API. The planner
         // resolves the upstream view name (the stage reads from it
@@ -3268,6 +3417,9 @@ fn build_stage(
         wasm,
         ai_chunk,
         ai_pii,
+        ai_llm,
+        ai_classify,
+        ai_dedupe,
         email_source,
         wait_ms,
         retry_attempts,

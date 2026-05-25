@@ -6608,6 +6608,249 @@ fn src_git_log_emits_one_row_per_commit() {
     assert_eq!(tweak, "Tweak: pipe | in subject");
 }
 
+/// xf.ai.dedupe: pre-stage rows with embedding column, run dedupe at
+/// a tight threshold, verify the near-duplicate row is dropped.
+/// Uses CSV input where the embedding column is a JSON array literal
+/// that DuckDB's read_csv_auto unfolds into a list of doubles - then
+/// the engine reads it back via run_rows as a JSON array.
+#[test]
+fn xf_ai_dedupe_drops_near_duplicate_rows_by_cosine() {
+    let engine = engine_or_skip!();
+    let tmp = tempfile::tempdir().unwrap();
+    // 4 rows: 1 and 2 are near-identical embeddings (cos ~ 1.0),
+    // 3 is orthogonal, 4 is opposite of 1. Threshold 0.95 should
+    // keep 1, drop 2, keep 3, keep 4.
+    let in_csv = write_file(
+        tmp.path(),
+        "in.csv",
+        "id,embedding\n\
+         1,\"[1.0, 0.0, 0.0]\"\n\
+         2,\"[0.999, 0.01, 0.001]\"\n\
+         3,\"[0.0, 1.0, 0.0]\"\n\
+         4,\"[-1.0, 0.0, 0.0]\"\n",
+    );
+    let out = out_path(tmp.path(), "out.csv");
+    let r = engine.execute_pipeline(&doc(
+        json!([
+            node("s", "src.csv", json!({ "path": in_csv, "hasHeader": true })),
+            node("d", "xf.ai.dedupe", json!({
+                "embeddingColumn": "embedding",
+                "threshold": 0.95,
+            })),
+            node("k", "snk.csv", json!({ "path": out, "hasHeader": true })),
+        ]),
+        json!([main_edge("e1", "s", "d"), main_edge("e2", "d", "k")]),
+    ));
+    assert_eq!(r.status, "ok", "xf.ai.dedupe failed: {:?}", r.error);
+    let n = count(&format!("read_csv_auto('{}')", out));
+    assert_eq!(n, 3, "expected 3 rows kept (1, 3, 4), got {}", n);
+    // Row 2 should be gone, rows 1/3/4 should remain
+    let ids = scalar_string(&format!(
+        "SELECT string_agg(id, ',' ORDER BY id) FROM read_csv_auto('{}')",
+        out
+    ));
+    assert_eq!(ids, "1,3,4");
+}
+
+/// xf.ai.classify: mock chat-completions endpoint returns one of the
+/// supplied categories per row. Verify the prompt asks for exactly
+/// one of the categories and the result lands in the output column.
+#[test]
+fn xf_ai_classify_constrains_to_supplied_categories() {
+    use std::io::{Read, Write};
+    use std::net::TcpListener;
+    use std::sync::Arc;
+    use std::time::Duration;
+
+    let engine = engine_or_skip!();
+    let listener = TcpListener::bind("127.0.0.1:0").expect("bind");
+    let port = listener.local_addr().unwrap().port();
+    let captured = Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
+    let cap = captured.clone();
+    let handle = std::thread::spawn(move || {
+        // 3 requests, one per row; alternate category replies.
+        let replies = ["positive", "negative", "BOGUS_CATEGORY"];
+        for (idx, stream) in listener.incoming().take(3).enumerate() {
+            let mut stream = match stream {
+                Ok(s) => s,
+                Err(_) => break,
+            };
+            stream.set_read_timeout(Some(Duration::from_millis(500))).ok();
+            stream.set_nodelay(true).ok();
+            let mut buf = Vec::with_capacity(8192);
+            let mut chunk = [0u8; 4096];
+            for _ in 0..16 {
+                match stream.read(&mut chunk) {
+                    Ok(0) => break,
+                    Ok(n) => buf.extend_from_slice(&chunk[..n]),
+                    Err(_) => break,
+                }
+            }
+            cap.lock().unwrap().push(String::from_utf8_lossy(&buf).to_string());
+            let body = format!(
+                r#"{{"choices":[{{"message":{{"role":"assistant","content":"{}"}}}}]}}"#,
+                replies[idx]
+            );
+            let resp = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                body.len()
+            );
+            let _ = stream.write_all(resp.as_bytes());
+            let _ = stream.write_all(body.as_bytes());
+            let _ = stream.flush();
+            let _ = stream.shutdown(std::net::Shutdown::Write);
+        }
+    });
+
+    let tmp = tempfile::tempdir().unwrap();
+    let in_csv = write_file(
+        tmp.path(),
+        "in.csv",
+        "id,text\n1,great service\n2,terrible food\n3,not a real review\n",
+    );
+    let out = out_path(tmp.path(), "out.csv");
+    let base_url = format!("http://127.0.0.1:{}", port);
+    let r = engine.execute_pipeline(&doc(
+        json!([
+            node("s", "src.csv", json!({ "path": in_csv, "hasHeader": true })),
+            node("c", "xf.ai.classify", json!({
+                "inputColumn": "text",
+                "outputColumn": "sentiment",
+                "categories": "positive, negative",
+                "model": "mock",
+                "apiKey": "sk-test",
+                "baseUrl": base_url,
+            })),
+            node("k", "snk.csv", json!({ "path": out, "hasHeader": true })),
+        ]),
+        json!([main_edge("e1", "s", "c"), main_edge("e2", "c", "k")]),
+    ));
+    let _ = handle.join();
+    assert_eq!(r.status, "ok", "xf.ai.classify failed: {:?}", r.error);
+    let row1 = scalar_string(&format!(
+        "SELECT sentiment FROM read_csv_auto('{}') WHERE id = 1",
+        out
+    ));
+    assert_eq!(row1, "positive");
+    let row2 = scalar_string(&format!(
+        "SELECT sentiment FROM read_csv_auto('{}') WHERE id = 2",
+        out
+    ));
+    assert_eq!(row2, "negative");
+    // The model returned BOGUS_CATEGORY which isn't in the list,
+    // so it should land as UNKNOWN.
+    let row3 = scalar_string(&format!(
+        "SELECT sentiment FROM read_csv_auto('{}') WHERE id = 3",
+        out
+    ));
+    assert_eq!(row3, "UNKNOWN");
+    // Verify the prompt mentioned both categories
+    let reqs = captured.lock().unwrap();
+    assert!(
+        reqs[0].contains("positive") && reqs[0].contains("negative"),
+        "system prompt should list both categories: {}",
+        reqs[0]
+    );
+}
+
+/// xf.ai.llm: stand up a mock /v1/chat/completions endpoint, pipe 2
+/// rows through with a prompt template, verify each row got the
+/// completion text written back. Also asserts the prompt template
+/// substitution happened (request body contains "alice" and "bob").
+#[test]
+fn xf_ai_llm_calls_chat_completions_with_template() {
+    use std::io::{Read, Write};
+    use std::net::TcpListener;
+    use std::sync::Arc;
+    use std::time::Duration;
+
+    let engine = engine_or_skip!();
+    let listener = TcpListener::bind("127.0.0.1:0").expect("bind");
+    let port = listener.local_addr().unwrap().port();
+    let captured = Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
+    let cap = captured.clone();
+    let handle = std::thread::spawn(move || {
+        // Accept 2 connections (one per row).
+        for (idx, stream) in listener.incoming().take(2).enumerate() {
+            let mut stream = match stream {
+                Ok(s) => s,
+                Err(_) => break,
+            };
+            stream
+                .set_read_timeout(Some(Duration::from_millis(500)))
+                .ok();
+            stream.set_nodelay(true).ok();
+            let mut buf = Vec::with_capacity(16384);
+            let mut chunk = [0u8; 4096];
+            for _ in 0..32 {
+                match stream.read(&mut chunk) {
+                    Ok(0) => break,
+                    Ok(n) => buf.extend_from_slice(&chunk[..n]),
+                    Err(_) => break,
+                }
+            }
+            cap.lock()
+                .unwrap()
+                .push(String::from_utf8_lossy(&buf).to_string());
+            let body = format!(
+                r#"{{"choices":[{{"message":{{"role":"assistant","content":"completion-for-row-{}"}}}}],"model":"mock"}}"#,
+                idx
+            );
+            let resp = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                body.len()
+            );
+            let _ = stream.write_all(resp.as_bytes());
+            let _ = stream.write_all(body.as_bytes());
+            let _ = stream.flush();
+            let _ = stream.shutdown(std::net::Shutdown::Write);
+            std::thread::sleep(Duration::from_millis(50));
+        }
+    });
+
+    let tmp = tempfile::tempdir().unwrap();
+    let in_csv = write_file(
+        tmp.path(),
+        "in.csv",
+        "id,name\n1,alice\n2,bob\n",
+    );
+    let out = out_path(tmp.path(), "out.csv");
+    let base_url = format!("http://127.0.0.1:{}", port);
+    let r = engine.execute_pipeline(&doc(
+        json!([
+            node("s", "src.csv", json!({ "path": in_csv, "hasHeader": true })),
+            node("l", "xf.ai.llm", json!({
+                "promptTemplate": "Greet {name}",
+                "outputColumn": "reply",
+                "model": "mock",
+                "apiKey": "sk-test",
+                "baseUrl": base_url,
+                "systemPrompt": "You are concise.",
+            })),
+            node("k", "snk.csv", json!({ "path": out, "hasHeader": true })),
+        ]),
+        json!([main_edge("e1", "s", "l"), main_edge("e2", "l", "k")]),
+    ));
+    let _ = handle.join();
+    assert_eq!(r.status, "ok", "xf.ai.llm failed: {:?}", r.error);
+    assert_eq!(count(&format!("read_csv_auto('{}')", out)), 2);
+    // The two prompt-rendered requests should contain the substituted names.
+    let reqs = captured.lock().unwrap();
+    assert!(reqs[0].contains("Greet alice"), "row 1 prompt missing 'Greet alice': {}", reqs[0]);
+    assert!(reqs[1].contains("Greet bob"), "row 2 prompt missing 'Greet bob': {}", reqs[1]);
+    // System prompt should be on both.
+    assert!(reqs[0].contains("You are concise."));
+    // Bearer auth + correct endpoint
+    assert!(reqs[0].starts_with("POST /v1/chat/completions"));
+    assert!(reqs[0].to_lowercase().contains("authorization: bearer sk-test"));
+    // Output column should contain the mock completion
+    let r1 = scalar_string(&format!(
+        "SELECT reply FROM read_csv_auto('{}') WHERE id = 1",
+        out
+    ));
+    assert_eq!(r1, "completion-for-row-0");
+}
+
 /// xf.ai.pii: pipe 3 rows containing different PII shapes through
 /// the redactor; verify each gets the right label substituted and
 /// non-PII text is untouched.

@@ -28,11 +28,11 @@ pub mod plan;
 pub use history::{append_run_record, load_run_history, RunRecord};
 pub use plan::{CompiledPipeline, PipelineDoc, Stage, StageKind};
 use plan::{
-    quote_ident, AiChunkSpec, AiEmbedSpec, AiPiiSpec, AvroSinkSpec, AvroSourceSpec,
-    CassandraSinkSpec, CassandraSourceSpec, ClickHouseSinkSpec, ClickHouseSourceSpec,
-    ClipboardSourceSpec, DatabricksSinkSpec, DatabricksSourceSpec, ElasticSourceSpec,
-    EmailSourceSpec, FormatFileSinkSpec, FormatFileSourceSpec, FormatKind, FtpSourceSpec,
-    GitSourceSpec, KafkaSinkSpec, KafkaSourceSpec, MilvusSourceSpec, MongoSinkSpec,
+    quote_ident, AiChunkSpec, AiClassifySpec, AiDedupeSpec, AiEmbedSpec, AiLlmSpec, AiPiiSpec,
+    AvroSinkSpec, AvroSourceSpec, CassandraSinkSpec, CassandraSourceSpec, ClickHouseSinkSpec,
+    ClickHouseSourceSpec, ClipboardSourceSpec, DatabricksSinkSpec, DatabricksSourceSpec,
+    ElasticSourceSpec, EmailSourceSpec, FormatFileSinkSpec, FormatFileSourceSpec, FormatKind,
+    FtpSourceSpec, GitSourceSpec, KafkaSinkSpec, KafkaSourceSpec, MilvusSourceSpec, MongoSinkSpec,
     MongoSourceSpec, NatsSinkSpec, NatsSourceSpec, OracleSinkSpec, OracleSourceSpec,
     PubSubSinkSpec, PubSubSourceSpec, QdrantSourceSpec, RabbitSinkSpec, RabbitSourceSpec,
     RedisSinkSpec, RedisSourceSpec, RestPagination, RestResponseFormat, RestSourceSpec, ShellSpec,
@@ -557,6 +557,12 @@ impl DuckdbEngine {
                     self.run_ai_chunk(&db_path, spec)
                 } else if let Some(spec) = stage.ai_pii.as_ref() {
                     self.run_ai_pii(&db_path, spec)
+                } else if let Some(spec) = stage.ai_llm.as_ref() {
+                    self.run_ai_llm(&db_path, spec)
+                } else if let Some(spec) = stage.ai_classify.as_ref() {
+                    self.run_ai_classify(&db_path, spec)
+                } else if let Some(spec) = stage.ai_dedupe.as_ref() {
+                    self.run_ai_dedupe(&db_path, spec)
                 } else if let Some(spec) = stage.email_source.as_ref() {
                     self.run_email_source(&db_path, spec)
                 } else if let Some(spec) = stage.upsert.as_ref() {
@@ -2555,6 +2561,229 @@ impl DuckdbEngine {
         Ok(format!(
             "email: materialized {} message(s) from {}@{}:{}/{} into {}",
             count, spec.user, spec.host, spec.port, spec.mailbox, spec.node_id
+        ))
+    }
+
+    /// xf.ai.dedupe: drop rows whose embedding is within `threshold`
+    /// cosine similarity of a previously-kept row. Reads the
+    /// embedding column as a list of floats from each row. No API
+    /// call - pure local math. O(N^2) per stage which is fine for
+    /// ETL-scale datasets (low thousands of rows).
+    fn run_ai_dedupe(&self, db: &Path, spec: &AiDedupeSpec) -> Result<String, EngineError> {
+        self.check_cancelled()?;
+        let rows = self.run_rows(
+            Some(db),
+            &format!("SELECT * FROM {};", quote_ident(&spec.from_view)),
+        )?;
+        let mut kept: Vec<JsonValue> = Vec::new();
+        let mut kept_embeddings: Vec<Vec<f64>> = Vec::new();
+        for row in rows.iter() {
+            self.check_cancelled()?;
+            let raw = row.get(&spec.embedding_column);
+            // Accept either a JSON array directly (when read via
+            // read_json_auto) OR a stringified JSON array (when the
+            // upstream came through a CSV round-trip - DuckDB keeps
+            // list literals as strings in CSV).
+            let emb: Option<Vec<f64>> = raw.and_then(|v| match v {
+                JsonValue::Array(arr) => Some(
+                    arr.iter().filter_map(|x| x.as_f64()).collect::<Vec<_>>(),
+                ),
+                JsonValue::String(s) => serde_json::from_str::<JsonValue>(s)
+                    .ok()
+                    .and_then(|j| j.as_array().cloned())
+                    .map(|arr| arr.iter().filter_map(|x| x.as_f64()).collect::<Vec<_>>()),
+                _ => None,
+            });
+            let Some(e) = emb else {
+                // Missing/invalid embedding - keep the row (don't
+                // silently drop data the user might want).
+                kept.push(row.clone());
+                kept_embeddings.push(Vec::new());
+                continue;
+            };
+            // Drop if any previously-kept embedding is within threshold.
+            let is_dup = kept_embeddings
+                .iter()
+                .filter(|p| !p.is_empty())
+                .any(|p| cosine_similarity(p, &e) >= spec.threshold);
+            if !is_dup {
+                kept.push(row.clone());
+                kept_embeddings.push(e);
+            }
+        }
+        let count = kept.len();
+        materialize_jsonobjects_as_table(db, &spec.node_id, &kept)?;
+        Ok(format!(
+            "ai.dedupe: {} -> {} row(s) (threshold {}) into {}",
+            rows.len(),
+            count,
+            spec.threshold,
+            spec.node_id
+        ))
+    }
+
+    /// xf.ai.classify: per-row LLM-backed classifier. Builds a
+    /// constrained prompt asking the model to choose exactly one of
+    /// the user-supplied categories. Result that's not in the list
+    /// gets normalized to "UNKNOWN" so downstream filters don't break.
+    fn run_ai_classify(
+        &self,
+        db: &Path,
+        spec: &AiClassifySpec,
+    ) -> Result<String, EngineError> {
+        self.check_cancelled()?;
+        let rows = self.run_rows(
+            Some(db),
+            &format!("SELECT * FROM {};", quote_ident(&spec.from_view)),
+        )?;
+        if rows.is_empty() {
+            materialize_jsonobjects_as_table(db, &spec.node_id, &[])?;
+            return Ok(format!("ai.classify: 0 upstream rows -> {}", spec.node_id));
+        }
+        let endpoint = format!("{}/v1/chat/completions", spec.base_url.trim_end_matches('/'));
+        let cat_list = spec.categories.join(", ");
+        let system_prompt = format!(
+            "You are a strict classifier. Pick exactly one of these categories: {}. \
+             Reply with only the category name and nothing else.",
+            cat_list
+        );
+        let mut out: Vec<JsonValue> = Vec::with_capacity(rows.len());
+        for row in rows.iter() {
+            self.check_cancelled()?;
+            let text = row
+                .get(&spec.input_column)
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let body = serde_json::json!({
+                "model": spec.model,
+                "temperature": 0.0,
+                "messages": [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": text},
+                ],
+            });
+            let resp = ureq::post(&endpoint)
+                .set("Authorization", &format!("Bearer {}", spec.api_key))
+                .set("Content-Type", "application/json")
+                .send_string(&body.to_string());
+            let response: JsonValue = match resp {
+                Ok(r) => r
+                    .into_json()
+                    .map_err(|e| EngineError::Query(format!("ai.classify parse: {}", e)))?,
+                Err(ureq::Error::Status(code, r)) => {
+                    let b = r.into_string().unwrap_or_default();
+                    return Err(EngineError::Query(format!("ai.classify HTTP {}: {}", code, b)));
+                }
+                Err(e) => {
+                    return Err(EngineError::Query(format!("ai.classify transport: {}", e)))
+                }
+            };
+            let raw = response
+                .pointer("/choices/0/message/content")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .trim()
+                .to_string();
+            // Constrain to the supplied category list; anything not
+            // in it becomes UNKNOWN so downstream pipelines don't
+            // see surprise values.
+            let chosen = spec
+                .categories
+                .iter()
+                .find(|c| c.eq_ignore_ascii_case(&raw))
+                .cloned()
+                .unwrap_or_else(|| "UNKNOWN".into());
+            let mut obj = match row {
+                JsonValue::Object(m) => m.clone(),
+                _ => serde_json::Map::new(),
+            };
+            obj.insert(spec.output_column.clone(), JsonValue::String(chosen));
+            out.push(JsonValue::Object(obj));
+        }
+        let count = out.len();
+        materialize_jsonobjects_as_table(db, &spec.node_id, &out)?;
+        Ok(format!(
+            "ai.classify ({}): {} row(s) -> {}",
+            spec.model, count, spec.node_id
+        ))
+    }
+
+    /// xf.ai.llm: per-row LLM call via OpenAI-compatible chat
+    /// completions API. Renders prompt_template with {col} subst
+    /// from each row; if template is empty, sends the input column
+    /// text as-is. Optional system prompt + temperature. Result text
+    /// lands in output_column.
+    ///
+    /// Unlike xf.ai.embed which batches inputs in a single request,
+    /// chat completions are one prompt per call - N rows = N HTTP
+    /// requests. Users should keep dataset sizes manageable or chain
+    /// with xf.rows.head to sample.
+    fn run_ai_llm(&self, db: &Path, spec: &AiLlmSpec) -> Result<String, EngineError> {
+        self.check_cancelled()?;
+        let rows = self.run_rows(
+            Some(db),
+            &format!("SELECT * FROM {};", quote_ident(&spec.from_view)),
+        )?;
+        if rows.is_empty() {
+            materialize_jsonobjects_as_table(db, &spec.node_id, &[])?;
+            return Ok(format!("ai.llm: 0 upstream rows -> {}", spec.node_id));
+        }
+        let endpoint = format!("{}/v1/chat/completions", spec.base_url.trim_end_matches('/'));
+        let mut out: Vec<JsonValue> = Vec::with_capacity(rows.len());
+        for row in rows.iter() {
+            self.check_cancelled()?;
+            let user_text = if spec.prompt_template.is_empty() {
+                row.get(&spec.input_column)
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string()
+            } else {
+                render_prompt_template(&spec.prompt_template, row)
+            };
+            let mut messages: Vec<serde_json::Value> = Vec::new();
+            if let Some(sys) = &spec.system_prompt {
+                messages.push(serde_json::json!({"role": "system", "content": sys}));
+            }
+            messages.push(serde_json::json!({"role": "user", "content": user_text}));
+            let body = serde_json::json!({
+                "model": spec.model,
+                "messages": messages,
+                "temperature": spec.temperature,
+            });
+            let resp = ureq::post(&endpoint)
+                .set("Authorization", &format!("Bearer {}", spec.api_key))
+                .set("Content-Type", "application/json")
+                .send_string(&body.to_string());
+            let response: JsonValue = match resp {
+                Ok(r) => r
+                    .into_json()
+                    .map_err(|e| EngineError::Query(format!("ai.llm parse: {}", e)))?,
+                Err(ureq::Error::Status(code, r)) => {
+                    let b = r.into_string().unwrap_or_default();
+                    return Err(EngineError::Query(format!("ai.llm HTTP {}: {}", code, b)));
+                }
+                Err(e) => {
+                    return Err(EngineError::Query(format!("ai.llm transport: {}", e)))
+                }
+            };
+            let content = response
+                .pointer("/choices/0/message/content")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let mut obj = match row {
+                JsonValue::Object(m) => m.clone(),
+                _ => serde_json::Map::new(),
+            };
+            obj.insert(spec.output_column.clone(), JsonValue::String(content));
+            out.push(JsonValue::Object(obj));
+        }
+        let count = out.len();
+        materialize_jsonobjects_as_table(db, &spec.node_id, &out)?;
+        Ok(format!(
+            "ai.llm ({}): {} row(s) -> {}",
+            spec.model, count, spec.node_id
         ))
     }
 
@@ -5583,6 +5812,68 @@ fn parse_git_ls_tree(bytes: &[u8], max_rows: usize) -> Vec<JsonValue> {
     out
 }
 
+/// Cosine similarity between two equal-length float vectors. Used by
+/// xf.ai.dedupe. Returns 0.0 if either vector is empty / lengths
+/// mismatch / either has zero magnitude (all-zero vector).
+fn cosine_similarity(a: &[f64], b: &[f64]) -> f64 {
+    if a.is_empty() || a.len() != b.len() {
+        return 0.0;
+    }
+    let mut dot = 0.0;
+    let mut na = 0.0;
+    let mut nb = 0.0;
+    for (x, y) in a.iter().zip(b.iter()) {
+        dot += x * y;
+        na += x * x;
+        nb += y * y;
+    }
+    if na == 0.0 || nb == 0.0 {
+        return 0.0;
+    }
+    dot / (na.sqrt() * nb.sqrt())
+}
+
+/// Render a prompt template by substituting `{column_name}` tokens
+/// with the row's value for that column. Missing columns or non-
+/// scalar values become empty strings. Used by xf.ai.llm and
+/// xf.ai.classify.
+fn render_prompt_template(template: &str, row: &JsonValue) -> String {
+    let mut out = String::with_capacity(template.len());
+    let mut chars = template.chars().peekable();
+    let obj = row.as_object();
+    while let Some(c) = chars.next() {
+        if c != '{' {
+            out.push(c);
+            continue;
+        }
+        let mut key = String::new();
+        let mut closed = false;
+        for k in chars.by_ref() {
+            if k == '}' {
+                closed = true;
+                break;
+            }
+            key.push(k);
+        }
+        if !closed {
+            // Unclosed `{...` -> emit literally so user sees mistake.
+            out.push('{');
+            out.push_str(&key);
+            continue;
+        }
+        let val = obj
+            .and_then(|m| m.get(&key))
+            .map(|v| match v {
+                JsonValue::String(s) => s.clone(),
+                JsonValue::Null => String::new(),
+                other => other.to_string(),
+            })
+            .unwrap_or_default();
+        out.push_str(&val);
+    }
+    out
+}
+
 /// Compile the regex set for xf.ai.pii based on the user's `types`
 /// selection (empty = all). Each regex is paired with the replacement
 /// label that gets substituted in for each match. Conservative
@@ -5651,13 +5942,63 @@ fn chunk_text(text: &str, size: usize, overlap: usize) -> Vec<String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{chunk_text, glob_match, pii_patterns};
+    use super::{chunk_text, cosine_similarity, glob_match, pii_patterns, render_prompt_template};
+    use serde_json::json;
 
     fn redact_all(text: &str) -> String {
         let patterns = pii_patterns(&[]);
         patterns
             .iter()
             .fold(text.to_string(), |acc, (re, lbl)| re.replace_all(&acc, *lbl).into_owned())
+    }
+
+    #[test]
+    fn cosine_similarity_basic_cases() {
+        // Identical vectors -> 1.0
+        let sim = cosine_similarity(&[1.0, 2.0, 3.0], &[1.0, 2.0, 3.0]);
+        assert!((sim - 1.0).abs() < 1e-9, "expected 1.0, got {}", sim);
+        // Orthogonal -> 0.0
+        let sim = cosine_similarity(&[1.0, 0.0], &[0.0, 1.0]);
+        assert!(sim.abs() < 1e-9, "expected 0.0, got {}", sim);
+        // Opposite -> -1.0
+        let sim = cosine_similarity(&[1.0, 0.0], &[-1.0, 0.0]);
+        assert!((sim - (-1.0)).abs() < 1e-9, "expected -1.0, got {}", sim);
+        // Mismatched length -> 0.0 (degrade gracefully)
+        assert_eq!(cosine_similarity(&[1.0, 2.0], &[1.0]), 0.0);
+        // Zero vector -> 0.0 (no division by zero)
+        assert_eq!(cosine_similarity(&[0.0, 0.0], &[1.0, 2.0]), 0.0);
+        // Almost-identical -> close to 1.0
+        let sim = cosine_similarity(&[1.0, 1.0, 1.0], &[1.0, 1.0, 0.99]);
+        assert!(sim > 0.99, "expected > 0.99, got {}", sim);
+    }
+
+    #[test]
+    fn render_prompt_template_substitutes_row_values() {
+        let row = json!({"name": "alice", "city": "Tokyo", "age": 30});
+        assert_eq!(
+            render_prompt_template("Hello {name} from {city}!", &row),
+            "Hello alice from Tokyo!"
+        );
+        // numbers get stringified
+        assert_eq!(
+            render_prompt_template("{name} is {age} years old", &row),
+            "alice is 30 years old"
+        );
+        // missing columns become empty
+        assert_eq!(
+            render_prompt_template("Hi {name}, your {nonexistent} is here", &row),
+            "Hi alice, your  is here"
+        );
+        // unclosed brace stays literal so user notices
+        assert_eq!(
+            render_prompt_template("hi {name", &row),
+            "hi {name"
+        );
+        // no placeholders = passthrough
+        assert_eq!(
+            render_prompt_template("just plain text", &row),
+            "just plain text"
+        );
     }
 
     #[test]

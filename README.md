@@ -51,7 +51,7 @@ Duckle is in **early development**. The visual designer, the DuckDB execution en
 
 **Scope, stated plainly:** Duckle is a single-machine, embedded studio. If you outgrow one box, point Duckle's output at the system that scales. It will not pretend to be a cluster.
 
-The component palette ships **307 nodes** so the roadmap is visible in the product itself. As of the latest engine cut: **280 available**, **8 preview**, **19 planned**. Each node is tagged by availability:
+The component palette ships **307 nodes** so the roadmap is visible in the product itself. As of the latest engine cut: **283 available**, **5 preview**, **19 planned**. Each node is tagged by availability:
 
 - **Available** runs on the DuckDB engine today.
 - **Preview** is configurable in the designer now (drag, wire, set properties); execution is being wired engine-by-engine. This currently covers the AI transforms and some vector DB read sources.
@@ -133,11 +133,11 @@ Duckle is not a CSV tool with extras. It reads a broad set of formats and source
 | **Array** | Explode / Unnest, Collect List, Element At, Contains, Array Distinct, **Array Length** (scalar count of list elements) |
 | **Pivot / shape** | Pivot, **Unpivot**, **Denormalize** (group + delimited cells), **Normalize** (explode delimited / array column), **Transpose** |
 | **CDC / SCD** | **Diff Detect** (tag inserted / updated / deleted rows vs a previous snapshot), **SCD Type 1**, **SCD Type 2** (versioned history with valid_from / valid_to / is_current), **Merge / Upsert** |
-| **AI / Search** | **Vector Similarity Search** (cosine / L2 / inner product over FLOAT[N] embeddings via `vss`, optional top-K), **Full-Text Search** (BM25 over chosen columns via `fts`, optional top-K), **Embeddings** (per-row vector via any OpenAI-compatible `/v1/embeddings` endpoint; works with OpenAI, Cohere, Voyage, llama.cpp embed server via `baseUrl`; `apiKey` lives in the stage's props for now), **Text Chunker** (split long text into RAG-ready chunks, pure local), **PII Redact** (regex-based redaction of emails / phones / SSNs / credit cards) |
+| **AI / Search** | **Vector Similarity Search** (cosine / L2 / inner product over FLOAT[N] embeddings via `vss`, optional top-K), **Full-Text Search** (BM25 over chosen columns via `fts`, optional top-K), **Embeddings** (per-row vector via any OpenAI-compatible `/v1/embeddings` endpoint; works with OpenAI, Cohere, Voyage, llama.cpp embed server via `baseUrl`), **LLM Transform** (per-row chat completion with `{column}` template substitution + optional system prompt), **Classify** (LLM-backed; pins each row into one of N user-supplied categories, normalizes out-of-list to UNKNOWN), **Text Chunker** (split long text into RAG-ready chunks, pure local), **PII Redact** (regex-based redaction of emails / phones / SSNs / credit cards), **Semantic Dedupe** (drop near-duplicate rows by cosine similarity over a pre-computed embedding column) |
 | **Geospatial** | **Spatial Distance** (ST_Distance to a target WKT geometry), **Spatial Buffer** (ST_Buffer around each row's geometry), **Spatial Intersects** (boolean: does each row overlap a target geometry, via ST_Intersects - pair with Filter Rows to keep only matches) - lazy-load the spatial extension on first use |
 | **Debug** | Log Rows (pass through and print to Output for mid-pipeline inspection), **Assert** (hard-fail the pipeline if any row violates a SQL predicate - defensive ETL check, complements qa.* row-level validators that route to a reject port) |
 
-The Embeddings, Text Chunker, and PII Redact transforms ship today. The remaining 3 (LLM Transform, Classify, Semantic Dedupe) stay in **preview** until they're wired through the same apiKey-in-props pattern.
+All 6 AI transforms ship today via the apiKey-in-props credential pattern (or no API at all for the pure-local ones: chunk, pii, dedupe).
 
 ### Data quality
 
