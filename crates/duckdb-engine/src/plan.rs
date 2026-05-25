@@ -2908,6 +2908,10 @@ fn build_stage(
             | "src.asana"
             | "src.trello"
             | "src.clickup"
+            | "src.slack"
+            | "src.discord"
+            | "src.twilio"
+            | "src.telegram"
     ) {
         // Generic REST source + thin vendor aliases. Vendors share
         // the same plumbing - the palette/form pre-fills url, auth

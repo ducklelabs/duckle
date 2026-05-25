@@ -729,6 +729,16 @@ export const PALETTE: Category[] = [
                     src('segment', 'Segment', 'available', 'Segment Public API. Bearer access token. Cursor pagination via `pagination.next` + `pagination[cursor]` param. responsePath /data.'),
                 ],
             },
+            {
+                id: 'saas.comms',
+                label: 'Communication',
+                components: [
+                    src('slack', 'Slack', 'available', 'Slack Web API. Bearer Bot User OAuth Token (xoxb-...). Cursor pagination via `response_metadata.next_cursor` + `cursor` param. responsePath depends on endpoint (e.g. /messages for conversations.history). Base URL https://slack.com/api.'),
+                    src('discord', 'Discord', 'available', 'Discord REST. Bot token in Authorization header (prefix `Bot `). No native pagination on most endpoints; use `?limit=N&before=ID` patterns. responsePath empty (responses are top-level arrays). Base URL https://discord.com/api/v10.'),
+                    src('telegram', 'Telegram Bot', 'available', 'Telegram Bot API. Token in URL path (https://api.telegram.org/bot{token}/getUpdates). Offset pagination via `?offset=N`. responsePath /result. No auth header needed - token is in the URL.'),
+                    src('twilio', 'Twilio', 'available', 'Twilio REST. Basic auth (Account SID + Auth Token). Page-cursor pagination via `next_page_uri`. responsePath depends on resource (e.g. /messages, /calls). Base URL https://api.twilio.com/2010-04-01/Accounts/{AccountSid}.'),
+                ],
+            },
         ],
     },
 ];
