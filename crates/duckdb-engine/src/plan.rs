@@ -1561,11 +1561,28 @@ fn validate_column_refs(
             c, case_hint
         ))
     };
-    match component_id {
-        "xf.fill_forward" | "xf.fill_backward" | "xf.fill_constant" => {
-            if let Some(c) = p.get("column").and_then(JsonValue::as_str) {
+    // Helper for components whose props expose a single "column" key.
+    let check_single_col = |p: &JsonValue| -> Result<(), String> {
+        if let Some(c) = p.get("column").and_then(JsonValue::as_str) {
+            let c = c.trim();
+            if !c.is_empty() {
                 check(c)?;
             }
+        }
+        Ok(())
+    };
+    let check_list = |key: &str| -> Result<(), String> {
+        for c in columns_list(p, key) {
+            let c = c.trim();
+            if !c.is_empty() {
+                check(c)?;
+            }
+        }
+        Ok(())
+    };
+    match component_id {
+        "xf.fill_forward" | "xf.fill_backward" | "xf.fill_constant" => {
+            check_single_col(p)?;
         }
         "xf.cast" => {
             // Multi-row form
@@ -1579,11 +1596,119 @@ fn validate_column_refs(
                     }
                 }
             }
-            // Single-row form
-            if let Some(c) = p.get("column").and_then(JsonValue::as_str) {
-                let c = c.trim();
-                if !c.is_empty() {
-                    check(c)?;
+            check_single_col(p)?;
+        }
+        "xf.distinct" | "xf.drop" | "xf.keep" | "xf.unpivot" | "xf.row_hash" => {
+            check_list("columns")?;
+        }
+        "xf.project" => {
+            check_list("columns")?;
+            check_list("keep")?;
+        }
+        "xf.sort" => {
+            // orderBy is either an array of column-name strings or
+            // an array of {column, direction} objects. Validate both.
+            if let Some(arr) = p.get("orderBy").and_then(JsonValue::as_array) {
+                for entry in arr {
+                    let c = entry
+                        .as_str()
+                        .map(|s| s.to_string())
+                        .or_else(|| {
+                            entry
+                                .get("column")
+                                .and_then(JsonValue::as_str)
+                                .map(|s| s.to_string())
+                        });
+                    if let Some(c) = c {
+                        let c = c.trim();
+                        if !c.is_empty() {
+                            check(c)?;
+                        }
+                    }
+                }
+            }
+        }
+        "xf.rename" => {
+            if let Some(arr) = p.get("renames").and_then(JsonValue::as_array) {
+                for entry in arr {
+                    if let Some(c) = entry.get("from").and_then(JsonValue::as_str) {
+                        let c = c.trim();
+                        if !c.is_empty() {
+                            check(c)?;
+                        }
+                    }
+                }
+            }
+        }
+        "xf.aggregate" => {
+            check_list("groupBy")?;
+            // aggregateColumns: [{column, fn}, ...] - check the column field.
+            if let Some(arr) = p.get("aggregateColumns").and_then(JsonValue::as_array) {
+                for entry in arr {
+                    if let Some(c) = entry.get("column").and_then(JsonValue::as_str) {
+                        let c = c.trim();
+                        if !c.is_empty() {
+                            check(c)?;
+                        }
+                    }
+                }
+            }
+        }
+        "xf.pivot" => {
+            check_single_col(p)?;
+            for key in ["pivotColumn", "valueColumn", "valuesColumn"] {
+                if let Some(c) = p.get(key).and_then(JsonValue::as_str) {
+                    let c = c.trim();
+                    if !c.is_empty() {
+                        check(c)?;
+                    }
+                }
+            }
+            check_list("groupBy")?;
+        }
+        "xf.url.parse" | "xf.ip.parse" => {
+            check_single_col(p)?;
+        }
+        "xf.cdc.scd1" | "xf.cdc.scd2" | "xf.cdc.compare" => {
+            check_list("naturalKey")?;
+            check_list("compareColumns")?;
+        }
+        // Window family: partitionBy + orderBy are upstream columns.
+        // `column` is the column the function operates on (lead/lag/
+        // first/last) - present on a subset.
+        "xf.window"
+        | "xf.rownum"
+        | "xf.rank"
+        | "xf.denserank"
+        | "xf.lead"
+        | "xf.lag"
+        | "xf.first"
+        | "xf.last"
+        | "xf.ntile"
+        | "xf.rank.filter"
+        | "xf.cumulative"
+        | "xf.aggwin" => {
+            check_list("partitionBy")?;
+            check_list("orderBy")?;
+            check_single_col(p)?;
+        }
+        // Join keys on the left side. Right-side keys reference the
+        // lookup input, whose columns we don't currently propagate
+        // through the planner; skip those rather than emit a false
+        // positive.
+        "xf.join"
+        | "xf.join.left"
+        | "xf.join.right"
+        | "xf.join.full"
+        | "xf.join.cross"
+        | "xf.semi"
+        | "xf.anti" => {
+            if let Some(s) = p.get("leftKey").and_then(JsonValue::as_str) {
+                for k in s.split(',') {
+                    let k = k.trim();
+                    if !k.is_empty() {
+                        check(k)?;
+                    }
                 }
             }
         }
