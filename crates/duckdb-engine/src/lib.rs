@@ -347,8 +347,8 @@ impl DuckdbEngine {
             // aggregations can be capped per stage. The PRAGMA only lives
             // for the duration of this CLI invocation.
             //
-            // Three knobs, all with environment-variable defaults so a
-            // workspace config can cap the engine globally without
+            // Three resource knobs, all with environment-variable defaults
+            // so a workspace config can cap the engine globally without
             // touching every stage. Per-stage settings still override
             // the env defaults.
             //
@@ -356,13 +356,35 @@ impl DuckdbEngine {
             //   DUCKLE_THREADS      - integer; DuckDB defaults to N cores
             //   DUCKLE_TEMP_DIR     - spill directory (default: OS temp)
             //
+            // Plus a fixed performance preset (always on) that flips a
+            // handful of DuckDB defaults that hurt typical ETL throughput:
+            //
+            //   preserve_insertion_order = false
+            //     Lets DuckDB use multi-threaded sink writes for COPY and
+            //     CREATE TABLE AS. The default-on insertion-order guarantee
+            //     forces a serial collector at the end of every parallel
+            //     scan, which can halve wall time on Parquet writes.
+            //
+            //   enable_object_cache = true
+            //     Caches Parquet file metadata between reads in the same
+            //     process. Big win when the same source file appears in
+            //     multiple stages, or when read_parquet hits a glob.
+            //
+            //   enable_progress_bar = false
+            //     Saves a few percent CPU + avoids tearing the CLI output
+            //     when we shell out non-interactively.
+            //
             // Why env-vars instead of an EngineConfig struct: the engine
             // is constructed in many places (tests, scheduler, desktop)
             // and threading a config through every call site is invasive.
             // Env vars let the Tauri app's setup hook publish workspace
             // settings once, and tests can set them ad-hoc.
             let memory_pragma = {
-                let mut prag = String::new();
+                let mut prag = String::from(
+                    "PRAGMA preserve_insertion_order=false; \
+                     PRAGMA enable_object_cache=true; \
+                     PRAGMA enable_progress_bar=false; ",
+                );
                 let env_mem = std::env::var("DUCKLE_MEMORY_LIMIT").ok().filter(|s| !s.is_empty());
                 let mem = match stage.memory_limit_mb {
                     Some(mb) => Some(format!("{}MB", mb)),
@@ -5564,13 +5586,31 @@ fn materialize_jsonobjects_as_table(
     node_id: &str,
     rows: &[JsonValue],
 ) -> Result<(), EngineError> {
-    let json_text = serde_json::to_string(&JsonValue::Array(rows.to_vec()))
-        .map_err(|e| EngineError::Query(format!("rest source: JSON encode: {}", e)))?;
+    // Stream one object per line (NDJSON / JSON Lines) instead of
+    // serializing the whole Vec into a single in-memory JSON string.
+    // Two wins:
+    //   1. No O(rows) memory spike for large source pulls - we never
+    //      hold the full serialized payload at once.
+    //   2. DuckDB's read_json_auto with format='newline_delimited' is
+    //      faster than format='array' because it can parse rows in
+    //      parallel and doesn't have to track the outer-array state.
+    use std::io::{BufWriter, Write};
     let tmp_path = unique_rest_tmp_path(node_id);
-    std::fs::write(&tmp_path, json_text)
-        .map_err(|e| EngineError::Query(format!("rest source: write tmp file: {}", e)))?;
+    let file = std::fs::File::create(&tmp_path)
+        .map_err(|e| EngineError::Query(format!("rest source: create tmp file: {}", e)))?;
+    {
+        let mut w = BufWriter::with_capacity(64 * 1024, file);
+        for row in rows {
+            serde_json::to_writer(&mut w, row)
+                .map_err(|e| EngineError::Query(format!("rest source: JSON encode: {}", e)))?;
+            w.write_all(b"\n")
+                .map_err(|e| EngineError::Query(format!("rest source: write tmp file: {}", e)))?;
+        }
+        w.flush()
+            .map_err(|e| EngineError::Query(format!("rest source: flush tmp file: {}", e)))?;
+    }
     let sql = format!(
-        "CREATE OR REPLACE TABLE {} AS SELECT * FROM read_json_auto('{}', format='array')",
+        "CREATE OR REPLACE TABLE {} AS SELECT * FROM read_json_auto('{}', format='newline_delimited')",
         plan::quote_ident(node_id),
         tmp_path.display().to_string().replace('\\', "/").replace('\'', "''")
     );
