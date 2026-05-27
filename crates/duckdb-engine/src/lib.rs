@@ -944,31 +944,24 @@ impl DuckdbEngine {
                 plan::StageKind::View if !count_unsafe => Some(stage.node_id.as_str()),
                 plan::StageKind::View => None,
             };
+            // Marker shape is just `SELECT COUNT(*) AS _duckle_r FROM <t>`
+            // (or `SELECT NULL AS _duckle_r` when there's no countable
+            // target). No string-literal projected alongside the
+            // aggregate: DuckDB's binder repeatedly tripped on
+            // `SELECT 'literal' AS x, COUNT(*) AS y FROM <foreign>`
+            // when <foreign> was an extension-backed ATTACH view
+            // (mysql + postgres), with internal "Failed to bind
+            // column reference ..." errors. The stage's identity is
+            // already in the marker FILE NAME (<i>.json), so we don't
+            // need it inside the payload.
             match count_target {
-                // Flat aggregate shape `SELECT 'x' AS _duckle_n,
-                // COUNT(*) AS _duckle_r FROM <t>` instead of the
-                // nested scalar-subquery shape with bare `n`/`r`
-                // aliases. Two real-world bugs the verbose names dodge:
-                //   - the bare `r` alias collided with a user node
-                //     literally named `r` (mysql_sink_then_source
-                //     test) and tripped DuckDB's binder with "Failed
-                //     to bind column reference r"
-                //   - the nested `(SELECT COUNT(*) FROM <t>) AS r`
-                //     shape tripped DuckDB's binder on foreign-table
-                //     views (the postgres / mysql extensions' ATTACH
-                //     path) with "Failed to bind column reference
-                //     count_star()"
-                // Verified empirically against the full integration
-                // suite + the mysql container in CI.
                 Some(t) => batched_sql.push_str(&format!(
-                    "COPY (SELECT '{}' AS _duckle_n, COUNT(*) AS _duckle_r FROM {}) TO '{}' (FORMAT 'json', ARRAY false);\n",
-                    stage.node_id.replace('\'', "''"),
+                    "COPY (SELECT COUNT(*) AS _duckle_r FROM {}) TO '{}' (FORMAT 'json', ARRAY false);\n",
                     plan::quote_ident(t),
                     path_to_sql(&marker),
                 )),
                 None => batched_sql.push_str(&format!(
-                    "COPY (SELECT '{}' AS _duckle_n) TO '{}' (FORMAT 'json', ARRAY false);\n",
-                    stage.node_id.replace('\'', "''"),
+                    "COPY (SELECT NULL AS _duckle_r) TO '{}' (FORMAT 'json', ARRAY false);\n",
                     path_to_sql(&marker),
                 )),
             }
@@ -6025,29 +6018,17 @@ fn stage_kind_label(k: &plan::StageKind) -> &'static str {
 }
 
 /// Read the single-row NDJSON marker the batched executor emits at
-/// each stage boundary. Returns (node_id, row_count). The row count
-/// is None when the stage was emitted without a COUNT(*) subquery
-/// (ctl.switch and xf.assert - see execute_batched for why), to
-/// match the per-stage path which reports those as rows=None.
-fn read_marker(path: &Path) -> (String, Option<u64>) {
-    let content = match std::fs::read_to_string(path) {
-        Ok(s) => s,
-        Err(_) => return (String::new(), None),
-    };
-    let line = content.lines().next().unwrap_or("").trim();
-    let Ok(v) = serde_json::from_str::<JsonValue>(line) else {
-        return (String::new(), None);
-    };
-    let n = v
-        .get("_duckle_n")
-        .and_then(JsonValue::as_str)
-        .unwrap_or("")
-        .to_string();
-    let r = v.get("_duckle_r").and_then(|x| {
+/// each stage boundary. Returns the row count (None when the stage
+/// emitted no count - ctl.switch and xf.assert; see execute_batched
+/// for why - or when the marker is missing / malformed).
+fn read_marker(path: &Path) -> Option<u64> {
+    let content = std::fs::read_to_string(path).ok()?;
+    let line = content.lines().next()?.trim();
+    let v: JsonValue = serde_json::from_str(line).ok()?;
+    v.get("_duckle_r").and_then(|x| {
         x.as_u64()
             .or_else(|| x.as_i64().map(|i| i.max(0) as u64))
-    });
-    (n, r)
+    })
 }
 
 /// Promote every marker file `<i>.json` present on disk into a
@@ -6071,7 +6052,7 @@ fn drain_batched_markers(
         if !marker.exists() {
             break;
         }
-        let (_n, rows) = read_marker(&marker);
+        let rows = read_marker(&marker);
         let finish = Instant::now();
         let elapsed = finish
             .duration_since(stage_started_at[*completed])
