@@ -874,6 +874,41 @@ impl DuckdbEngine {
                 .replace('\'', "''")
         };
 
+        // Pre-compute the set of node ids whose stage SQL produces a
+        // view backed by a DuckDB extension's ATTACH machinery
+        // (postgres, mysql, sqlite, duckdb, motherduck, etc.). Their
+        // views work for sinks downstream that do plain COPY, but
+        // they break the marker's `SELECT COUNT(*) AS r FROM <v>`:
+        // DuckDB's binder rejects the aliased-aggregate shape inside
+        // a batched session with "Failed to bind column reference r".
+        // Per-stage avoids it because each spawn is a fresh session.
+        // For these stages and any sink that reads from them, emit a
+        // count-less marker; we lose batched-mode row counts on
+        // those, but the pipeline still runs and the perf win for
+        // the rest of the pipeline is preserved.
+        let extension_attach = |cid: &str| -> bool {
+            matches!(
+                cid,
+                "src.postgres"
+                    | "src.cockroach"
+                    | "src.pgvector"
+                    | "src.redshift"
+                    | "src.mysql"
+                    | "src.mariadb"
+                    | "src.motherduck"
+                    | "src.ducklake"
+                    | "src.bigquery"
+                    | "src.quack"
+                    | "src.duckdb"
+                    | "src.sqlite"
+            )
+        };
+        let extension_node_ids: std::collections::HashSet<&str> = stages
+            .iter()
+            .filter(|s| extension_attach(&s.component_id))
+            .map(|s| s.node_id.as_str())
+            .collect();
+
         // Build the batched SQL: secret prefix, PRAGMA preset (once),
         // then per-stage SQL + per-stage markers + per-view previews.
         let mut batched_sql = String::new();
@@ -944,6 +979,10 @@ impl DuckdbEngine {
                 plan::StageKind::View if !count_unsafe => Some(stage.node_id.as_str()),
                 plan::StageKind::View => None,
             };
+            // Skip the COUNT(*) entirely if the target is an extension
+            // ATTACH view; the binder bug above otherwise aborts the
+            // batch.
+            let count_target = count_target.filter(|t| !extension_node_ids.contains(t));
             // Marker shape is just `SELECT COUNT(*) AS _duckle_r FROM <t>`
             // (or `SELECT NULL AS _duckle_r` when there's no countable
             // target). No string-literal projected alongside the
@@ -979,6 +1018,7 @@ impl DuckdbEngine {
             if matches!(stage.kind, plan::StageKind::View)
                 && stage.component_id != "ctl.switch"
                 && stage.component_id != "xf.assert"
+                && !extension_node_ids.contains(stage.node_id.as_str())
             {
                 let schema = marker_dir.join(format!("{}_schema.json", i));
                 let rows = marker_dir.join(format!("{}_rows.json", i));
