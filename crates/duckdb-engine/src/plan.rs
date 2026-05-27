@@ -1228,6 +1228,15 @@ pub fn compile(pipeline: &PipelineDoc) -> Result<CompiledPipeline, EngineError> 
 
     // Build inputs map: node_id -> port_id -> Vec<source_node_id>
     let mut inputs: HashMap<&str, NodeInputs> = HashMap::new();
+    // Also count consumers per (source_node, source_handle) so we know
+    // when it's safe to emit a CREATE VIEW (lazy) vs CREATE TABLE
+    // (materialized). A node with exactly one downstream consumer can
+    // be a view: DuckDB inlines it into the single downstream query,
+    // gets predicate / projection pushdown into the source read, and
+    // skips an intermediate materialize-to-disk. A node with multiple
+    // consumers gets materialized so each consumer reads it once
+    // instead of re-evaluating the chain.
+    let mut consumer_count: HashMap<String, usize> = HashMap::new();
     for edge in &data_edges {
         let port = edge
             .target_handle
@@ -1237,6 +1246,7 @@ pub fn compile(pipeline: &PipelineDoc) -> Result<CompiledPipeline, EngineError> 
         // Resolve which materialized table this edge actually reads, based
         // on the SOURCE node's output handle (main vs reject).
         let source_ref = output_table_ref(&edge.source, edge.source_handle.as_deref());
+        *consumer_count.entry(source_ref.clone()).or_insert(0) += 1;
         inputs
             .entry(edge.target.as_str())
             .or_default()
@@ -1266,7 +1276,7 @@ pub fn compile(pipeline: &PipelineDoc) -> Result<CompiledPipeline, EngineError> 
         }
         let empty = NodeInputs::default();
         let node_inputs = inputs.get(node_id.as_str()).unwrap_or(&empty);
-        let stage = build_stage(node, component_id, node_inputs)?;
+        let stage = build_stage(node, component_id, node_inputs, &consumer_count)?;
         stages.push(stage);
     }
 
@@ -1417,6 +1427,7 @@ fn build_stage(
     node: &PipelineNode,
     component_id: &str,
     inputs: &NodeInputs,
+    consumer_count: &HashMap<String, usize>,
 ) -> Result<Stage, EngineError> {
     let props = node
         .data
@@ -3590,16 +3601,40 @@ fn build_stage(
         ).map_err(|e| {
             EngineError::Config(format!("{} ({} / {}): {}", node.data.label, component_id, node.id, e))
         })?;
-        // Materialize as a real table so the result persists across the
-        // separate CLI invocations the executor uses per stage.
+        // Pick TABLE vs VIEW based on consumer count.
+        //
+        // VIEW (lazy): DuckDB inlines the view body into the downstream
+        // query, gets predicate / projection pushdown into the underlying
+        // source read, and skips an intermediate materialize-to-disk.
+        // Safe when exactly one downstream consumer reads the result -
+        // the body runs once, embedded in the consumer's plan.
+        //
+        // TABLE (materialized): forced when 2+ consumers reference this
+        // node's main output, because a view would be re-evaluated by
+        // each consumer. Also forced when the node has a reject port
+        // (we want the pass / reject split materialized once each).
+        // Sources that need external data injection (Oracle, REST etc.)
+        // bypass this path entirely - they materialize via their own
+        // runtime helpers and the planner stage stays empty.
+        let main_ref = output_table_ref(&node.id, None);
+        let main_consumers = consumer_count.get(&main_ref).copied().unwrap_or(0);
+        let has_reject = build_reject_sql(component_id, &props, inputs).map_err(|e| {
+            EngineError::Config(format!("{} ({} / {}): {}", node.data.label, component_id, node.id, e))
+        })?.is_some();
+        let use_view = !has_reject && main_consumers <= 1;
+        let kind_keyword = if use_view { "VIEW" } else { "TABLE" };
         let mut sql = format!(
-            "{}CREATE OR REPLACE TABLE {} AS {}",
+            "{}CREATE OR REPLACE {} {} AS {}",
             attach,
+            kind_keyword,
             quote_ident(&node.id),
             body
         );
         // Components that split rows (filter, quality validators) also
         // materialize a `<node>__reject` table for their reject port.
+        // Reject side is always a TABLE - the planner doesn't know which
+        // downstream branch consumes it, and re-evaluating the filter
+        // twice would be wasteful.
         if let Some(reject_body) = build_reject_sql(component_id, &props, inputs).map_err(|e| {
             EngineError::Config(format!("{} ({} / {}): {}", node.data.label, component_id, node.id, e))
         })? {
@@ -5448,18 +5483,31 @@ fn build_cast(inputs: &NodeInputs, props: &JsonValue) -> Result<String, String> 
         .and_then(JsonValue::as_array)
         .cloned()
         .unwrap_or_default();
+    let provided_casts = !casts.is_empty();
+    let mut skipped_empty = 0_usize;
+    let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
     // Use REPLACE so we keep other columns. e.g.
     //   SELECT * REPLACE (CAST(amount AS DECIMAL(10,2)) AS amount) FROM x
     let mut replacements: Vec<String> = Vec::new();
     for c in &casts {
-        let column = c.get("column").and_then(JsonValue::as_str).unwrap_or("");
+        let column = c.get("column").and_then(JsonValue::as_str).unwrap_or("").trim();
         let target = c
             .get("targetType")
             .or_else(|| c.get("type"))
             .and_then(JsonValue::as_str)
             .unwrap_or("VARCHAR");
         if column.is_empty() {
+            skipped_empty += 1;
             continue;
+        }
+        if !seen.insert(column.to_string()) {
+            // Duplicate cast for the same column - silently letting the
+            // later definition win used to surprise users who'd added
+            // two casts for the same field by accident. Loud error.
+            return Err(format!(
+                "Cast: column '{}' appears in two cast entries; remove one",
+                column
+            ));
         }
         let target_sql = duckle_type_to_duckdb(target);
         replacements.push(format!(
@@ -5471,19 +5519,31 @@ fn build_cast(inputs: &NodeInputs, props: &JsonValue) -> Result<String, String> 
     }
     // The Cast form is single-column: { column, targetType }.
     if replacements.is_empty() {
-        if let Some(column) = string_prop(props, "column").filter(|s| !s.is_empty()) {
+        if let Some(column) = string_prop(props, "column").filter(|s| !s.trim().is_empty()) {
+            let column = column.trim();
             let target = string_prop(props, "targetType")
                 .or_else(|| string_prop(props, "type"))
                 .unwrap_or_else(|| "string".into());
             replacements.push(format!(
                 "CAST({} AS {}) AS {}",
-                quote_ident(&column),
+                quote_ident(column),
                 duckle_type_to_duckdb(&target),
-                quote_ident(&column)
+                quote_ident(column)
             ));
         }
     }
+    // If the user supplied cast entries but every one was empty / blank,
+    // the SELECT * REPLACE clause would be empty - the cast becomes a
+    // silent no-op and the user wonders why their column type didn't
+    // change. Catch it loudly here.
     if replacements.is_empty() {
+        if provided_casts && skipped_empty > 0 {
+            return Err(format!(
+                "Cast: {} cast entr{} had no column name - pick a column or remove the row",
+                skipped_empty,
+                if skipped_empty == 1 { "y" } else { "ies" }
+            ));
+        }
         return Ok(format!("SELECT * FROM {}", quote_ident(upstream)));
     }
     Ok(format!(
@@ -8047,6 +8107,72 @@ mod tests {
         let sql = &compiled.stages[0].sql;
         assert!(sql.contains("dateformat='%d/%m/%Y'"), "missing dateformat: {}", sql);
         assert!(sql.contains("timestampformat='%d/%m/%Y %H:%M:%S'"), "missing timestampformat: {}", sql);
+    }
+
+    #[test]
+    fn cast_with_all_empty_columns_errors_loudly() {
+        // Used to silently emit `SELECT * FROM upstream` (no-op) when
+        // every cast entry had an empty column - the user wondered
+        // why their column type didn't change.
+        let p = pipeline_from_json(
+            r#"{
+              "nodes": [
+                {"id":"s","position":{"x":0,"y":0},"data":{
+                  "label":"CSV","componentId":"src.csv",
+                  "properties":{"path":"/tmp/x.csv","hasHeader":true}}},
+                {"id":"c","position":{"x":0,"y":0},"data":{
+                  "label":"Cast","componentId":"xf.cast",
+                  "properties":{"casts":[
+                    {"column":"","targetType":"INTEGER"},
+                    {"column":"   ","targetType":"DOUBLE"}
+                  ]}}},
+                {"id":"k","position":{"x":0,"y":0},"data":{
+                  "label":"CSV out","componentId":"snk.csv",
+                  "properties":{"path":"/tmp/o.csv","hasHeader":true}}}
+              ],
+              "edges": [
+                {"id":"e1","source":"s","target":"c",
+                  "data":{"connectionType":"main"}},
+                {"id":"e2","source":"c","target":"k",
+                  "data":{"connectionType":"main"}}
+              ]
+            }"#,
+        );
+        let err = compile(&p).err().expect("expected an Err");
+        let msg = format!("{:?}", err);
+        assert!(msg.contains("Cast:"), "should mention Cast: {}", msg);
+        assert!(msg.contains("no column name"), "should mention the empty-column gap: {}", msg);
+    }
+
+    #[test]
+    fn cast_with_duplicate_columns_errors_loudly() {
+        let p = pipeline_from_json(
+            r#"{
+              "nodes": [
+                {"id":"s","position":{"x":0,"y":0},"data":{
+                  "label":"CSV","componentId":"src.csv",
+                  "properties":{"path":"/tmp/x.csv","hasHeader":true}}},
+                {"id":"c","position":{"x":0,"y":0},"data":{
+                  "label":"Cast","componentId":"xf.cast",
+                  "properties":{"casts":[
+                    {"column":"amount","targetType":"INTEGER"},
+                    {"column":"amount","targetType":"DOUBLE"}
+                  ]}}},
+                {"id":"k","position":{"x":0,"y":0},"data":{
+                  "label":"CSV out","componentId":"snk.csv",
+                  "properties":{"path":"/tmp/o.csv","hasHeader":true}}}
+              ],
+              "edges": [
+                {"id":"e1","source":"s","target":"c",
+                  "data":{"connectionType":"main"}},
+                {"id":"e2","source":"c","target":"k",
+                  "data":{"connectionType":"main"}}
+              ]
+            }"#,
+        );
+        let err = compile(&p).err().expect("expected an Err");
+        let msg = format!("{:?}", err);
+        assert!(msg.contains("'amount'"), "should name the duplicate column: {}", msg);
     }
 
     #[test]
