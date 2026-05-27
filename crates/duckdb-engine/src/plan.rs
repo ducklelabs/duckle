@@ -3812,6 +3812,7 @@ fn build_view_sql(
         "xf.rank.filter" => build_rank_filter(inputs, props),
         "xf.fill_forward" => build_fill_forward(inputs, props),
         "xf.fill_backward" => build_fill_backward(inputs, props),
+        "xf.fill_constant" => build_fill_constant(inputs, props),
         "xf.cumulative" => build_cumulative(inputs, props),
         "xf.dt.bin" => build_dt_bin(inputs, props),
         "xf.arr.length" => build_arr_length(inputs, props),
@@ -5705,6 +5706,17 @@ fn build_csv_source(props: &JsonValue, declared: Option<&[duckle_metadata::Colum
     if let Some(enc) = string_prop(props, "encoding").filter(|s| !s.is_empty()) {
         args.push(format!("encoding='{}'", sql_escape(&enc)));
     }
+    // Explicit date / timestamp parsing format. DuckDB's strptime tokens
+    // (%d, %m, %Y, etc.) - the most common pain point is dd/mm/yyyy which
+    // DuckDB otherwise mis-detects as mm/dd/yyyy. Setting this keeps the
+    // column as a proper DATE / TIMESTAMP instead of forcing VARCHAR via
+    // the Schema panel (which is the other workaround we added for #3).
+    if let Some(df) = string_prop(props, "dateFormat").filter(|s| !s.is_empty()) {
+        args.push(format!("dateformat='{}'", sql_escape(&df)));
+    }
+    if let Some(tf) = string_prop(props, "timestampFormat").filter(|s| !s.is_empty()) {
+        args.push(format!("timestampformat='{}'", sql_escape(&tf)));
+    }
     // If the user declared a schema (Schema panel in PropertiesPanel),
     // honor it: DuckDB's `columns` argument skips auto-inference for the
     // listed columns and reads them as the requested type. This is how
@@ -6906,6 +6918,45 @@ fn build_fill_forward(inputs: &NodeInputs, props: &JsonValue) -> Result<String, 
     ))
 }
 
+/// Constant-fill: replace NULLs in a column with a user-supplied
+/// literal. Rounds out the fill family (forward / backward / constant).
+/// String literals are auto-quoted so the user types `unknown`, not
+/// `'unknown'`. A value that parses as a finite number passes through
+/// raw - lets the same prop handle numeric columns without making the
+/// user know SQL quoting rules. The COALESCE expression takes the
+/// column's type from the column itself, so numeric vs text doesn't
+/// need a separate type hint.
+fn build_fill_constant(inputs: &NodeInputs, props: &JsonValue) -> Result<String, String> {
+    let upstream = inputs.main().ok_or_else(|| missing_input_msg("xf.fill_constant"))?;
+    let column = string_prop(props, "column")
+        .filter(|s| !s.is_empty())
+        .ok_or_else(|| "Fill Constant needs a column".to_string())?;
+    // Accept either a string `value` (most common) or a number.
+    let literal = match props.get("value") {
+        Some(JsonValue::String(s)) => {
+            let trimmed = s.trim();
+            // If the user typed a bare number (e.g. `0`, `-1.5`), pass
+            // it through unquoted so DuckDB sees a numeric literal.
+            // Otherwise treat it as a string and quote it.
+            if trimmed.parse::<f64>().is_ok() {
+                trimmed.to_string()
+            } else {
+                format!("'{}'", sql_escape(trimmed))
+            }
+        }
+        Some(JsonValue::Number(n)) => n.to_string(),
+        Some(JsonValue::Bool(b)) => b.to_string(),
+        _ => return Err("Fill Constant needs a value".to_string()),
+    };
+    let qcol = quote_ident(&column);
+    Ok(format!(
+        "SELECT * REPLACE (COALESCE({col}, {lit}) AS {col}) FROM {up}",
+        col = qcol,
+        lit = literal,
+        up = quote_ident(upstream)
+    ))
+}
+
 /// Backward-fill: replace NULL values with the next non-null value
 /// within a group, ordered by a sort column. Pandas-style bfill /
 /// "fill up" - useful when the first readings of a series are missing
@@ -7766,6 +7817,94 @@ mod tests {
             "int64 not mapped to BIGINT: {}",
             src_sql
         );
+    }
+
+    #[test]
+    fn csv_date_format_passes_through_to_reader() {
+        // Follow-up to #3: a user with dd/mm/yyyy dates can now keep
+        // the column as a real DATE instead of forcing VARCHAR, by
+        // setting the dateFormat prop. The generated SQL must include
+        // dateformat='%d/%m/%Y' so DuckDB picks the right parser.
+        let p = pipeline_from_json(
+            r#"{
+              "nodes": [
+                {"id":"s1","position":{"x":0,"y":0},"data":{
+                  "label":"CSV","componentId":"src.csv",
+                  "properties":{"path":"/tmp/d.csv","hasHeader":true,
+                                "dateFormat":"%d/%m/%Y",
+                                "timestampFormat":"%d/%m/%Y %H:%M:%S"}}},
+                {"id":"k1","position":{"x":0,"y":0},"data":{
+                  "label":"CSV out","componentId":"snk.csv",
+                  "properties":{"path":"/tmp/o.csv","hasHeader":true}}}
+              ],
+              "edges": [
+                {"id":"e1","source":"s1","target":"k1",
+                  "data":{"connectionType":"main"}}
+              ]
+            }"#,
+        );
+        let compiled = compile(&p).unwrap();
+        let sql = &compiled.stages[0].sql;
+        assert!(sql.contains("dateformat='%d/%m/%Y'"), "missing dateformat: {}", sql);
+        assert!(sql.contains("timestampformat='%d/%m/%Y %H:%M:%S'"), "missing timestampformat: {}", sql);
+    }
+
+    #[test]
+    fn fill_constant_string_value_quoted() {
+        let p = pipeline_from_json(
+            r#"{
+              "nodes": [
+                {"id":"s","position":{"x":0,"y":0},"data":{
+                  "label":"CSV","componentId":"src.csv",
+                  "properties":{"path":"/tmp/x.csv","hasHeader":true}}},
+                {"id":"f","position":{"x":0,"y":0},"data":{
+                  "label":"Fill","componentId":"xf.fill_constant",
+                  "properties":{"column":"status","value":"unknown"}}},
+                {"id":"k","position":{"x":0,"y":0},"data":{
+                  "label":"CSV out","componentId":"snk.csv",
+                  "properties":{"path":"/tmp/o.csv","hasHeader":true}}}
+              ],
+              "edges": [
+                {"id":"e1","source":"s","target":"f",
+                  "data":{"connectionType":"main"}},
+                {"id":"e2","source":"f","target":"k",
+                  "data":{"connectionType":"main"}}
+              ]
+            }"#,
+        );
+        let compiled = compile(&p).unwrap();
+        let sql = &compiled.stages[1].sql;
+        assert!(sql.contains("COALESCE(\"status\", 'unknown')"), "string literal not quoted: {}", sql);
+    }
+
+    #[test]
+    fn fill_constant_numeric_value_unquoted() {
+        // Bare numbers (`0`, `-1.5`) pass through unquoted so DuckDB
+        // sees a numeric literal and doesn't try to cast a string.
+        let p = pipeline_from_json(
+            r#"{
+              "nodes": [
+                {"id":"s","position":{"x":0,"y":0},"data":{
+                  "label":"CSV","componentId":"src.csv",
+                  "properties":{"path":"/tmp/x.csv","hasHeader":true}}},
+                {"id":"f","position":{"x":0,"y":0},"data":{
+                  "label":"Fill","componentId":"xf.fill_constant",
+                  "properties":{"column":"qty","value":"0"}}},
+                {"id":"k","position":{"x":0,"y":0},"data":{
+                  "label":"CSV out","componentId":"snk.csv",
+                  "properties":{"path":"/tmp/o.csv","hasHeader":true}}}
+              ],
+              "edges": [
+                {"id":"e1","source":"s","target":"f",
+                  "data":{"connectionType":"main"}},
+                {"id":"e2","source":"f","target":"k",
+                  "data":{"connectionType":"main"}}
+              ]
+            }"#,
+        );
+        let compiled = compile(&p).unwrap();
+        let sql = &compiled.stages[1].sql;
+        assert!(sql.contains("COALESCE(\"qty\", 0)"), "numeric literal got quoted: {}", sql);
     }
 
     #[test]

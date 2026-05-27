@@ -575,6 +575,26 @@ function fileFormatSection(comp: ComponentDef): FormSection[] {
                         ],
                     },
                     { key: 'skipLines', label: 'Skip lines', kind: 'integer', defaultValue: 0 },
+                    // Explicit date / timestamp format passed through to
+                    // DuckDB's read_csv_auto. Most useful for dd/mm/yyyy
+                    // which DuckDB would otherwise misparse as mm/dd/yyyy.
+                    // Only applies to source side; sinks don't read.
+                    ...(id.startsWith('src.') ? [
+                        {
+                            key: 'dateFormat',
+                            label: 'Date format (optional)',
+                            kind: 'text' as const,
+                            placeholder: '%d/%m/%Y',
+                            description: 'strptime tokens. Common: %d/%m/%Y, %m/%d/%Y, %Y-%m-%d. Leave empty for auto-detect.',
+                        },
+                        {
+                            key: 'timestampFormat',
+                            label: 'Timestamp format (optional)',
+                            kind: 'text' as const,
+                            placeholder: '%d/%m/%Y %H:%M:%S',
+                            description: 'strptime tokens, same as date format plus %H:%M:%S. Leave empty for auto-detect.',
+                        },
+                    ] : []),
                 ],
             },
             partitionBySection(),
@@ -2198,6 +2218,24 @@ function synthRowTransform(comp: ComponentDef): ComponentManifest {
                     { key: 'column', label: 'Column to fill', kind: 'column', required: true },
                     { key: 'orderBy', label: 'Order by column', kind: 'column', required: true, description: 'The window is ordered by this column (usually a timestamp). Nulls take the next non-null value at a later position in the order.' },
                     { key: 'partitionBy', label: 'Group by (optional)', kind: 'columns', description: 'Fill independently within each group.' },
+                ],
+            },
+        ], 'upstream');
+    }
+    if (id === 'xf.fill_constant') {
+        return base(comp, [
+            {
+                label: 'Constant fill',
+                fields: [
+                    { key: 'column', label: 'Column to fill', kind: 'column', required: true },
+                    {
+                        key: 'value',
+                        label: 'Fill value',
+                        kind: 'text',
+                        required: true,
+                        placeholder: 'unknown',
+                        description: 'Numbers (e.g. 0, -1.5) pass through unquoted; anything else is treated as a string. Booleans true / false also pass through.',
+                    },
                 ],
             },
         ], 'upstream');
