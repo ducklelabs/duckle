@@ -5915,6 +5915,17 @@ fn build_addcol(inputs: &NodeInputs, props: &JsonValue) -> Result<String, String
         .and_then(JsonValue::as_array)
         .cloned()
         .unwrap_or_default();
+    // Optional declared `type`: when the form picks a type for the new
+    // column, wrap the expression in a CAST so the column actually has
+    // that type. Previously `type` was ignored and the column took
+    // whatever type the expression evaluated to, making the UI's type
+    // selector cosmetic.
+    let typed_expr = |expr: &str, ty: Option<&str>| -> String {
+        match ty.map(str::trim).filter(|s| !s.is_empty()) {
+            Some(t) => format!("CAST(({}) AS {})", expr, duckle_type_to_duckdb(t)),
+            None => expr.to_string(),
+        }
+    };
     let mut additions: Vec<String> = Vec::new();
     for col in &columns {
         let name = col.get("name").and_then(JsonValue::as_str).unwrap_or("col");
@@ -5923,15 +5934,21 @@ fn build_addcol(inputs: &NodeInputs, props: &JsonValue) -> Result<String, String
             .or_else(|| col.get("expr"))
             .and_then(JsonValue::as_str)
             .unwrap_or("NULL");
-        additions.push(format!("{} AS {}", expr, quote_ident(name)));
+        let ty = col.get("type").and_then(JsonValue::as_str);
+        additions.push(format!("{} AS {}", typed_expr(expr, ty), quote_ident(name)));
     }
-    // The Add-Column / Coalesce form is single: { name, expression }.
+    // The Add-Column / Coalesce form is single: { name, type, expression }.
     if additions.is_empty() {
         let name = string_prop(props, "name").filter(|s| !s.is_empty());
         let expr = string_prop(props, "expression").or_else(|| string_prop(props, "expr"));
         if let (Some(name), Some(expr)) = (name, expr) {
             if !expr.trim().is_empty() {
-                additions.push(format!("{} AS {}", expr, quote_ident(&name)));
+                let ty = string_prop(props, "type");
+                additions.push(format!(
+                    "{} AS {}",
+                    typed_expr(expr.trim(), ty.as_deref()),
+                    quote_ident(&name)
+                ));
             }
         }
     }
@@ -5956,8 +5973,21 @@ fn build_cast(inputs: &NodeInputs, props: &JsonValue) -> Result<String, String> 
     let provided_casts = !casts.is_empty();
     let mut skipped_empty = 0_usize;
     let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+    // The Cast form's "On conversion error" control:
+    //   null (default) -> TRY_CAST, bad values become NULL
+    //   reject         -> TRY_CAST too (row-level rejection isn't wired
+    //                     for cast yet; NULL-on-error is the safe,
+    //                     non-failing approximation)
+    //   fail           -> CAST, a bad value aborts the run
+    // Previously this prop was ignored and we always emitted CAST, so a
+    // default-configured cast of dirty data crashed the pipeline instead
+    // of nulling the bad cells like the UI promised.
+    let cast_fn = match string_prop(props, "onError").as_deref() {
+        Some("fail") => "CAST",
+        _ => "TRY_CAST",
+    };
     // Use REPLACE so we keep other columns. e.g.
-    //   SELECT * REPLACE (CAST(amount AS DECIMAL(10,2)) AS amount) FROM x
+    //   SELECT * REPLACE (TRY_CAST(amount AS DECIMAL(10,2)) AS amount) FROM x
     let mut replacements: Vec<String> = Vec::new();
     for c in &casts {
         let column = c.get("column").and_then(JsonValue::as_str).unwrap_or("").trim();
@@ -5981,7 +6011,8 @@ fn build_cast(inputs: &NodeInputs, props: &JsonValue) -> Result<String, String> 
         }
         let target_sql = duckle_type_to_duckdb(target);
         replacements.push(format!(
-            "CAST({} AS {}) AS {}",
+            "{}({} AS {}) AS {}",
+            cast_fn,
             quote_ident(column),
             target_sql,
             quote_ident(column)
@@ -5995,7 +6026,8 @@ fn build_cast(inputs: &NodeInputs, props: &JsonValue) -> Result<String, String> 
                 .or_else(|| string_prop(props, "type"))
                 .unwrap_or_else(|| "string".into());
             replacements.push(format!(
-                "CAST({} AS {}) AS {}",
+                "{}({} AS {}) AS {}",
+                cast_fn,
                 quote_ident(column),
                 duckle_type_to_duckdb(&target),
                 quote_ident(column)
@@ -8465,6 +8497,71 @@ mod tests {
 
     fn pipeline_from_json(s: &str) -> PipelineDoc {
         serde_json::from_str(s).expect("valid pipeline JSON")
+    }
+
+    #[test]
+    fn cast_honors_on_error_try_vs_hard_cast() {
+        // Default "Set to NULL" must emit TRY_CAST (bad values -> NULL);
+        // "Fail pipeline" must emit a hard CAST. Previously onError was
+        // ignored and the engine always emitted CAST, crashing the run on
+        // dirty data even though the UI default promised NULLs.
+        let try_doc = pipeline_from_json(
+            r#"{
+              "nodes": [
+                {"id":"s","position":{"x":0,"y":0},"data":{
+                  "label":"CSV","componentId":"src.csv",
+                  "properties":{"path":"/tmp/a.csv","hasHeader":true}}},
+                {"id":"c","position":{"x":0,"y":0},"data":{
+                  "label":"Cast","componentId":"xf.cast",
+                  "properties":{"column":"amount","targetType":"int64","onError":"null"}}}
+              ],
+              "edges":[{"id":"e","source":"s","target":"c","data":{"connectionType":"main"}}]
+            }"#,
+        );
+        let sql = compile(&try_doc).unwrap().stages.iter()
+            .find(|s| s.node_id == "c").unwrap().sql.clone();
+        assert!(sql.contains("TRY_CAST"), "default onError should TRY_CAST: {}", sql);
+
+        let fail_doc = pipeline_from_json(
+            r#"{
+              "nodes": [
+                {"id":"s","position":{"x":0,"y":0},"data":{
+                  "label":"CSV","componentId":"src.csv",
+                  "properties":{"path":"/tmp/a.csv","hasHeader":true}}},
+                {"id":"c","position":{"x":0,"y":0},"data":{
+                  "label":"Cast","componentId":"xf.cast",
+                  "properties":{"column":"amount","targetType":"int64","onError":"fail"}}}
+              ],
+              "edges":[{"id":"e","source":"s","target":"c","data":{"connectionType":"main"}}]
+            }"#,
+        );
+        let sql = compile(&fail_doc).unwrap().stages.iter()
+            .find(|s| s.node_id == "c").unwrap().sql.clone();
+        assert!(sql.contains("CAST") && !sql.contains("TRY_CAST"),
+            "onError=fail should hard CAST: {}", sql);
+    }
+
+    #[test]
+    fn addcol_wraps_expression_in_declared_type() {
+        // The Add-Column form's type selector must actually type the new
+        // column (CAST the expression), not be cosmetic.
+        let doc = pipeline_from_json(
+            r#"{
+              "nodes": [
+                {"id":"s","position":{"x":0,"y":0},"data":{
+                  "label":"CSV","componentId":"src.csv",
+                  "properties":{"path":"/tmp/a.csv","hasHeader":true}}},
+                {"id":"a","position":{"x":0,"y":0},"data":{
+                  "label":"Add","componentId":"xf.addcol",
+                  "properties":{"name":"total","type":"int64","expression":"qty * price"}}}
+              ],
+              "edges":[{"id":"e","source":"s","target":"a","data":{"connectionType":"main"}}]
+            }"#,
+        );
+        let sql = compile(&doc).unwrap().stages.iter()
+            .find(|s| s.node_id == "a").unwrap().sql.clone();
+        assert!(sql.contains("CAST((qty * price) AS BIGINT)"),
+            "addcol should cast expr to declared type: {}", sql);
     }
 
     #[test]
