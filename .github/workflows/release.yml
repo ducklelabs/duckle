@@ -9,6 +9,11 @@ on:
   push:
     tags: ['v*']
   workflow_dispatch:
+    inputs:
+      release_tag:
+        description: 'Existing release tag to (re)upload binaries to. Builds from the branch this run is dispatched on; the tag itself is never moved. Leave empty on a normal tag push.'
+        required: false
+        default: ''
 
 jobs:
   # Single point that creates the draft release so the per-OS build
@@ -22,9 +27,10 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
+          REL_TAG: ${{ github.event.inputs.release_tag || github.ref_name }}
         run: |
           set -e
-          tag="$GITHUB_REF_NAME"
+          tag="$REL_TAG"
           if gh release view "$tag" >/dev/null 2>&1; then
             echo "release $tag already exists"
           else
@@ -121,6 +127,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
+          REL_TAG: ${{ github.event.inputs.release_tag || github.ref_name }}
         run: |
           set -e
-          gh release upload "$GITHUB_REF_NAME" "_release/${{ matrix.asset }}" --clobber
+          gh release upload "$REL_TAG" "_release/${{ matrix.asset }}" --clobber
