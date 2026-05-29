@@ -4090,18 +4090,16 @@ fn build_stage(
         // the reject port. An unwired reject port (the common plain-Filter
         // case) otherwise materialized the entire rejected set to disk for
         // nothing: on a 10M-row -> 2M-pass filter that wrote the 8M rejected
-        // rows to a temp table, which dominated the stage's runtime (~12s)
-        // and additionally forced the pass side from a lazy VIEW to a TABLE.
+        // rows to a temp table, which dominated the stage's runtime (~12s).
         let reject_ref = output_table_ref(&node.id, Some("reject"));
-        let reject_consumed = consumer_count.get(&reject_ref).copied().unwrap_or(0) >= 1;
-        let reject_sql = if reject_consumed {
+        let reject_consumers = consumer_count.get(&reject_ref).copied().unwrap_or(0);
+        let reject_sql = if reject_consumers >= 1 {
             build_reject_sql(component_id, &props, inputs).map_err(|e| {
                 EngineError::Config(format!("{} ({} / {}): {}", node.data.label, component_id, node.id, e))
             })?
         } else {
             None
         };
-        let has_reject = reject_sql.is_some();
         // Dynamic PIVOT (pivot values extracted from the data) is not
         // allowed inside a view in DuckDB 1.5 - the parser rejects it
         // with "PIVOT statements with pivot elements extracted from
@@ -4115,34 +4113,41 @@ fn build_stage(
         // (single-consumer => VIEW, multi-consumer => TABLE) balances
         // recompute vs materialize; forcing views trades memory for
         // re-evaluation, which some users prefer to let DuckDB's
-        // optimizer see the whole query. The hard constraints still
-        // win: a reject port and dynamic PIVOT can never be a view.
+        // optimizer see the whole query.
         let force_views = std::env::var("DUCKLE_FORCE_VIEWS")
             .map(|v| {
                 let v = v.trim();
                 v == "1" || v.eq_ignore_ascii_case("true")
             })
             .unwrap_or(false);
-        let use_view = !has_reject
-            && !uses_dynamic_pivot
-            && (force_views || main_consumers <= 1);
-        let kind_keyword = if use_view { "VIEW" } else { "TABLE" };
+        // Each output (pass + reject) independently picks VIEW vs TABLE by
+        // its OWN consumer count. A view with a single consumer is inlined
+        // into that consumer's query (predicate / projection pushdown, no
+        // intermediate write); 2+ consumers get a table so the body runs
+        // once. The reject side used to be unconditionally a TABLE, so a
+        // consumed reject port wrote the whole rejected set (e.g. 8M rows)
+        // to disk even when its only consumer was a sink that would just
+        // COPY it straight out - turning a ~1.5s job into ~17s. And a
+        // consumed reject no longer forces the pass side to a table either.
+        let view_ok = |consumers: usize| !uses_dynamic_pivot && (force_views || consumers <= 1);
+        let main_kw = if view_ok(main_consumers) { "VIEW" } else { "TABLE" };
         let mut sql = format!(
             "{}CREATE OR REPLACE {} {} AS {}",
             attach,
-            kind_keyword,
+            main_kw,
             quote_ident(&node.id),
             body
         );
-        // Components that split rows (filter, quality validators) also
-        // materialize a `<node>__reject` table - but only when the reject
-        // port is wired (see reject_sql above). The reject side is a TABLE
-        // so its downstream consumer reads it without re-evaluating the
-        // split.
+        // Components that split rows (filter, quality validators) also emit
+        // a `<node>__reject` relation - but only when the reject port is
+        // wired (see reject_sql above), and as a VIEW unless it has 2+
+        // consumers, same as any other output.
         if let Some(reject_body) = reject_sql {
             let reject_table = format!("{}{}", node.id, REJECT_SUFFIX);
+            let reject_kw = if view_ok(reject_consumers) { "VIEW" } else { "TABLE" };
             sql.push_str(&format!(
-                "; CREATE OR REPLACE TABLE {} AS {}",
+                "; CREATE OR REPLACE {} {} AS {}",
+                reject_kw,
                 quote_ident(&reject_table),
                 reject_body
             ));
@@ -8932,10 +8937,12 @@ mod tests {
     }
 
     #[test]
-    fn filter_with_wired_reject_materializes_reject_table() {
-        // When the reject port IS consumed downstream, the split must still
-        // be materialized once (TABLE) so the reject branch reads it without
-        // re-running the filter.
+    fn filter_with_single_consumer_reject_is_a_lazy_view() {
+        // When the reject port is consumed by exactly one downstream node,
+        // it must be a lazy VIEW (inlined into that consumer), NOT a
+        // materialized table. The old code always made reject a TABLE, which
+        // wrote the entire rejected set to disk (8M rows on a 10M source)
+        // even when its only consumer was a sink that would just COPY it.
         let p = pipeline_from_json(
             r#"{
               "nodes": [
@@ -8969,8 +8976,62 @@ mod tests {
             .find(|s| s.node_id == "f1")
             .expect("filter stage");
         assert!(
+            filter.sql.contains("CREATE OR REPLACE VIEW \"f1__reject\""),
+            "single-consumer reject must be a lazy VIEW, got: {}",
+            filter.sql
+        );
+        assert!(
+            !filter.sql.contains("CREATE OR REPLACE TABLE \"f1__reject\""),
+            "single-consumer reject must not materialize a table, got: {}",
+            filter.sql
+        );
+        // The pass side is also single-consumer, so it stays a lazy view too.
+        assert!(
+            filter.sql.contains("CREATE OR REPLACE VIEW \"f1\""),
+            "single-consumer pass must be a lazy VIEW, got: {}",
+            filter.sql
+        );
+    }
+
+    #[test]
+    fn filter_with_multi_consumer_reject_materializes_table() {
+        // 2+ consumers of the reject port -> materialize it once as a TABLE
+        // so the body isn't re-evaluated per consumer.
+        let p = pipeline_from_json(
+            r#"{
+              "nodes": [
+                {"id":"s1","position":{"x":0,"y":0},"data":{
+                  "label":"CSV","componentId":"src.csv",
+                  "properties":{"path":"/tmp/orders.csv","hasHeader":true}}},
+                {"id":"f1","position":{"x":0,"y":0},"data":{
+                  "label":"Filter","componentId":"xf.filter",
+                  "properties":{"predicate":"status = 'paid'"}}},
+                {"id":"k1","position":{"x":0,"y":0},"data":{
+                  "label":"R1","componentId":"snk.parquet",
+                  "properties":{"path":"/tmp/r1.parquet"}}},
+                {"id":"k2","position":{"x":0,"y":0},"data":{
+                  "label":"R2","componentId":"snk.parquet",
+                  "properties":{"path":"/tmp/r2.parquet"}}}
+              ],
+              "edges": [
+                {"id":"e1","source":"s1","target":"f1",
+                  "data":{"connectionType":"main"}},
+                {"id":"e2","source":"f1","sourceHandle":"reject","target":"k1",
+                  "data":{"connectionType":"main"}},
+                {"id":"e3","source":"f1","sourceHandle":"reject","target":"k2",
+                  "data":{"connectionType":"main"}}
+              ]
+            }"#,
+        );
+        let compiled = compile(&p).unwrap();
+        let filter = compiled
+            .stages
+            .iter()
+            .find(|s| s.node_id == "f1")
+            .expect("filter stage");
+        assert!(
             filter.sql.contains("CREATE OR REPLACE TABLE \"f1__reject\""),
-            "wired reject must materialize a reject table, got: {}",
+            "multi-consumer reject must materialize a table, got: {}",
             filter.sql
         );
     }
