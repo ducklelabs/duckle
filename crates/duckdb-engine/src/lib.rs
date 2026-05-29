@@ -1866,10 +1866,33 @@ impl DuckdbEngine {
                 }
                 JsonValue::Null
             }
-            OracleType::Number(_, _)
-            | OracleType::Float(_)
-            | OracleType::BinaryDouble
-            | OracleType::BinaryFloat => {
+            // Decimal NUMBER / ANSI FLOAT carry up to 38 significant
+            // digits, but f64 only round-trips ~15. Reading a
+            // high-precision value through f64 silently drops the extra
+            // digits (e.g. NUMBER(38,12) 123456.123456789012 -> ...789),
+            // so keep the exact text when it would not survive f64.
+            OracleType::Number(_, _) | OracleType::Float(_) => {
+                // Significant digits = digits with the sign, decimal point
+                // and leading/trailing zeros removed.
+                fn significant_digits(s: &str) -> usize {
+                    let d: String = s.chars().filter(|c| c.is_ascii_digit()).collect();
+                    d.trim_start_matches('0').trim_end_matches('0').len()
+                }
+                if let Ok(Some(s)) = row.get::<usize, Option<String>>(i) {
+                    if significant_digits(&s) <= 15 {
+                        if let Ok(n) = s.parse::<f64>() {
+                            if let Some(num) = serde_json::Number::from_f64(n) {
+                                return JsonValue::Number(num);
+                            }
+                        }
+                    }
+                    return JsonValue::String(s);
+                }
+                JsonValue::Null
+            }
+            // BINARY_DOUBLE / BINARY_FLOAT are true IEEE floats; f64
+            // represents them exactly, so emit a JSON number.
+            OracleType::BinaryDouble | OracleType::BinaryFloat => {
                 if let Ok(Some(s)) = row.get::<usize, Option<String>>(i) {
                     if let Ok(n) = s.parse::<f64>() {
                         if let Some(num) = serde_json::Number::from_f64(n) {
