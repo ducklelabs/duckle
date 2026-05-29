@@ -4079,16 +4079,29 @@ fn build_stage(
         //
         // TABLE (materialized): forced when 2+ consumers reference this
         // node's main output, because a view would be re-evaluated by
-        // each consumer. Also forced when the node has a reject port
+        // each consumer. Also forced when the node's reject port is wired
         // (we want the pass / reject split materialized once each).
         // Sources that need external data injection (Oracle, REST etc.)
         // bypass this path entirely - they materialize via their own
         // runtime helpers and the planner stage stays empty.
         let main_ref = output_table_ref(&node.id, None);
         let main_consumers = consumer_count.get(&main_ref).copied().unwrap_or(0);
-        let has_reject = build_reject_sql(component_id, &props, inputs).map_err(|e| {
-            EngineError::Config(format!("{} ({} / {}): {}", node.data.label, component_id, node.id, e))
-        })?.is_some();
+        // Only build the reject split when a downstream node actually reads
+        // the reject port. An unwired reject port (the common plain-Filter
+        // case) otherwise materialized the entire rejected set to disk for
+        // nothing: on a 10M-row -> 2M-pass filter that wrote the 8M rejected
+        // rows to a temp table, which dominated the stage's runtime (~12s)
+        // and additionally forced the pass side from a lazy VIEW to a TABLE.
+        let reject_ref = output_table_ref(&node.id, Some("reject"));
+        let reject_consumed = consumer_count.get(&reject_ref).copied().unwrap_or(0) >= 1;
+        let reject_sql = if reject_consumed {
+            build_reject_sql(component_id, &props, inputs).map_err(|e| {
+                EngineError::Config(format!("{} ({} / {}): {}", node.data.label, component_id, node.id, e))
+            })?
+        } else {
+            None
+        };
+        let has_reject = reject_sql.is_some();
         // Dynamic PIVOT (pivot values extracted from the data) is not
         // allowed inside a view in DuckDB 1.5 - the parser rejects it
         // with "PIVOT statements with pivot elements extracted from
@@ -4122,13 +4135,11 @@ fn build_stage(
             body
         );
         // Components that split rows (filter, quality validators) also
-        // materialize a `<node>__reject` table for their reject port.
-        // Reject side is always a TABLE - the planner doesn't know which
-        // downstream branch consumes it, and re-evaluating the filter
-        // twice would be wasteful.
-        if let Some(reject_body) = build_reject_sql(component_id, &props, inputs).map_err(|e| {
-            EngineError::Config(format!("{} ({} / {}): {}", node.data.label, component_id, node.id, e))
-        })? {
+        // materialize a `<node>__reject` table - but only when the reject
+        // port is wired (see reject_sql above). The reject side is a TABLE
+        // so its downstream consumer reads it without re-evaluating the
+        // split.
+        if let Some(reject_body) = reject_sql {
             let reject_table = format!("{}{}", node.id, REJECT_SUFFIX);
             sql.push_str(&format!(
                 "; CREATE OR REPLACE TABLE {} AS {}",
@@ -8899,10 +8910,69 @@ mod tests {
             .sql
             .contains("read_csv_auto('/tmp/orders.csv'"));
         assert!(compiled.stages[1].sql.contains("WHERE status = 'paid'"));
+        // Perf regression guard: a filter whose reject port is unwired must
+        // compile to a lazy VIEW (so DuckDB pushes the predicate into the
+        // source read) and must NOT materialize the rejected rows. The old
+        // behaviour wrote every rejected row to a `__reject` table - on a
+        // 10M-row source that dominated the whole run (~16s).
+        assert!(
+            compiled.stages[1].sql.contains("CREATE OR REPLACE VIEW \"f1\""),
+            "unwired-reject filter must be a VIEW, got: {}",
+            compiled.stages[1].sql
+        );
+        assert!(
+            !compiled.stages[1].sql.contains("__reject"),
+            "unwired-reject filter must not materialize a reject table, got: {}",
+            compiled.stages[1].sql
+        );
         assert_eq!(compiled.stages[2].kind, StageKind::Sink);
         assert!(compiled.stages[2]
             .sql
             .contains("TO '/tmp/out.parquet' (FORMAT PARQUET"));
+    }
+
+    #[test]
+    fn filter_with_wired_reject_materializes_reject_table() {
+        // When the reject port IS consumed downstream, the split must still
+        // be materialized once (TABLE) so the reject branch reads it without
+        // re-running the filter.
+        let p = pipeline_from_json(
+            r#"{
+              "nodes": [
+                {"id":"s1","position":{"x":0,"y":0},"data":{
+                  "label":"CSV","componentId":"src.csv",
+                  "properties":{"path":"/tmp/orders.csv","hasHeader":true}}},
+                {"id":"f1","position":{"x":0,"y":0},"data":{
+                  "label":"Filter","componentId":"xf.filter",
+                  "properties":{"predicate":"status = 'paid'"}}},
+                {"id":"k1","position":{"x":0,"y":0},"data":{
+                  "label":"Pass","componentId":"snk.parquet",
+                  "properties":{"path":"/tmp/pass.parquet"}}},
+                {"id":"k2","position":{"x":0,"y":0},"data":{
+                  "label":"Rejected","componentId":"snk.parquet",
+                  "properties":{"path":"/tmp/rej.parquet"}}}
+              ],
+              "edges": [
+                {"id":"e1","source":"s1","target":"f1",
+                  "data":{"connectionType":"main"}},
+                {"id":"e2","source":"f1","target":"k1",
+                  "data":{"connectionType":"main"}},
+                {"id":"e3","source":"f1","sourceHandle":"reject","target":"k2",
+                  "data":{"connectionType":"main"}}
+              ]
+            }"#,
+        );
+        let compiled = compile(&p).unwrap();
+        let filter = compiled
+            .stages
+            .iter()
+            .find(|s| s.node_id == "f1")
+            .expect("filter stage");
+        assert!(
+            filter.sql.contains("CREATE OR REPLACE TABLE \"f1__reject\""),
+            "wired reject must materialize a reject table, got: {}",
+            filter.sql
+        );
     }
 
     #[test]
