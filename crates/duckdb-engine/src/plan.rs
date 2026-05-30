@@ -4275,7 +4275,7 @@ fn build_view_sql(
             // just s3://bucket/key.
             let s = component_id.strip_prefix("src.").unwrap_or(component_id);
             let scheme = if matches!(s, "minio" | "r2" | "b2") { "s3" } else { s };
-            Ok(build_cloud_source(scheme, props))
+            Ok(build_cloud_source(scheme, props, declared))
         }
         "src.postgres" | "src.cockroach" | "src.mysql" | "src.mariadb"
         | "src.motherduck" | "src.ducklake" | "src.pgvector"
@@ -8609,7 +8609,11 @@ fn build_excel_source(props: &JsonValue) -> String {
 /// azure extensions let us read these directly via the same
 /// read_csv_auto / read_parquet / read_json_auto family of functions.
 /// Format is inferred from the URL extension unless the user picks one.
-fn build_cloud_source(scheme: &str, props: &JsonValue) -> String {
+fn build_cloud_source(
+    scheme: &str,
+    props: &JsonValue,
+    declared: Option<&[duckle_metadata::Column]>,
+) -> String {
     let path = string_prop(props, "path")
         .or_else(|| string_prop(props, "url"))
         .filter(|s| !s.is_empty())
@@ -8643,17 +8647,24 @@ fn build_cloud_source(scheme: &str, props: &JsonValue) -> String {
             "csv".into()
         }
     });
+    // Delegate to the LOCAL format builders with the resolved cloud path
+    // injected into a cloned props, so a cloud (s3/gcs/azure/http) source
+    // gets the same treatment as its local counterpart: parquet column
+    // projection and CSV declared-schema (`types=`) + delimiter / header /
+    // quote / null / date options. Previously this re-derived a minimal
+    // read with none of those, silently dropping issue-#3 type enforcement
+    // and every CSV option once the file lived in the cloud (audit B1). The
+    // local builders read props["path"], so inject the assembled bucket/key
+    // path here.
+    let mut local = props.clone();
+    if let Some(obj) = local.as_object_mut() {
+        obj.insert("path".into(), JsonValue::String(path.clone()));
+    }
     match chosen.as_str() {
-        "parquet" => format!("SELECT * FROM read_parquet('{}')", sql_escape(&path)),
+        "parquet" => build_parquet_source(&local),
         "json" => format!("SELECT * FROM read_json_auto('{}')", sql_escape(&path)),
-        "tsv" => format!(
-            "SELECT * FROM read_csv_auto('{}', header=true, delim='\\t')",
-            sql_escape(&path)
-        ),
-        _ => format!(
-            "SELECT * FROM read_csv_auto('{}', header=true)",
-            sql_escape(&path)
-        ),
+        "tsv" => build_tsv_source(&local, declared),
+        _ => build_csv_source(&local, declared),
     }
 }
 
@@ -10194,6 +10205,67 @@ mod tests {
             "should not emit types clause without a declared schema: {}",
             compiled.stages[0].sql
         );
+    }
+
+    #[test]
+    fn cloud_parquet_source_projects_declared_columns() {
+        // audit B1: a cloud parquet source must honor the `columns`
+        // projection like the local builder (delegation), not read SELECT *.
+        let sql = build_cloud_source(
+            "s3",
+            &serde_json::json!({"format": "parquet", "path": "s3://b/k.parquet", "columns": "id, amount"}),
+            None,
+        );
+        assert!(
+            sql.contains("SELECT \"id\", \"amount\" FROM read_parquet('s3://b/k.parquet')"),
+            "cloud parquet must project declared columns, got: {}",
+            sql
+        );
+    }
+
+    #[test]
+    fn cloud_csv_source_threads_declared_schema() {
+        // audit B1: a cloud CSV source must honor a Schema-panel declaration
+        // via types= (issue #3 parity), not a bare read_csv_auto.
+        let cols = vec![duckle_metadata::Column {
+            name: "amt".into(),
+            data_type: duckle_metadata::DataType::String,
+            nullable: true,
+        }];
+        let sql = build_cloud_source(
+            "s3",
+            &serde_json::json!({"format": "csv", "path": "s3://b/k.csv", "hasHeader": true}),
+            Some(&cols),
+        );
+        assert!(
+            sql.contains("types = {") && sql.contains("'amt': 'VARCHAR'"),
+            "cloud csv must thread declared schema via types=, got: {}",
+            sql
+        );
+    }
+
+    #[test]
+    fn cloud_csv_sink_honors_options_but_not_partitionby() {
+        // audit B1: a cloud CSV sink must honor delimiter/nullValue (ignored
+        // before), but must NOT emit PARTITION_BY (unvalidated over httpfs).
+        let sql = build_cloud_sink(
+            &serde_json::json!({
+                "format": "csv", "path": "s3://b/out.csv",
+                "delimiter": "|", "nullValue": "NA", "partitionBy": "id"
+            }),
+            "v",
+        );
+        assert!(
+            sql.contains("FORMAT CSV") && sql.contains("DELIMITER '|'") && sql.contains("NULLSTR 'NA'"),
+            "cloud csv sink must honor options, got: {}",
+            sql
+        );
+        assert!(
+            !sql.contains("PARTITION_BY"),
+            "cloud sink must not emit PARTITION_BY, got: {}",
+            sql
+        );
+        assert!(sql.contains("'s3://b/out.csv'"), "must write to the cloud path, got: {}", sql);
     }
 
     #[test]
