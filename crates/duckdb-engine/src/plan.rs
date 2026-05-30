@@ -4238,7 +4238,7 @@ pub fn source_select_for_format(format: &str, props: &JsonValue) -> Option<Strin
         "json" | "jsonl" | "ndjson" => build_json_source(props),
         "sqlite" => build_sqlite_source(props),
         "duckdb" => build_duckdb_source(props),
-        "s3" | "gcs" | "azureblob" | "http" | "https" => build_cloud_source(format, props),
+        "s3" | "gcs" | "azureblob" | "http" | "https" => build_cloud_source(format, props, None),
         _ => return None,
     })
 }
@@ -8720,17 +8720,33 @@ fn build_cloud_sink(props: &JsonValue, from_view: &str) -> String {
             "csv".into()
         }
     });
-    let options = match chosen.as_str() {
-        "parquet" => "FORMAT PARQUET, COMPRESSION 'ZSTD'".to_string(),
-        "json" => "FORMAT JSON".to_string(),
-        _ => "FORMAT CSV, HEADER true".to_string(),
-    };
-    format!(
-        "COPY (SELECT * FROM {}) TO '{}' ({})",
-        quote_ident(from_view),
-        sql_escape(&path),
-        options
-    )
+    // Delegate to the LOCAL sink builders with the resolved cloud path
+    // injected, so a cloud sink honors the same compression / delimiter /
+    // null-value / header options as its local counterpart (audit B1).
+    // Previously it emitted a fixed option set and ignored all of them.
+    //
+    // partitionBy is intentionally NOT forwarded: a partitioned directory
+    // write over httpfs (s3/gs/azure) behaves very differently from a
+    // single-object COPY and isn't validated against a live target, so
+    // cloud sinks keep writing a single object as before. The `format` prop
+    // selects the format family here (not build_json_sink's array toggle),
+    // so it's stripped before the JSON delegation to preserve the current
+    // NDJSON-always cloud-json behavior.
+    let mut local = props.clone();
+    if let Some(obj) = local.as_object_mut() {
+        obj.insert("path".into(), JsonValue::String(path.clone()));
+        obj.remove("partitionBy");
+    }
+    match chosen.as_str() {
+        "csv" => build_csv_sink(&local, from_view),
+        "json" | "jsonl" | "ndjson" => {
+            if let Some(obj) = local.as_object_mut() {
+                obj.remove("format");
+            }
+            build_json_sink(&local, from_view)
+        }
+        _ => build_parquet_sink(&local, from_view),
+    }
 }
 
 fn build_csv_sink(props: &JsonValue, from_view: &str) -> String {
@@ -10231,6 +10247,7 @@ mod tests {
             name: "amt".into(),
             data_type: duckle_metadata::DataType::String,
             nullable: true,
+            primary_key: false,
         }];
         let sql = build_cloud_source(
             "s3",
