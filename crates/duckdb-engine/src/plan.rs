@@ -1701,8 +1701,13 @@ fn validate_column_refs(
         "xf.url.parse" | "xf.ip.parse" => {
             check_single_col(p)?;
         }
-        "xf.cdc.scd1" | "xf.cdc.scd2" | "xf.cdc.compare" => {
+        "xf.cdc.scd1" | "xf.cdc.scd2" | "xf.cdc.compare" | "xf.cdc.diff" => {
             check_list("naturalKey")?;
+            // Diff Detect needs compareColumns too: with none, build_cdc_diff's
+            // `updated` CASE arm is empty, so every matched-key changed row is
+            // classified 'unchanged' and dropped by the default
+            // rejectUnchanged=true - silently losing all updates (audit B3,
+            // HIGH). Fail loud here, like the other cdc transforms.
             check_list("compareColumns")?;
         }
         // Window family: partitionBy + orderBy are upstream columns.
@@ -9045,6 +9050,43 @@ mod tests {
             filter.sql.contains("CREATE OR REPLACE TABLE \"f1__reject\""),
             "multi-consumer reject must materialize a table, got: {}",
             filter.sql
+        );
+    }
+
+    #[test]
+    fn cdc_diff_requires_compare_columns() {
+        // Regression (audit B3): without compareColumns, build_cdc_diff's
+        // `updated` arm is empty so every changed row is tagged 'unchanged'
+        // and dropped by rejectUnchanged. compile() must reject it.
+        let p = pipeline_from_json(
+            r#"{
+              "nodes": [
+                {"id":"cur","position":{"x":0,"y":0},"data":{
+                  "label":"cur","componentId":"src.csv",
+                  "properties":{"path":"/tmp/cur.csv","hasHeader":true}}},
+                {"id":"prev","position":{"x":0,"y":0},"data":{
+                  "label":"prev","componentId":"src.csv",
+                  "properties":{"path":"/tmp/prev.csv","hasHeader":true}}},
+                {"id":"d","position":{"x":0,"y":0},"data":{
+                  "label":"Diff","componentId":"xf.cdc.diff",
+                  "properties":{"naturalKey":["id"]}}},
+                {"id":"k","position":{"x":0,"y":0},"data":{
+                  "label":"out","componentId":"snk.parquet",
+                  "properties":{"path":"/tmp/o.parquet"}}}
+              ],
+              "edges": [
+                {"id":"e1","source":"cur","target":"d","data":{"connectionType":"main"}},
+                {"id":"e2","source":"prev","sourceHandle":"main","target":"d","targetHandle":"lookup","data":{"connectionType":"lookup"}},
+                {"id":"e3","source":"d","target":"k","data":{"connectionType":"main"}}
+              ]
+            }"#,
+        );
+        let err = compile(&p).expect_err("cdc.diff without compareColumns must fail");
+        let msg = format!("{:?}", err);
+        assert!(
+            msg.contains("compare columns"),
+            "error should name compare columns, got: {}",
+            msg
         );
     }
 
