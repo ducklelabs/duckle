@@ -1636,6 +1636,18 @@ impl DuckdbEngine {
                 ));
             }
         };
+        // Oracle's multitable INSERT ALL caps cumulative inserted values at
+        // 999 per statement, so even a single row of a 1000+ column table
+        // cannot be split small enough to fit. Reject it up front with a
+        // clear message instead of letting Oracle raise ORA-00913.
+        if cols.len() >= 1000 {
+            return Err(EngineError::Query(format!(
+                "oracle: table has {} columns; Oracle's multitable INSERT ALL \
+                 limits cumulative inserted values to 999 per statement, so \
+                 tables with 1000+ columns cannot be loaded this way",
+                cols.len()
+            )));
+        }
         let qualified = match &spec.schema {
             Some(s) => format!("\"{}\".\"{}\"", s, spec.table),
             None => format!("\"{}\"", spec.table),
@@ -1677,7 +1689,10 @@ impl DuckdbEngine {
                 .map_err(|e| EngineError::Query(format!("oracle create table: {}", e)))?;
         }
         let mut total = 0_usize;
-        for chunk in rows.chunks(spec.batch_size) {
+        // Cap rows per INSERT ALL so cols.len() * chunk.len() stays under
+        // Oracle's 999 cumulative-value limit (issue #11: ORA-00913).
+        let rows_per_stmt = oracle_insert_all_rows_per_stmt(cols.len(), spec.batch_size);
+        for chunk in rows.chunks(rows_per_stmt) {
             self.check_cancelled()?;
             // Oracle's "INSERT ALL" syntax:
             //   INSERT ALL
@@ -7434,6 +7449,18 @@ fn json_to_sql_literal(v: &JsonValue) -> String {
     }
 }
 
+/// Oracle's multitable INSERT ALL caps the cumulative number of inserted
+/// column-values across every INTO branch at 999. With `num_cols` columns,
+/// each appended row contributes `num_cols` values, so at most
+/// floor(999 / num_cols) rows fit in one statement. Clamp to the user's
+/// `batch_size`, and never go below 1 so a wide table still makes progress
+/// one row at a time. (A table with 1000+ columns cannot be represented by
+/// INSERT ALL at all and is rejected up front by the caller.)
+fn oracle_insert_all_rows_per_stmt(num_cols: usize, batch_size: usize) -> usize {
+    let per_stmt = 999 / num_cols.max(1);
+    batch_size.min(per_stmt.max(1))
+}
+
 /// True for a local filesystem path (not a cloud / http URI).
 fn is_local_path(p: &str) -> bool {
     let lower = p.to_ascii_lowercase();
@@ -7478,6 +7505,7 @@ fn parse_describe_row(v: &JsonValue) -> Option<Column> {
         data_type: map_duckdb_type(type_name),
         nullable,
         primary_key: None,
+        format: None,
     })
 }
 
@@ -8922,5 +8950,46 @@ mod tests {
         // bare star matches anything (including empty)
         assert!(glob_match("*", ""));
         assert!(glob_match("*", "anything"));
+    }
+}
+
+#[cfg(test)]
+mod oracle_insert_all_tests {
+    use super::oracle_insert_all_rows_per_stmt as f;
+
+    #[test]
+    fn never_exceeds_999_cumulative() {
+        // Every statement must keep rows * cols <= 999 (Oracle's INSERT ALL
+        // cumulative-value cap). cols >= 1000 is rejected by the caller, so
+        // it is not exercised here.
+        for &c in &[1usize, 2, 36, 999] {
+            assert!(f(c, 1000) * c <= 999, "cols={} overflowed", c);
+        }
+    }
+
+    #[test]
+    fn fixes_reported_off_by_one() {
+        // The bug: batch_size 1000 * 1 col = 1000 > 999 -> ORA-00913.
+        assert_eq!(f(1, 1000), 999);
+        assert_eq!(f(2, 1000), 499); // 998 <= 999
+        assert_eq!(f(36, 1000), 27); // 972 <= 999
+    }
+
+    #[test]
+    fn respects_smaller_batch_size() {
+        // A user batch smaller than the 999 cap is honored, not raised.
+        assert_eq!(f(1, 10), 10);
+    }
+
+    #[test]
+    fn always_at_least_one() {
+        assert_eq!(f(999, 1000), 1);
+        assert_eq!(f(500, 1000), 1);
+    }
+
+    #[test]
+    fn zero_cols_defensive() {
+        // Defensive divisor max(1): 999 / 1 = 999, then .min(1000) = 999.
+        assert_eq!(f(0, 1000), 999);
     }
 }
