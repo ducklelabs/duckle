@@ -63,6 +63,7 @@ import EdgeEditorModal from './canvas/EdgeEditorModal';
 import VisualMapperModal, {
     type MapperState,
     type MappingRow,
+    type LookupConfig,
 } from './canvas/VisualMapperModal';
 import ConnectionEditorModal from './workflow-ui/editors/ConnectionEditorModal';
 import ContextEditorModal from './workflow-ui/editors/ContextEditorModal';
@@ -575,22 +576,35 @@ export default function App() {
         (state: MapperState, derivedSchema: Column[]) => {
             if (!mapperNodeId) return;
             setNodes(ns =>
-                ns.map(n =>
-                    n.id === mapperNodeId
-                        ? {
-                              ...n,
-                              data: {
-                                  ...n.data,
-                                  properties: {
-                                      ...(n.data.properties ?? {}),
-                                      mapper: state as unknown as Record<string, unknown>,
-                                      mode: 'visual',
-                                  },
-                                  schema: derivedSchema,
-                              },
-                          }
-                        : n,
-                ),
+                ns.map(n => {
+                    if (n.id !== mapperNodeId) return n;
+                    // The engine reads join config from a top-level
+                    // `lookups` property (not from inside `mapper`), so
+                    // hoist it out; drop the key entirely when there are none.
+                    const { lookups, ...mapperRest } = state;
+                    const nextProps: Record<string, unknown> = {
+                        ...(n.data.properties ?? {}),
+                        mapper: mapperRest as unknown as Record<string, unknown>,
+                        mode: 'visual',
+                    };
+                    // Visual mapper outputs are the single source of truth in
+                    // visual mode; drop any stale key-value `expressions` so the
+                    // engine (which prefers `expressions`) uses these outputs.
+                    delete nextProps.expressions;
+                    if (lookups && lookups.length) {
+                        nextProps.lookups = lookups;
+                    } else {
+                        delete nextProps.lookups;
+                    }
+                    return {
+                        ...n,
+                        data: {
+                            ...n.data,
+                            properties: nextProps,
+                            schema: derivedSchema,
+                        },
+                    };
+                }),
             );
             setMapperNodeId(null);
             markDirty();
@@ -1674,9 +1688,15 @@ export default function App() {
                     nodes={nodes}
                     edges={edges}
                     initialState={
-                        ((mapperNode.data.properties?.mapper as MapperState | undefined) ?? {
-                            outputs: [] as MappingRow[],
-                        }) as MapperState
+                        {
+                            ...((mapperNode.data.properties?.mapper as
+                                | MapperState
+                                | undefined) ?? { outputs: [] as MappingRow[] }),
+                            lookups:
+                                (mapperNode.data.properties?.lookups as
+                                    | LookupConfig[]
+                                    | undefined) ?? [],
+                        } as MapperState
                     }
                     onSave={handleMapperSave}
                     onCancel={() => setMapperNodeId(null)}

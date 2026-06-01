@@ -22,9 +22,19 @@ export type MappingRow = {
     expression: string;
 };
 
+export type JoinType = 'inner' | 'left';
+
+export type LookupConfig = {
+    port: string; // lookup_1 | lookup_2 | lookup_3
+    leftKey: string; // column(s) on main; comma-separated for composite keys
+    rightKey: string; // column(s) on the lookup; comma-separated for composite keys
+    joinType: JoinType;
+};
+
 export type MapperState = {
     outputs: MappingRow[];
     filter?: string;
+    lookups?: LookupConfig[];
 };
 
 type Props = {
@@ -68,6 +78,7 @@ export default function VisualMapperModal({
 }: Props) {
     const [outputs, setOutputs] = useState<MappingRow[]>(initialState.outputs);
     const [filter, setFilter] = useState<string>(initialState.filter ?? '');
+    const [lookups, setLookups] = useState<LookupConfig[]>(initialState.lookups ?? []);
     const [focusedRow, setFocusedRow] = useState<string | null>(null);
     const exprRefs = useRef<Map<string, HTMLTextAreaElement>>(new Map());
 
@@ -75,6 +86,36 @@ export default function VisualMapperModal({
         () => resolveInputPortSchemas(nodeId, nodes, edges),
         [nodeId, nodes, edges],
     );
+
+    // Connected lookup ports (main is the driving input, never a lookup).
+    const lookupPorts = useMemo(
+        () => inputPorts.filter(p => p.portId.startsWith('lookup_')),
+        [inputPorts],
+    );
+    const mainCols = useMemo(
+        () => inputPorts.find(p => p.portId === 'main')?.schema ?? [],
+        [inputPorts],
+    );
+
+    const lookupFor = useCallback(
+        (port: string): LookupConfig =>
+            lookups.find(l => l.port === port) ?? {
+                port,
+                leftKey: '',
+                rightKey: '',
+                joinType: 'left',
+            },
+        [lookups],
+    );
+
+    const updateLookup = useCallback((port: string, patch: Partial<LookupConfig>) => {
+        setLookups(ls => {
+            if (ls.some(l => l.port === port)) {
+                return ls.map(l => (l.port === port ? { ...l, ...patch } : l));
+            }
+            return [...ls, { port, leftKey: '', rightKey: '', joinType: 'left', ...patch }];
+        });
+    }, []);
 
     useEffect(() => {
         const onKey = (e: KeyboardEvent) => {
@@ -128,8 +169,21 @@ export default function VisualMapperModal({
             type: r.type,
             nullable: true,
         }));
-        onSave({ outputs, filter: filter.trim() || undefined }, derived);
-    }, [outputs, filter, onSave]);
+        // Only persist lookups that are wired and have both join keys set, so
+        // the engine never sees a half-configured join.
+        const connected = new Set(lookupPorts.map(p => p.portId));
+        const cleanLookups = lookups.filter(
+            l => connected.has(l.port) && l.leftKey.trim() !== '' && l.rightKey.trim() !== '',
+        );
+        onSave(
+            {
+                outputs,
+                filter: filter.trim() || undefined,
+                lookups: cleanLookups.length ? cleanLookups : undefined,
+            },
+            derived,
+        );
+    }, [outputs, filter, lookups, lookupPorts, onSave]);
 
     const handleColumnDragStart = (
         e: React.DragEvent<HTMLDivElement>,
@@ -443,6 +497,82 @@ export default function VisualMapperModal({
                                     <code>{f.label}</code>
                                 </button>
                             ))}
+                            {lookupPorts.length > 0 ? (
+                                <>
+                                    <div className="mapper-helper-section">JOINS</div>
+                                    {lookupPorts.map(port => {
+                                        const cfg = lookupFor(port.portId);
+                                        return (
+                                            <div className="mapper-join" key={port.portId}>
+                                                <div className="mapper-join-head">
+                                                    <span className="mapper-join-port">
+                                                        {port.portId}
+                                                    </span>
+                                                    <select
+                                                        className="schema-input mapper-join-type"
+                                                        value={cfg.joinType}
+                                                        onChange={e =>
+                                                            updateLookup(port.portId, {
+                                                                joinType: e.target
+                                                                    .value as JoinType,
+                                                            })
+                                                        }
+                                                        title="Join type"
+                                                    >
+                                                        <option value="left">Left join</option>
+                                                        <option value="inner">Inner join</option>
+                                                    </select>
+                                                </div>
+                                                <div className="mapper-join-on">
+                                                    <span className="mapper-join-side">main</span>
+                                                    <input
+                                                        className="schema-input mapper-join-key"
+                                                        list={`mapper-main-cols`}
+                                                        value={cfg.leftKey}
+                                                        placeholder="key"
+                                                        spellCheck={false}
+                                                        onChange={e =>
+                                                            updateLookup(port.portId, {
+                                                                leftKey: e.target.value,
+                                                            })
+                                                        }
+                                                    />
+                                                    <span className="mapper-join-eq">=</span>
+                                                    <span className="mapper-join-side">
+                                                        {port.portId}
+                                                    </span>
+                                                    <input
+                                                        className="schema-input mapper-join-key"
+                                                        list={`mapper-cols-${port.portId}`}
+                                                        value={cfg.rightKey}
+                                                        placeholder="key"
+                                                        spellCheck={false}
+                                                        onChange={e =>
+                                                            updateLookup(port.portId, {
+                                                                rightKey: e.target.value,
+                                                            })
+                                                        }
+                                                    />
+                                                    <datalist id={`mapper-cols-${port.portId}`}>
+                                                        {port.schema.map(c => (
+                                                            <option key={c.name} value={c.name} />
+                                                        ))}
+                                                    </datalist>
+                                                </div>
+                                            </div>
+                                        );
+                                    })}
+                                    <datalist id="mapper-main-cols">
+                                        {mainCols.map(c => (
+                                            <option key={c.name} value={c.name} />
+                                        ))}
+                                    </datalist>
+                                    <div className="mapper-helper-hint">
+                                        Reference lookup columns in expressions as
+                                        <code> lookup_1.col</code>. Composite keys: comma-separate.
+                                    </div>
+                                </>
+                            ) : null}
                             <div className="mapper-helper-section">FILTER</div>
                             <textarea
                                 className="mapper-expression"

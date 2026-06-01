@@ -3658,6 +3658,61 @@ html[dir='rtl'] .topbar-lang {
     color: var(--accent);
 }
 
+/* Lookup join config (JOINS section in the helper pane) */
+.mapper-join {
+    background: var(--bg-2);
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    padding: 7px 8px;
+    margin-bottom: 7px;
+}
+
+.mapper-join-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 6px;
+}
+
+.mapper-join-port {
+    font-family: ui-monospace, 'SF Mono', 'Cascadia Code', Consolas, monospace;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--kind-control);
+    flex: 1;
+}
+
+.mapper-join-type {
+    width: auto;
+    font-size: 11px;
+    padding: 2px 4px;
+}
+
+.mapper-join-on {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 4px;
+}
+
+.mapper-join-side {
+    font-family: ui-monospace, 'SF Mono', 'Cascadia Code', Consolas, monospace;
+    font-size: 10px;
+    color: var(--text-3);
+}
+
+.mapper-join-key {
+    flex: 1;
+    min-width: 52px;
+    font-size: 11px;
+    padding: 2px 5px;
+}
+
+.mapper-join-eq {
+    color: var(--text-3);
+    font-weight: 700;
+}
+
 .modal-mapper-footer {
     padding: 12px 18px;
 }

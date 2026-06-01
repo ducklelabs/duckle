@@ -464,7 +464,7 @@ export const MANIFESTS: Record<string, ComponentManifest> = {
                         defaultValue: 'expressions',
                         options: [
                             { label: 'Expressions', value: 'expressions' },
-                            { label: 'Visual mapper (coming soon)', value: 'visual' },
+                            { label: 'Visual mapper', value: 'visual' },
                         ],
                     },
                     {
