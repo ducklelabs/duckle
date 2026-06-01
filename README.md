@@ -276,7 +276,7 @@ Validators split their input: passing rows continue on the main port, failures r
 | **Lakehouse** | Apache Iceberg (full table layout), DuckLake | Available |
 | **Embedded databases** | SQLite, DuckDB | Available |
 | **Network relational DBs** | PostgreSQL, MySQL, MariaDB, CockroachDB - modes: **overwrite**, **append**, **truncate**, **upsert** (ON CONFLICT / ON DUPLICATE KEY) | Available (live CI for PG + MySQL) |
-| **Network relational DBs** | SQL Server / Azure Synapse (TDS, multi-row VALUES batched; auto-creates the table if absent), Oracle (Instant Client; INSERT ALL, rows per statement capped to stay under Oracle's 999 values-per-statement limit; auto-creates the table if absent), ClickHouse (HTTP JSONEachRow) | Available |
+| **Network relational DBs** | SQL Server / Azure Synapse (TDS, multi-row VALUES batched; auto-creates the table if absent), Oracle (Instant Client; INSERT ALL, batched per statement; auto-creates the table if absent), ClickHouse (HTTP JSONEachRow) | Available |
 | **Network relational DBs** | IBM DB2, generic JDBC | Planned |
 | **Object storage** | S3, GCS, Azure Blob via DuckDB `httpfs` (MinIO / R2 / B2 via endpoint) | Available |
 | **Cloud warehouses** | MotherDuck, Snowflake (PAT or JWT RS256), BigQuery, Redshift, Databricks SQL, Azure Synapse, **DuckDB Quack** (concurrent writers to remote DuckDB via the May 2026 protocol) | Available |
