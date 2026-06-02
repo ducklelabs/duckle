@@ -573,20 +573,27 @@ export default function VisualMapperModal({
                                     </div>
                                 </>
                             ) : null}
-                            <div className="mapper-helper-section">FILTER</div>
-                            <textarea
-                                className="mapper-expression"
-                                value={filter}
-                                placeholder="optional WHERE clause"
-                                onChange={e => setFilter(e.target.value)}
-                                rows={3}
-                                spellCheck={false}
-                            />
-                            <div className="mapper-helper-hint">
-                                Applied after expressions; rows where this is false are dropped.
-                            </div>
                         </div>
                     </div>
+                </div>
+
+                {/* FILTER: full-width bar so the WHERE clause is readable */}
+                <div className="mapper-filter-bar">
+                    <label className="mapper-filter-label" htmlFor="mapper-filter-input">
+                        FILTER (WHERE)
+                    </label>
+                    <textarea
+                        id="mapper-filter-input"
+                        className="mapper-filter-input"
+                        value={filter}
+                        placeholder="optional WHERE clause, e.g. main.amount > 100 AND lookup_1.active = true"
+                        onChange={e => setFilter(e.target.value)}
+                        rows={2}
+                        spellCheck={false}
+                    />
+                    <span className="mapper-filter-hint">
+                        Applied after expressions; rows where this is false are dropped.
+                    </span>
                 </div>
 
                 <div className="modal-footer modal-mapper-footer">

@@ -400,7 +400,28 @@ type PreviewProps = {
 
 function PreviewTab({ schema, rows, inheritedRows }: PreviewProps) {
     const { t } = useTranslation();
-    if (schema.length === 0) {
+    // When no formal schema resolved (e.g. a DB sink whose upstream schema
+    // is empty until the source is read), derive columns from the sample
+    // rows so the preview still renders from whatever data is available -
+    // instead of being hidden behind "No schema".
+    const effectiveSchema: Column[] =
+        schema.length > 0
+            ? schema
+            : (() => {
+                  const seen = new Set<string>();
+                  const out: Column[] = [];
+                  for (const r of rows) {
+                      for (const k of Object.keys(r)) {
+                          if (!seen.has(k)) {
+                              seen.add(k);
+                              out.push({ name: k, type: 'string', nullable: true });
+                          }
+                      }
+                  }
+                  return out;
+              })();
+
+    if (effectiveSchema.length === 0) {
         return (
             <div className="preview-empty">
                 <div className="preview-empty-title">{t('properties.noSchema')}</div>
@@ -420,7 +441,7 @@ function PreviewTab({ schema, rows, inheritedRows }: PreviewProps) {
         );
     }
 
-    const cols = schema.map(c => c.name);
+    const cols = effectiveSchema.map(c => c.name);
     return (
         <div className="preview-wrap">
             <div className="preview-meta">
@@ -434,7 +455,7 @@ function PreviewTab({ schema, rows, inheritedRows }: PreviewProps) {
                 <table className="preview-table">
                     <thead>
                         <tr>
-                            {schema.map(c => (
+                            {effectiveSchema.map(c => (
                                 <th key={c.name}>
                                     <div className="preview-th-name">{c.name}</div>
                                     <div className="preview-th-type">{c.type}</div>
