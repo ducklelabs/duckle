@@ -4836,14 +4836,23 @@ impl DuckdbEngine {
                     let response: JsonValue = response_raw.into_json().map_err(|e| {
                         EngineError::Query(format!("REST response not JSON: {}", e))
                     })?;
-                    let rows = if spec.response_path.is_empty() {
-                        response.as_array().cloned().unwrap_or_default()
-                    } else {
-                        response
-                            .pointer(&spec.response_path)
-                            .and_then(|v| v.as_array())
-                            .cloned()
-                            .unwrap_or_default()
+                    // Locate the rows: the whole response when no responsePath
+                    // is set, else the JSON pointer target. A located ARRAY is
+                    // the row set; a single OBJECT is one row (issue #13: APIs
+                    // like open-meteo return one JSON object, which previously
+                    // yielded zero rows + an empty file with no error). Scalars
+                    // / null / missing pointer are genuinely empty.
+                    let rows = {
+                        let located = if spec.response_path.is_empty() {
+                            Some(&response)
+                        } else {
+                            response.pointer(&spec.response_path)
+                        };
+                        match located {
+                            Some(JsonValue::Array(a)) => a.clone(),
+                            Some(v @ JsonValue::Object(_)) => vec![v.clone()],
+                            _ => Vec::new(),
+                        }
                     };
                     (rows, response)
                 }

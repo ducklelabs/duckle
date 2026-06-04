@@ -8625,3 +8625,56 @@ fn parallelize_runs_independent_branches() {
     assert_eq!(count(&format!("read_csv_auto('{}')", out1)), 3);
     assert_eq!(count(&format!("read_csv_auto('{}')", out2)), 2);
 }
+
+#[test]
+fn src_rest_single_object_response_yields_one_row() {
+    // Issue #13: an API returning a single JSON object (e.g. open-meteo's
+    // current_weather) with no responsePath previously produced 0 rows and an
+    // empty output file with no error. It must now materialize exactly one row.
+    use std::io::{Read, Write};
+    use std::net::TcpListener;
+    use std::time::Duration;
+
+    let engine = engine_or_skip!();
+    let listener = TcpListener::bind("127.0.0.1:0").expect("bind");
+    let port = listener.local_addr().unwrap().port();
+    let body = br#"{"latitude":52.52,"longitude":13.41,"current_weather":{"temperature":11.3,"windspeed":9.2}}"#;
+    let handle = std::thread::spawn(move || {
+        if let Some(Ok(mut stream)) = listener.incoming().next() {
+            stream.set_read_timeout(Some(Duration::from_millis(250))).ok();
+            stream.set_nodelay(true).ok();
+            let mut chunk = [0u8; 4096];
+            for _ in 0..16 {
+                match stream.read(&mut chunk) {
+                    Ok(0) => break,
+                    Ok(_) => break,
+                    Err(_) => break,
+                }
+            }
+            let resp = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                body.len()
+            );
+            let _ = stream.write_all(resp.as_bytes());
+            let _ = stream.write_all(body);
+            let _ = stream.flush();
+            let _ = stream.shutdown(std::net::Shutdown::Write);
+            std::thread::sleep(Duration::from_millis(100));
+        }
+    });
+
+    let tmp = tempfile::tempdir().unwrap();
+    let out = out_path(tmp.path(), "weather.json");
+    let url = format!("http://127.0.0.1:{}/forecast", port);
+    let r = engine.execute_pipeline(&doc(
+        json!([
+            node("r", "src.rest", json!({ "url": url })),
+            node("k", "snk.json", json!({ "path": out })),
+        ]),
+        json!([main_edge("e1", "r", "k")]),
+    ));
+    let _ = handle.join();
+    assert_eq!(r.status, "ok", "rest object run failed: {:?}", r.error);
+    assert!(Path::new(&out).exists(), "sink file missing (issue #13)");
+    assert_eq!(count(&format!("read_json_auto('{}')", out)), 1);
+}
