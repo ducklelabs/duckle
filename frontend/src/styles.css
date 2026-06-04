@@ -42,7 +42,7 @@
     --kind-custom: #e08a8a;
 
     --danger: #ff4d6d;
-    --success: #34d399;
+    --success: #2eafff;
     --warn: #fbbf24;
 
     --shadow-1: 0 1px 0 rgba(255, 255, 255, 0.03) inset,
@@ -323,7 +323,7 @@ textarea:focus-visible {
 
 .status[data-state='ready'] .status-dot {
     background: var(--accent-source);
-    box-shadow: 0 0 0 2px rgba(126, 231, 135, 0.15);
+    box-shadow: 0 0 0 2px rgba(46, 175, 255, 0.15);
 }
 
 .status[data-state='connecting'] .status-dot {
@@ -1498,7 +1498,7 @@ textarea:focus-visible {
 .edge-label-on-subjob-ok .edge-label-badge,
 .edge-label-on-component-ok .edge-label-badge {
     color: var(--success);
-    background: rgba(74, 222, 128, 0.12);
+    background: rgba(46, 175, 255, 0.12);
 }
 
 .edge-label-on-subjob-error .edge-label-badge,
@@ -2115,9 +2115,9 @@ textarea:focus-visible {
 }
 
 .validation-ok {
-    background: rgba(126, 231, 135, 0.08);
+    background: rgba(46, 175, 255, 0.08);
     color: var(--accent-source);
-    border: 1px solid rgba(126, 231, 135, 0.2);
+    border: 1px solid rgba(46, 175, 255, 0.2);
 }
 
 .validation-icon {
@@ -2417,7 +2417,7 @@ select.schema-input {
 }
 
 .bottom-console-tag-ok {
-    color: #3ad29a;
+    color: #2eafff;
 }
 
 .bottom-console-tag-err {
@@ -2499,7 +2499,7 @@ select.schema-input {
 }
 
 .statusbar-dot-warn {
-    background: #e3b341;
+    background: var(--warn);
 }
 
 .statusbar-dot-error {
@@ -2585,7 +2585,7 @@ html[dir='rtl'] .topbar-lang {
 .ctx-bound-token {
     font-family: ui-monospace, 'Cascadia Code', Consolas, monospace;
     font-size: 12px;
-    color: #a9b6ff;
+    color: var(--accent-strong);
     font-weight: 600;
 }
 
@@ -2764,14 +2764,14 @@ html[dir='rtl'] .topbar-lang {
 }
 
 .toolbar-run {
-    background: rgba(126, 231, 135, 0.12);
-    border-color: rgba(126, 231, 135, 0.3);
+    background: rgba(46, 175, 255, 0.12);
+    border-color: rgba(46, 175, 255, 0.3);
     color: var(--accent-source);
 }
 
 .toolbar-run:hover {
-    background: rgba(126, 231, 135, 0.18);
-    border-color: rgba(126, 231, 135, 0.5);
+    background: rgba(46, 175, 255, 0.18);
+    border-color: rgba(46, 175, 255, 0.5);
 }
 
 .toolbar-stop {
@@ -3142,8 +3142,8 @@ html[dir='rtl'] .topbar-lang {
 }
 
 .schema-source-banner-declared {
-    background: rgba(126, 231, 135, 0.08);
-    border-color: rgba(126, 231, 135, 0.3);
+    background: rgba(46, 175, 255, 0.08);
+    border-color: rgba(46, 175, 255, 0.3);
     color: var(--accent-source);
 }
 
@@ -3169,7 +3169,7 @@ html[dir='rtl'] .topbar-lang {
 }
 
 .schema-autodetect-button:hover {
-    background: #79b3ff;
+    background: var(--kind-source);
 }
 
 .schema-autodetect-button:disabled {
@@ -4630,33 +4630,33 @@ html[dir='rtl'] .topbar-lang {
     --text-3: #6d7585;
     --text-4: #a3acbd;
 
-    --accent: #5a4bd4;
-    --accent-strong: #6f60e6;
+    --accent: #6a4fe0;
+    --accent-strong: #5b3fd6;
     /* DuckDB lemon is unreadable as text on light surfaces, so the light
        theme uses a deep gold for the primary accent (brand identity stays
        yellow; the in-app logo/gradient still use pure lemon). */
     --accent-cyan: #b8860b;
     --accent-cyan-strong: #946f00;
-    --accent-soft: rgba(90, 75, 212, 0.1);
-    --accent-glow: rgba(90, 75, 212, 0.22);
+    --accent-soft: rgba(106, 79, 224, 0.1);
+    --accent-glow: rgba(106, 79, 224, 0.22);
 
     --kind-source: #1f8fd0;
     --kind-transform: #4a5160;
     --kind-sink: #d96400;
-    --kind-control: #6b4fd4;
+    --kind-control: #6a4fe0;
     --kind-quality: #b8860b;
     --kind-custom: #c2553f;
 
     --danger: #dc2626;
-    --success: #16a34a;
+    --success: #1488c8;
     --warn: #d97706;
 
     --shadow-1: 0 1px 0 rgba(255, 255, 255, 0.6) inset,
         0 1px 2px rgba(11, 15, 26, 0.05), 0 6px 16px rgba(11, 15, 26, 0.06);
     --shadow-2: 0 1px 0 rgba(255, 255, 255, 0.7) inset,
         0 4px 12px rgba(11, 15, 26, 0.08), 0 16px 40px rgba(11, 15, 26, 0.1);
-    --shadow-glow: 0 0 16px rgba(90, 75, 212, 0.18);
-    --focus-ring: 0 0 0 3px rgba(90, 75, 212, 0.22);
+    --shadow-glow: 0 0 16px rgba(106, 79, 224, 0.18);
+    --focus-ring: 0 0 0 3px rgba(106, 79, 224, 0.22);
 
     color-scheme: light;
 }
@@ -4688,7 +4688,7 @@ html[dir='rtl'] .topbar-lang {
 :root[data-theme='light'] .node.is-selected {
     box-shadow:
         0 0 0 1px var(--accent),
-        0 0 20px rgba(90, 75, 212, 0.18),
+        0 0 20px rgba(106, 79, 224, 0.18),
         var(--shadow-1);
 }
 
@@ -4696,7 +4696,7 @@ html[dir='rtl'] .topbar-lang {
     background: linear-gradient(
         90deg,
         transparent,
-        rgba(90, 75, 212, 0.35),
+        rgba(106, 79, 224, 0.35),
         rgba(184, 134, 11, 0.28),
         transparent
     );
@@ -4705,13 +4705,13 @@ html[dir='rtl'] .topbar-lang {
 :root[data-theme='light'] .brand-mark {
     box-shadow:
         0 0 0 1px rgba(184, 134, 11, 0.5) inset,
-        0 2px 8px rgba(90, 75, 212, 0.25);
+        0 2px 8px rgba(106, 79, 224, 0.25);
     color: white;
 }
 
 :root[data-theme='light'] .properties-mapper-button {
     color: white;
-    box-shadow: 0 4px 12px rgba(90, 75, 212, 0.25);
+    box-shadow: 0 4px 12px rgba(106, 79, 224, 0.25);
 }
 
 :root[data-theme='light'] .btn-primary {
@@ -4733,8 +4733,8 @@ html[dir='rtl'] .topbar-lang {
 }
 
 :root[data-theme='light'] .toolbar-run {
-    background: rgba(22, 163, 74, 0.12);
-    border-color: rgba(22, 163, 74, 0.3);
+    background: rgba(31, 143, 208, 0.12);
+    border-color: rgba(31, 143, 208, 0.3);
     color: var(--success);
 }
 
@@ -4745,21 +4745,21 @@ html[dir='rtl'] .topbar-lang {
 }
 
 :root[data-theme='light'] .validation-ok {
-    background: rgba(22, 163, 74, 0.1);
+    background: rgba(31, 143, 208, 0.1);
     color: var(--success);
-    border-color: rgba(22, 163, 74, 0.25);
+    border-color: rgba(31, 143, 208, 0.25);
 }
 
 :root[data-theme='light'] .schema-source-banner {
-    background: rgba(90, 75, 212, 0.08);
+    background: rgba(106, 79, 224, 0.08);
     color: var(--accent);
-    border-color: rgba(90, 75, 212, 0.25);
+    border-color: rgba(106, 79, 224, 0.25);
 }
 
 :root[data-theme='light'] .schema-source-banner-declared {
-    background: rgba(22, 163, 74, 0.08);
+    background: rgba(31, 143, 208, 0.08);
     color: var(--success);
-    border-color: rgba(22, 163, 74, 0.25);
+    border-color: rgba(31, 143, 208, 0.25);
 }
 
 :root[data-theme='light'] .field-warning {
@@ -4776,7 +4776,7 @@ html[dir='rtl'] .topbar-lang {
 }
 
 :root[data-theme='light'] .mapper-input-port-name {
-    background: rgba(90, 75, 212, 0.1);
+    background: rgba(106, 79, 224, 0.1);
 }
 
 :root[data-theme='light'] .edge-label-reject .edge-label-badge {
@@ -4784,12 +4784,12 @@ html[dir='rtl'] .topbar-lang {
 }
 
 :root[data-theme='light'] .edge-label-lookup .edge-label-badge {
-    background: rgba(24, 160, 154, 0.14);
+    background: rgba(46, 175, 255, 0.14);
 }
 
 :root[data-theme='light'] .edge-label-on-subjob-ok .edge-label-badge,
 :root[data-theme='light'] .edge-label-on-component-ok .edge-label-badge {
-    background: rgba(22, 163, 74, 0.12);
+    background: rgba(31, 143, 208, 0.12);
 }
 
 :root[data-theme='light'] .edge-label-on-subjob-error .edge-label-badge,
@@ -4808,21 +4808,21 @@ html[dir='rtl'] .topbar-lang {
 }
 
 :root[data-theme='light'] .mapper-input-col.is-used {
-    background: rgba(90, 75, 212, 0.08);
+    background: rgba(106, 79, 224, 0.08);
 }
 
 :root[data-theme='light'] .modal-tip {
-    background: rgba(90, 75, 212, 0.06);
-    border-color: rgba(90, 75, 212, 0.2);
+    background: rgba(106, 79, 224, 0.06);
+    border-color: rgba(106, 79, 224, 0.2);
 }
 
 :root[data-theme='light'] .markdown-body code {
     color: var(--accent-cyan-strong);
-    background: rgba(8, 145, 178, 0.08);
+    background: rgba(46, 175, 255, 0.08);
 }
 
 :root[data-theme='light'] .markdown-body blockquote {
-    background: rgba(90, 75, 212, 0.06);
+    background: rgba(106, 79, 224, 0.06);
 }
 
 :root[data-theme='light'] .markdown-body img {
@@ -4830,7 +4830,7 @@ html[dir='rtl'] .topbar-lang {
 }
 
 :root[data-theme='light'] .repo-node.is-active {
-    background: rgba(90, 75, 212, 0.1);
+    background: rgba(106, 79, 224, 0.1);
     color: var(--accent);
 }
 
@@ -6940,7 +6940,7 @@ html[dir='rtl'] .topbar-lang {
     align-items: center;
     gap: 10px;
     padding: 7px 14px;
-    background: linear-gradient(90deg, #1b6e3c, #2e8b57);
+    background: linear-gradient(90deg, #2eafff, #7d66ff);
     color: #fff;
     font-size: 13px;
     border-bottom: 1px solid rgba(0, 0, 0, 0.2);

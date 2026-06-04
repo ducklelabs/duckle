@@ -19,19 +19,19 @@ const ENGINES: EngineMeta[] = [
         id: 'duckdb',
         label: 'DuckDB',
         description: 'Default. Local analytics, files, SQL pushdown.',
-        dot: '#fed060',
+        dot: '#fff100',
     },
     {
         id: 'slothdb',
         label: 'SlothDB',
         description: 'Optional embedded analytics engine.',
-        dot: '#a78bfa',
+        dot: '#7d66ff',
     },
     {
         id: 'native',
         label: 'Native',
         description: 'Rust streaming and incremental pipelines.',
-        dot: '#7ee787',
+        dot: '#2eafff',
         comingSoon: true,
     },
 ];

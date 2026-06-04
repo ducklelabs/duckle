@@ -60,9 +60,9 @@ const KIND_LABEL: Record<string, string> = {
 };
 
 const KIND_COLOR: Record<string, string> = {
-    source: '#7ee787',
-    transform: '#58a6ff',
-    sink: '#ffa657',
+    source: '#2eafff',
+    transform: '#7d66ff',
+    sink: '#ff6900',
 };
 
 type Props = {

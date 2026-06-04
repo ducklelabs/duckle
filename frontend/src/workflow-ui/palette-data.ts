@@ -77,7 +77,7 @@ export const PALETTE: Category[] = [
         id: 'sources',
         label: 'Sources',
         icon: '⬇',
-        accent: '#7ee787',
+        accent: '#2eafff',
         groups: [
             {
                 id: 'src.files',
@@ -220,7 +220,7 @@ export const PALETTE: Category[] = [
         id: 'transforms',
         label: 'Transforms',
         icon: '∼',
-        accent: '#58a6ff',
+        accent: '#7d66ff',
         groups: [
             {
                 id: 'xf.fields',
@@ -451,7 +451,7 @@ export const PALETTE: Category[] = [
         id: 'sinks',
         label: 'Sinks',
         icon: '⬆',
-        accent: '#ffa657',
+        accent: '#ff6900',
         groups: [
             {
                 id: 'snk.files',
@@ -571,7 +571,7 @@ export const PALETTE: Category[] = [
         id: 'control',
         label: 'Control Flow',
         icon: '◇',
-        accent: '#c39bff',
+        accent: '#7d66ff',
         groups: [
             {
                 id: 'ctl.routing',
@@ -628,7 +628,7 @@ export const PALETTE: Category[] = [
         id: 'quality',
         label: 'Data Quality',
         icon: '✓',
-        accent: '#fed060',
+        accent: '#fff100',
         groups: [
             {
                 id: 'qa.validation',
