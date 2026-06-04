@@ -229,7 +229,7 @@ For CSV / TSV sources, the **Schema** panel accepts an optional per-column **For
 | **JSON / nested** | Parse, Stringify, Flatten, JSONPath Extract, Merge Objects, Array Aggregate |
 | **Array** | Explode / Unnest, Collect List, Element At, Contains, Distinct, Length |
 | **Pivot / shape** | Pivot, Unpivot, Denormalize, Normalize, Transpose |
-| **CDC / SCD** | Diff Detect, SCD Type 1, SCD Type 2 (valid_from / valid_to / is_current), Merge / Upsert, Row Hash (md5 / sha1 / sha256 fingerprint), Audit Stamp (`_loaded_at` / `_loaded_date` / `_source` / `_batch_id`) |
+| **CDC / SCD** | Incremental Load (watermark column; saves the high-water mark to workspace state and advances only on a fully successful run), Diff Detect, SCD Type 1, SCD Type 2 (valid_from / valid_to / is_current), Merge / Upsert, Row Hash (md5 / sha1 / sha256 fingerprint), Audit Stamp (`_loaded_at` / `_loaded_date` / `_source` / `_batch_id`) |
 | **AI / Search** | **Vector Similarity Search** (cosine / L2 / inner product over FLOAT[N] via `vss`), **Full-Text Search** (BM25 via `fts`), **Embeddings** (OpenAI-compatible `/v1/embeddings`), **LLM Transform** (per-row chat completion with `{column}` templates), **Classify** (LLM-backed, normalizes to UNKNOWN), **Text Chunker** (RAG-ready, pure local), **PII Redact** (regex - emails / phones / SSNs / cards), **Semantic Dedupe** (cosine over precomputed embeddings) |
 | **Geospatial** | Spatial Distance (ST_Distance), Spatial Buffer (ST_Buffer), Spatial Intersects (ST_Intersects) |
 | **Debug** | Log Rows, Assert (hard-fail on SQL predicate violation) |

@@ -95,6 +95,8 @@ pub enum RuntimeSpec {
     /// ctl.die: fail the run with `message` when `condition` holds against
     /// the upstream row count ("always" / "has-rows" / "no-rows").
     Die { message: String, condition: String },
+    /// xf.incremental: watermark-based incremental load (see IncrementalSpec).
+    Incremental(IncrementalSpec),
     Webhook(WebhookSpec),
     SnowflakeSink(SnowflakeSinkSpec),
     DatabricksSink(DatabricksSinkSpec),
@@ -432,6 +434,7 @@ fn build_stage(
     // (level, message) for ctl.log / ctl.warn; (message, condition) for ctl.die.
     let mut log_spec: Option<(String, String)> = None;
     let mut die_spec: Option<(String, String)> = None;
+    let mut incremental: Option<IncrementalSpec> = None;
     let mut snowflake_sink: Option<SnowflakeSinkSpec> = None;
     let mut databricks_sink: Option<DatabricksSinkSpec> = None;
     let mut snowflake_source: Option<SnowflakeSourceSpec> = None;
@@ -1352,6 +1355,29 @@ fn build_stage(
             None => (passthrough_placeholder_sql(&node.id, "die"), None),
         };
         (sql, StageKind::View, from)
+    } else if component_id == "xf.incremental" {
+        // Watermark incremental load. The executor reads the saved high-water
+        // mark, materializes only rows past it, and persists the new mark on
+        // run success - so the planner SQL here is just a placeholder the
+        // RuntimeSpec arm replaces.
+        let from_view = inputs.main().ok_or_else(|| missing_input(node, "main"))?;
+        let column = string_prop(&props, "column")
+            .filter(|s| !s.trim().is_empty())
+            .ok_or_else(|| {
+                EngineError::Config(format!("{}: column required (the watermark column)", component_id))
+            })?;
+        let initial = string_prop(&props, "initialValue").filter(|s| !s.trim().is_empty());
+        incremental = Some(IncrementalSpec {
+            node_id: node.id.clone(),
+            from_view: from_view.to_string(),
+            column,
+            initial,
+        });
+        (
+            passthrough_view_sql(&node.id, from_view),
+            StageKind::View,
+            Some(from_view.to_string()),
+        )
     } else if component_id == "ctl.wait" {
         // Pass-through view. Engine sleeps wait_ms before running the SQL.
         // Form writes { duration: int, unit: 'milliseconds'|'seconds'|'minutes'|'hours' }.
@@ -2816,6 +2842,7 @@ fn build_stage(
         .or_else(|| foreach_pipeline_path.map(RuntimeSpec::Foreach))
         .or_else(|| log_spec.map(|(level, message)| RuntimeSpec::Log { level, message }))
         .or_else(|| die_spec.map(|(message, condition)| RuntimeSpec::Die { message, condition }))
+        .or_else(|| incremental.map(RuntimeSpec::Incremental))
         .or_else(|| webhook.map(RuntimeSpec::Webhook))
         .or_else(|| snowflake_sink.map(RuntimeSpec::SnowflakeSink))
         .or_else(|| databricks_sink.map(RuntimeSpec::DatabricksSink))

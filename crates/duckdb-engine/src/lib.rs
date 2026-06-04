@@ -416,6 +416,10 @@ impl DuckdbEngine {
         let mut installed_fallback: Option<String> = None;
         let mut was_cancelled = false;
         let mut preview: Vec<NodePreview> = Vec::new();
+        // xf.incremental high-water marks to persist - but only if the WHOLE
+        // run succeeds, so a later-stage failure never advances the mark past
+        // rows that were never actually delivered. (state file path, json).
+        let mut pending_watermarks: Vec<(std::path::PathBuf, JsonValue)> = Vec::new();
 
         // Fast path: if every stage is pure-SQL with no per-stage
         // hooks, pipe the whole pipeline as one SQL stream into a
@@ -829,6 +833,14 @@ impl DuckdbEngine {
                     Some(RuntimeSpec::TextSearch(spec)) => {
                         self.run_text_search(&db_path, &secret_prefix, &stage.node_id, spec)
                     }
+                    // Watermark incremental load: materialize only rows past
+                    // the saved mark; queue the new mark for persist-on-success.
+                    Some(RuntimeSpec::Incremental(spec)) => self.run_incremental(
+                        &db_path,
+                        spec,
+                        pipeline_name,
+                        &mut pending_watermarks,
+                    ),
                     // Control-flow variants (RunJob / InstallFallback /
                     // Iterate / Foreach / Log / Warn / non-firing Die) already
                     // ran their side effect above, so they fall through here to
@@ -956,6 +968,21 @@ impl DuckdbEngine {
         } else {
             "ok"
         };
+
+        // Persist xf.incremental high-water marks ONLY on a fully successful
+        // run. If anything failed or was cancelled we drop them, so the next
+        // run re-reads the same window rather than skipping undelivered rows.
+        if final_status == "ok" {
+            for (path, value) in &pending_watermarks {
+                if let Some(parent) = path.parent() {
+                    let _ = std::fs::create_dir_all(parent);
+                }
+                if let Ok(text) = serde_json::to_string_pretty(value) {
+                    let _ = std::fs::write(path, text);
+                }
+            }
+        }
+
         on_event(PipelineEvent::Finished {
             status: final_status.into(),
             duration_ms: total_start.elapsed().as_millis() as u64,

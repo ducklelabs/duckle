@@ -402,6 +402,11 @@ export function portsForComponent(comp: ComponentDef): NodePorts {
         };
     }
 
+    // Incremental load - simple pass-through filter: one input, one output.
+    if (id === 'xf.incremental') {
+        return { inputs: [MAIN_IN], outputs: [MAIN_OUT] };
+    }
+
     // CDC components - changed rows out + reject + optional unchanged
     if (id.startsWith('xf.cdc.')) {
         return {
@@ -3058,6 +3063,29 @@ function synthArrayTransform(comp: ComponentDef): ComponentManifest {
 
 function synthCdcTransform(comp: ComponentDef): ComponentManifest {
     const id = comp.id;
+    if (id === 'xf.incremental') {
+        return base(comp, [
+            {
+                label: 'Incremental load',
+                fields: [
+                    {
+                        key: 'column',
+                        label: 'Watermark column',
+                        kind: 'column',
+                        required: true,
+                        description: 'Monotonic column - a timestamp (updated_at) or an increasing id. Only rows past the last successful run pass through.',
+                    },
+                    {
+                        key: 'initialValue',
+                        label: 'Initial value (first run)',
+                        kind: 'text',
+                        placeholder: 'e.g. 2024-01-01 or 0',
+                        description: 'Watermark to start from on the very first run, before any state is saved. Leave empty to load everything once.',
+                    },
+                ],
+            },
+        ], 'upstream');
+    }
     if (id === 'xf.row_hash') {
         return base(comp, [
             {

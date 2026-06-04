@@ -8643,6 +8643,50 @@ fn runjob_resolves_bare_pipeline_id_via_workspace_env() {
 }
 
 #[test]
+fn incremental_load_advances_watermark_across_runs() {
+    // xf.incremental loads only rows past the saved high-water mark. First
+    // run loads everything and saves MAX(id); after more rows arrive, the
+    // second run loads only the new ones. State persists under the workspace.
+    let engine = engine_or_skip!();
+    let tmp = tempfile::tempdir().unwrap();
+    let ws = tmp.path();
+    let csv = out_path(ws, "in.csv");
+    let out = out_path(ws, "out.csv");
+
+    let pipeline = json!([
+        node("s", "src.csv", json!({ "path": csv, "hasHeader": true })),
+        node("inc", "xf.incremental", json!({ "column": "id" })),
+        node("k", "snk.csv", json!({ "path": out, "hasHeader": true, "mode": "overwrite" })),
+    ]);
+    let edges = json!([main_edge("e1", "s", "inc"), main_edge("e2", "inc", "k")]);
+
+    std::env::set_var("DUCKLE_WORKSPACE", ws);
+
+    // Run 1: three rows -> all loaded, watermark saved as 3.
+    std::fs::write(&csv, "id\n1\n2\n3\n").unwrap();
+    let r1 = engine.execute_pipeline_named(&doc(pipeline.clone(), edges.clone()), "IncTest");
+    assert_eq!(r1.status, "ok", "run1 failed: {:?}", r1.error);
+    assert_eq!(count(&format!("read_csv_auto('{}')", out)), 3);
+
+    let state = std::path::Path::new(ws).join("state").join("IncTest").join("inc.json");
+    let s1 = std::fs::read_to_string(&state).expect("state not written");
+    assert!(s1.contains("\"value\": \"3\""), "watermark not 3: {}", s1);
+
+    // Run 2: two more rows -> only those past id=3 load.
+    std::fs::write(&csv, "id\n1\n2\n3\n4\n5\n").unwrap();
+    let r2 = engine.execute_pipeline_named(&doc(pipeline.clone(), edges.clone()), "IncTest");
+    std::env::remove_var("DUCKLE_WORKSPACE");
+    assert_eq!(r2.status, "ok", "run2 failed: {:?}", r2.error);
+    assert_eq!(
+        count(&format!("read_csv_auto('{}')", out)),
+        2,
+        "second run should load only the 2 new rows"
+    );
+    let s2 = std::fs::read_to_string(&state).unwrap();
+    assert!(s2.contains("\"value\": \"5\""), "watermark not advanced to 5: {}", s2);
+}
+
+#[test]
 fn run_log_writes_per_pipeline_ndjson() {
     // With DUCKLE_LOG_DIR set, a run appends component-level NDJSON to
     // <dir>/<pipeline name>/runtime.log, including the ctl.log line.

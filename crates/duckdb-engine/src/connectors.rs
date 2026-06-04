@@ -5068,6 +5068,107 @@ impl DuckdbEngine {
         }
     }
 
+    /// xf.incremental: materialize only the rows whose watermark column is
+    /// past the last successful run's mark, and queue the new mark to be
+    /// persisted iff the whole run succeeds (the executor writes
+    /// `pending` after the final stage). The mark lives in
+    /// `$DUCKLE_WORKSPACE/state/<pipeline>/<node>.json` as {column, value,
+    /// type}; the type lets the next run cast the stored string back to the
+    /// column's real type for a correct comparison.
+    pub(crate) fn run_incremental(
+        &self,
+        db: &Path,
+        spec: &plan::IncrementalSpec,
+        pipeline_name: Option<&str>,
+        pending: &mut Vec<(std::path::PathBuf, JsonValue)>,
+    ) -> Result<String, EngineError> {
+        let col_q = plan::quote_ident(&spec.column);
+        let up_q = plan::quote_ident(&spec.from_view);
+        let node_q = plan::quote_ident(&spec.node_id);
+
+        let state_path = incremental_state_path(pipeline_name, &spec.node_id);
+        let saved = state_path.as_ref().and_then(read_incremental_state);
+
+        // Build the WHERE filter from saved state, else the configured
+        // initial value (typed by probing the column), else no filter.
+        let predicate = if let Some((value, ty)) = &saved {
+            Some(format!(
+                "{} > CAST('{}' AS {})",
+                col_q,
+                value.replace('\'', "''"),
+                sanitize_sql_type(ty)
+            ))
+        } else if let Some(initial) = &spec.initial {
+            match self.probe_column_type(db, &up_q, &col_q) {
+                Some(ty) => Some(format!(
+                    "{} > CAST('{}' AS {})",
+                    col_q,
+                    initial.replace('\'', "''"),
+                    sanitize_sql_type(&ty)
+                )),
+                // No rows to probe a type from -> nothing to load anyway.
+                None => Some(format!("{} > '{}'", col_q, initial.replace('\'', "''"))),
+            }
+        } else {
+            None
+        };
+        let where_clause = predicate
+            .map(|p| format!(" WHERE {}", p))
+            .unwrap_or_default();
+
+        let materialize = format!(
+            "CREATE OR REPLACE TABLE {node} AS SELECT * FROM {up}{where_clause};",
+            node = node_q,
+            up = up_q,
+            where_clause = where_clause,
+        );
+        self.run(Some(db), &materialize, false)?;
+
+        // New high-water mark = MAX over the rows we just loaded. NULL means
+        // nothing new this run, so we leave the saved mark untouched.
+        let max_sql = format!(
+            "SELECT CAST(MAX({col}) AS VARCHAR) AS v, typeof(MAX({col})) AS t FROM {node};",
+            col = col_q,
+            node = node_q,
+        );
+        if let Some(row) = self.run_rows(Some(db), &max_sql)?.into_iter().next() {
+            let new_val = row.get("v").and_then(|v| v.as_str()).map(String::from);
+            let new_ty = row
+                .get("t")
+                .and_then(|v| v.as_str())
+                .unwrap_or("VARCHAR")
+                .to_string();
+            if let (Some(value), Some(path)) = (new_val, state_path) {
+                pending.push((
+                    path,
+                    serde_json::json!({
+                        "column": spec.column,
+                        "value": value,
+                        "type": new_ty,
+                    }),
+                ));
+            }
+        }
+        Ok(format!(
+            "incremental: loaded rows past the saved {} watermark",
+            spec.column
+        ))
+    }
+
+    /// Best-effort type of a column from a sample non-null row, e.g.
+    /// "BIGINT" / "TIMESTAMP". None when the upstream has no rows to probe.
+    fn probe_column_type(&self, db: &Path, up_q: &str, col_q: &str) -> Option<String> {
+        let sql = format!(
+            "SELECT typeof({col}) AS t FROM {up} WHERE {col} IS NOT NULL LIMIT 1;",
+            col = col_q,
+            up = up_q,
+        );
+        self.run_rows(Some(db), &sql)
+            .ok()
+            .and_then(|rows| rows.into_iter().next())
+            .and_then(|r| r.get("t").and_then(|v| v.as_str()).map(String::from))
+    }
+
     /// Snowflake SQL API source. POSTs the SELECT, polls the
     /// statementHandle if the server returned async, then walks
     /// resultSetMetaData.partitionInfo[] fetching partitions 1..N
@@ -5507,6 +5608,73 @@ impl DuckdbEngine {
 /// while headless runs (scheduler, file-watch) carry the bare id and resolve
 /// here. A bare id that doesn't resolve is returned as-is so the caller's
 /// open error names the original reference.
+/// State file for an xf.incremental node:
+/// `$DUCKLE_WORKSPACE/state/<pipeline>/<node>.json`. None when there's no
+/// workspace (then the mark can't persist and every run loads from the
+/// configured initial value, which is safe - just not incremental).
+fn incremental_state_path(pipeline_name: Option<&str>, node_id: &str) -> Option<std::path::PathBuf> {
+    let ws = std::env::var("DUCKLE_WORKSPACE").ok().filter(|s| !s.is_empty())?;
+    let folder = sanitize_path_segment(pipeline_name.unwrap_or("pipeline"));
+    let file = format!("{}.json", sanitize_path_segment(node_id));
+    Some(
+        std::path::Path::new(&ws)
+            .join("state")
+            .join(folder)
+            .join(file),
+    )
+}
+
+/// Read a saved watermark as (value, type). Missing / unreadable / malformed
+/// state reads as "no mark yet".
+fn read_incremental_state(path: &std::path::PathBuf) -> Option<(String, String)> {
+    let text = std::fs::read_to_string(path).ok()?;
+    let v: JsonValue = serde_json::from_str(&text).ok()?;
+    let value = v.get("value").and_then(|x| x.as_str())?.to_string();
+    let ty = v
+        .get("type")
+        .and_then(|x| x.as_str())
+        .unwrap_or("VARCHAR")
+        .to_string();
+    Some((value, ty))
+}
+
+/// Keep a DuckDB type name safe to splice into a CAST. typeof() output is
+/// engine-controlled, but we still strip anything outside the characters a
+/// type name uses (e.g. `DECIMAL(18,3)`, `TIMESTAMP WITH TIME ZONE`).
+fn sanitize_sql_type(ty: &str) -> String {
+    let cleaned: String = ty
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric() || matches!(c, ' ' | '(' | ')' | ','))
+        .collect();
+    let cleaned = cleaned.trim().to_string();
+    if cleaned.is_empty() {
+        "VARCHAR".to_string()
+    } else {
+        cleaned
+    }
+}
+
+/// Filesystem-safe single path segment (mirrors the run-log folder rule).
+fn sanitize_path_segment(name: &str) -> String {
+    let cleaned: String = name
+        .trim()
+        .chars()
+        .map(|c| {
+            if c.is_alphanumeric() || matches!(c, ' ' | '-' | '_' | '.') {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect();
+    let cleaned = cleaned.trim().trim_matches('.').trim();
+    if cleaned.is_empty() {
+        "pipeline".to_string()
+    } else {
+        cleaned.to_string()
+    }
+}
+
 fn resolve_subpipeline_ref(reference: &str) -> String {
     let looks_like_path =
         reference.contains('/') || reference.contains('\\') || reference.ends_with(".json");

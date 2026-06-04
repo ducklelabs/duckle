@@ -17,6 +17,20 @@ pub struct ParallelizeSpec {
     pub max_concurrency: usize,
 }
 
+/// xf.incremental: watermark-based incremental load. Only rows whose
+/// `column` is greater than the last successful run's high-water mark are
+/// passed through; the new mark is persisted to workspace state after the
+/// whole run succeeds, so the next run resumes from there.
+#[derive(Debug, Clone)]
+pub struct IncrementalSpec {
+    pub node_id: String,
+    pub from_view: String,
+    pub column: String,
+    /// Starting watermark for the very first run (before any state exists).
+    /// None loads everything on the first run.
+    pub initial: Option<String>,
+}
+
 #[derive(Debug, Clone)]
 pub struct TextSearchSpec {
     pub from_view: String,
