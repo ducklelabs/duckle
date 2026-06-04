@@ -8553,7 +8553,7 @@ fn code_shell_timeout_kills_long_running_child() {
 
 #[test]
 fn runjob_passes_context_vars_to_child() {
-    // tRunJob / Master Job: a parent ctl.runjob calls a child pipeline file,
+    // Run Job / Master Job: a parent ctl.runjob calls a child pipeline file,
     // passing context variables that are substituted as ${VAR} into the child
     // before it runs. The child here writes to a path templated with the var,
     // proving the parent->child substitution + side-effect execution work.
@@ -8595,7 +8595,7 @@ fn runjob_passes_context_vars_to_child() {
 
 #[test]
 fn parallelize_runs_independent_branches() {
-    // tParallelize: ctl.parallelize snapshots its upstream once, then runs the
+    // Parallelize: ctl.parallelize snapshots its upstream once, then runs the
     // two independent downstream branches concurrently (each in its own temp
     // DB reading the snapshot). Branch 1 copies all rows; branch 2 limits to 2.
     let tmp = tempfile::tempdir().unwrap();

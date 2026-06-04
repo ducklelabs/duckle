@@ -26,10 +26,30 @@ export default function DuckleNode({ id, data, selected, type }: NodeProps<Duckl
     const ports = manifest?.ports;
     const inputs = ports?.inputs ?? [];
     const outputs = ports?.outputs ?? [];
-    const portCount = Math.max(inputs.length, outputs.length);
 
     const allNodes = useNodes() as Node<DuckleNodeData>[];
     const allEdges = useEdges();
+
+    // Parallelize branches are unlimited: instead of a fixed set of output
+    // ports we grow them to one beyond the highest connected branch, so there
+    // is always exactly one free branch to wire up next. The engine groups
+    // branches dynamically by source handle, so nothing here is capped.
+    const effectiveOutputs = useMemo(() => {
+        if (data.componentId !== 'ctl.parallelize') return outputs;
+        let maxConnected = 0;
+        for (const e of allEdges) {
+            if (e.source !== id) continue;
+            const m = /^main_(\d+)$/.exec(e.sourceHandle ?? '');
+            if (m) maxConnected = Math.max(maxConnected, Number(m[1]));
+        }
+        const count = Math.max(3, maxConnected + 1);
+        return Array.from({ length: count }, (_, i): PortDef => {
+            const n = i + 1;
+            return { id: `main_${n}`, label: `branch ${n}`, type: 'main', optional: n > 2 };
+        });
+    }, [data.componentId, outputs, allEdges, id]);
+
+    const portCount = Math.max(inputs.length, effectiveOutputs.length);
 
     const effectiveSchema = useMemo(
         () => resolveOutputSchema(id, allNodes, allEdges),
@@ -101,7 +121,7 @@ export default function DuckleNode({ id, data, selected, type }: NodeProps<Duckl
                         ))}
                     </div>
                     <div className="node-ports-col node-ports-outputs">
-                        {outputs.map(port => (
+                        {effectiveOutputs.map(port => (
                             <PortRow key={port.id} port={port} side="output" />
                         ))}
                     </div>
