@@ -20,8 +20,6 @@ Download the application package for your operating system:
 
 The first time you open Duckle, the **Engine Setup Modal** will appear to help download the necessary engine tools:
 
-![Engine Setup Modal](file:///d:/Repos/GitHub/SouravRoy-ETL/duckle/docs/assets/hero.svg)
-
 1. **DuckDB Database Engine (Required)**
    * **Visual Action**: Click the **Install** button.
    * **Role**: Powers all the SQL compilations, database attachments, schema reads, and file execution processes.
@@ -31,7 +29,7 @@ The first time you open Duckle, the **Engine Setup Modal** will appear to help d
    * **Visual Action**: Click the **Install** button.
    * **Role**: Downloads the **Qwen 2.5 Coder 1.5B** local AI model weights and its runner. This activates the chat window sidebar for offline pipeline generation.
    * **Size**: ~1.1 GB.
-   * **Estimated Time**: 5–10 minutes depending on your internet connection.
+   * **Estimated Time**: 5-10 minutes depending on your internet connection.
 
 > [!TIP]
 > If you ever need to redownload these engines or reset their installation status, close Duckle, navigate to your platform's configuration folder (Windows: `%APPDATA%\io.duckle.app\engines\`), delete the contents, and launch the application again.

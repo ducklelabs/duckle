@@ -41,7 +41,7 @@ We will design a visual pipeline that loads a CSV orders log, filters out pendin
 2. Expand the **Sources** group, then drag a **CSV** icon onto the **Canvas**.
 3. Select the CSV node to open its configuration fields in the **Properties Panel**.
 4. In the properties field, click the **Browse** folder icon and select `samples/orders.csv`.
-5. Click the green **Autodetect schema** button. 
+5. Click the **Autodetect schema** button. 
    * The CSV node will scan the first few rows.
    * Open the **Preview** tab in the **Bottom Panel** to verify that your data columns are displaying correctly.
 
@@ -61,8 +61,8 @@ We will design a visual pipeline that loads a CSV orders log, filters out pendin
 4. Select the Parquet node, type `paid_orders.parquet` in the **Path** property field, and set the **Write Mode** dropdown option to `Overwrite`.
 
 ### Step 4: Run the Pipeline
-1. Click the green **Run** button in the top toolbar.
-2. You will see the nodes light up green one-by-one as data executes. The number of rows processed will stream directly under the connection lines.
+1. Click the **Run** button in the top toolbar.
+2. You will see the nodes light up one-by-one as data executes. The number of rows processed will stream directly under the connection lines.
 3. To stop a pipeline execution mid-run, click the red **Stop** button in the toolbar.
 4. Click the Parquet node and look at the **Preview** tab in the **Bottom Panel** to see the resulting data.
 

@@ -49,13 +49,13 @@ The Schedule Editor displays a list of saved automation configurations and their
 
 ---
 
-## 4. Headless Scheduler (CLI mode)
+## 4. Headless Scheduler (CLI mode - planned)
 
-Schedules require the Duckle desktop application to remain open. If you want to deploy pipelines to a headless server or utilize system-level background schedulers (like macOS Launchd, Linux systemd, or Windows Task Scheduler):
+Schedules currently require the Duckle desktop application to stay open. A headless CLI runner - for deploying pipelines to a server or driving them from a system-level scheduler (macOS launchd, Linux systemd, Windows Task Scheduler) - is on the 1.0 roadmap and **not available in the current release**:
 
-1. Save your pipeline visually in Duckle.
-2. In your server shell terminal, schedule this command:
-   ```bash
-   duckle run --workspace "/path/to/workspace" --pipeline "orders_etl"
-   ```
-This command runs your visual pipelines headlessly without opening the desktop interface, automatically saving row summaries and writing error logs to your workspace folder.
+```bash
+# Planned for 1.0 - not yet available.
+duckle run --workspace "/path/to/workspace" --pipeline "orders_etl"
+```
+
+Until then, keep Duckle running for scheduled pipelines, or import the `duckle-duckdb-engine` crate into your own Rust binary to execute pipelines programmatically.

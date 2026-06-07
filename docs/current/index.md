@@ -42,7 +42,7 @@ This guide is organized into the following sections to help you get the most out
 * Opening the **Schedule Editor Modal** to trigger pipelines automatically.
 * Creating schedules based on **Cron expressions**, **time intervals**, or **File-Watch folders**.
 * Tracking execution history, duration, and error reports within the scheduler list.
-* Executing saved pipelines headlessly via standard terminal command lines.
+* (Planned for 1.0) Executing saved pipelines headlessly from the terminal.
 
 ### 7. [Desktop Shell & Workspace Git Flow](architecture.md)
 * Working with multiple workspace folders.

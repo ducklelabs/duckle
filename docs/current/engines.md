@@ -9,7 +9,7 @@ Duckle lets you manage execution engines, monitor pipeline performance, and audi
 The top toolbar contains your primary execution controls:
 
 * **Engine Selector Dropdown**: Located next to the Run button. Switch between the default **DuckDB** execution engine and the optional **SlothDB** engine.
-* **Run Button (Green Play Icon)**: Compiles the visual canvas on your screen and starts execution.
+* **Run Button (Play Icon)**: Compiles the visual canvas on your screen and starts execution.
 * **Stop Button (Red Pause/Square Icon)**: Immediately interrupts execution. Click this to cancel long runs; the application stops active processes and releases memory.
 
 ---
