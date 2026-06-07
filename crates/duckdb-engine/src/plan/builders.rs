@@ -4991,6 +4991,59 @@ pub(crate) fn build_cloud_sink(props: &JsonValue, from_view: &str) -> String {
     }
 }
 
+/// Guard against the partitioned-write foot-gun. A Hive-partitioned COPY writes
+/// one file per distinct value-combination of the partition columns; partition
+/// by a high-cardinality column (e.g. a country pair) and you silently explode
+/// into tens of thousands of tiny files - a 51k-file / ~5-minute write that is
+/// almost never intended. When partitioning, this wraps the COPY source with a
+/// fail-fast check: if the approximate distinct partition count exceeds the
+/// "Max partitions" cap (default 10000; 0 = unlimited), abort immediately via
+/// DuckDB's error() with an actionable message instead of grinding out the
+/// files. Returns the COPY source SELECT - plain when not partitioned or the
+/// cap is 0, guarded otherwise.
+fn partition_guarded_source(props: &JsonValue, from_view: &str, partition: &[String]) -> String {
+    let view = quote_ident(from_view);
+    let plain = format!("SELECT * FROM {}", view);
+    if partition.is_empty() {
+        return plain;
+    }
+    let cap = props
+        .get("maxPartitions")
+        .and_then(|v| {
+            v.as_u64()
+                .or_else(|| v.as_str().and_then(|s| s.trim().parse::<u64>().ok()))
+        })
+        .unwrap_or(10_000);
+    if cap == 0 {
+        return plain; // explicitly unlimited
+    }
+    // Approximate distinct partition combinations (HyperLogLog - cheap, one
+    // pass, far cheaper than writing the files). chr(31) (unit separator) joins
+    // multi-column keys with a separator that will not occur in normal data.
+    let key = if partition.len() == 1 {
+        quote_ident(&partition[0])
+    } else {
+        let parts = partition
+            .iter()
+            .map(|c| format!("{}::VARCHAR", quote_ident(c)))
+            .collect::<Vec<_>>()
+            .join(", ");
+        format!("concat_ws(chr(31), {})", parts)
+    };
+    let msg = format!(
+        "Partition guard: partitioning by ({}) would create more than {} files (one per distinct value combination), which is almost always unintended and very slow. Remove the Partition by columns to write a single file, partition by a lower-cardinality column, or set Max partitions to 0 to allow it.",
+        partition.join(", "),
+        cap
+    );
+    format!(
+        "SELECT * FROM {view} WHERE CASE WHEN (SELECT approx_count_distinct({key}) FROM {view}) > {cap} THEN error('{msg}') ELSE TRUE END",
+        view = view,
+        key = key,
+        cap = cap,
+        msg = sql_escape(&msg)
+    )
+}
+
 pub(crate) fn build_csv_sink(props: &JsonValue, from_view: &str) -> String {
     let path = string_prop(props, "path").unwrap_or_default();
     // The sink form writes `writeHeader`; the source uses `hasHeader`.
@@ -5020,8 +5073,8 @@ pub(crate) fn build_csv_sink(props: &JsonValue, from_view: &str) -> String {
         options.push("OVERWRITE_OR_IGNORE".to_string());
     }
     format!(
-        "COPY (SELECT * FROM {}) TO '{}' ({})",
-        quote_ident(from_view),
+        "COPY ({}) TO '{}' ({})",
+        partition_guarded_source(props, from_view, &partition),
         sql_escape(&path),
         options.join(", ")
     )
@@ -5060,8 +5113,8 @@ pub(crate) fn build_parquet_sink(props: &JsonValue, from_view: &str) -> String {
         options.push("OVERWRITE_OR_IGNORE".to_string());
     }
     format!(
-        "COPY (SELECT * FROM {}) TO '{}' ({})",
-        quote_ident(from_view),
+        "COPY ({}) TO '{}' ({})",
+        partition_guarded_source(props, from_view, &partition),
         sql_escape(&path),
         options.join(", ")
     )

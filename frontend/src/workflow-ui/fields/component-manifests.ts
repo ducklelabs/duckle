@@ -818,6 +818,13 @@ export const MANIFESTS: Record<string, ComponentManifest> = {
                         kind: 'columns',
                         description: 'Write Hive-style partitioned directories per value.',
                     },
+                    {
+                        key: 'maxPartitions',
+                        label: 'Max partitions',
+                        kind: 'integer',
+                        defaultValue: 10000,
+                        description: 'Safety cap: abort before writing if partitioning would create more than this many files (one per distinct value). 0 = unlimited. Only applies when Partition by columns is set.',
+                    },
                 ],
             },
         ],

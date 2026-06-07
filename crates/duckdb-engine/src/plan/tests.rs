@@ -1682,6 +1682,34 @@
     }
 
     #[test]
+    fn parquet_sink_partition_guard() {
+        // Partitioned write gets a fail-fast guard (default cap 10000).
+        let guarded = build_parquet_sink(
+            &serde_json::json!({"path": "out", "partitionBy": ["sender", "receiver"]}),
+            "input",
+        );
+        assert!(guarded.contains("PARTITION_BY (\"sender\", \"receiver\")"), "{guarded}");
+        assert!(
+            guarded.contains("approx_count_distinct")
+                && guarded.contains("> 10000")
+                && guarded.contains("error("),
+            "partitioned write must be guarded: {guarded}"
+        );
+
+        // maxPartitions = 0 disables the guard (explicit opt-out).
+        let unlimited = build_parquet_sink(
+            &serde_json::json!({"path": "out", "partitionBy": ["sender"], "maxPartitions": 0}),
+            "input",
+        );
+        assert!(unlimited.contains("PARTITION_BY"), "{unlimited}");
+        assert!(!unlimited.contains("error("), "cap 0 must skip the guard: {unlimited}");
+
+        // No partitioning => no guard, plain source.
+        let plain = build_parquet_sink(&serde_json::json!({"path": "out.parquet"}), "input");
+        assert!(!plain.contains("approx_count_distinct") && !plain.contains("error("), "{plain}");
+    }
+
+    #[test]
     fn cloud_csv_sink_honors_options_but_not_partitionby() {
         // audit B1: a cloud CSV sink must honor delimiter/nullValue (ignored
         // before), but must NOT emit PARTITION_BY (unvalidated over httpfs).
