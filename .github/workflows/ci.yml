@@ -72,6 +72,22 @@ jobs:
         run: |
           "$DUCKLE_DUCKDB_BIN" :memory: -c "INSTALL postgres; INSTALL mysql; INSTALL sqlite; INSTALL excel; INSTALL httpfs; INSTALL iceberg; INSTALL delta; INSTALL ducklake; INSTALL vss; INSTALL fts; INSTALL inet;"
 
+      # The desktop crate embeds duckle-runner at compile time via build.rs
+      # include_bytes!, so the runner binary must exist before anything that
+      # compiles apps/desktop. Build it in the dev profile so the engine
+      # compilation is shared with the cargo test below.
+      - name: Build + stage duckle-runner (embedded into the desktop app)
+        shell: bash
+        run: |
+          set -e
+          cargo build -p duckle-runner
+          mkdir -p apps/desktop/bin
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            cp target/debug/duckle-runner.exe apps/desktop/bin/duckle-runner.exe
+          else
+            cp target/debug/duckle-runner apps/desktop/bin/duckle-runner
+          fi
+
       - name: Test
         run: cargo test --workspace
 
@@ -113,6 +129,15 @@ jobs:
           sudo apt-get install -y \
             libwebkit2gtk-4.1-dev libgtk-3-dev \
             libayatana-appindicator3-dev librsvg2-dev libsoup-3.0-dev
+      # Build + stage duckle-runner first: the desktop crate embeds it at
+      # compile time (build.rs include_bytes!). Release profile so the engine
+      # build is shared with the desktop release build below.
+      - name: Build + stage duckle-runner (embedded into the desktop app)
+        run: |
+          set -e
+          cargo build --release -p duckle-runner
+          mkdir -p apps/desktop/bin
+          cp target/release/duckle-runner apps/desktop/bin/duckle-runner
       - name: Build raw Duckle binary (release workflow command)
         run: cargo build --release --manifest-path apps/desktop/Cargo.toml --features custom-protocol
       - name: Verify embedded frontend (not devUrl) is in binary

@@ -75,6 +75,12 @@ test:linux:
     - $DUCKLE_DUCKDB_BIN :memory: -c "INSTALL postgres; INSTALL mysql; INSTALL sqlite; INSTALL excel; INSTALL httpfs; INSTALL iceberg; INSTALL delta; INSTALL ducklake; INSTALL vss; INSTALL fts; INSTALL inet;"
   script:
     - export DUCKLE_DUCKDB_BIN=/tmp/duckdb/duckdb
+    # apps/desktop embeds duckle-runner at compile time (build.rs
+    # include_bytes!), so build + stage it before anything compiles the
+    # desktop crate. Dev profile shares the engine build with cargo test.
+    - cargo build -p duckle-runner
+    - mkdir -p apps/desktop/bin
+    - cp target/debug/duckle-runner apps/desktop/bin/duckle-runner
     - cargo test --workspace
   rules:
     - if: $CI_PIPELINE_SOURCE == "push"
@@ -132,6 +138,12 @@ desktop-build:linux:
     - npm --prefix frontend ci
   script:
     - npm --prefix frontend run build
+    # Build + stage duckle-runner first: the desktop crate embeds it at
+    # compile time (build.rs include_bytes!). Release profile so the engine
+    # build is shared with the desktop release build below.
+    - cargo build --release -p duckle-runner
+    - mkdir -p apps/desktop/bin
+    - cp target/release/duckle-runner apps/desktop/bin/duckle-runner
     - cargo build --release --manifest-path apps/desktop/Cargo.toml --features custom-protocol
     # Verify the embedded frontend chunk is actually in the binary. If
     # tauri-codegen embedded devUrl instead this would be absent.
