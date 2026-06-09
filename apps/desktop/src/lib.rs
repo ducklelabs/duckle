@@ -930,9 +930,32 @@ async fn connect_claude_code(app: tauri::AppHandle) -> Result<String, String> {
 /// The MCP servers config file for a desktop client.
 fn mcp_client_config_path(app: &tauri::AppHandle, client: &str) -> Result<PathBuf, String> {
     match client {
-        // %APPDATA%/Claude/... (Windows), ~/Library/Application Support/Claude/...
-        // (macOS), ~/.config/Claude/... (Linux) - config_dir() maps to all three.
+        // %APPDATA%/Claude/... (Windows standalone), ~/Library/Application
+        // Support/Claude/... (macOS), ~/.config/Claude/... (Linux).
+        // The Windows STORE (MSIX) Claude Desktop sandboxes its config under
+        // %LOCALAPPDATA%/Packages/Claude_*/LocalCache/Roaming/Claude/ and
+        // ignores the standalone path entirely - prefer the MSIX path when the
+        // packaged install is present.
         "claude_desktop" => {
+            #[cfg(windows)]
+            {
+                if let Ok(local) = app.path().local_data_dir() {
+                    if let Ok(entries) = std::fs::read_dir(local.join("Packages")) {
+                        for e in entries.flatten() {
+                            if e.file_name().to_string_lossy().starts_with("Claude_") {
+                                let dir = e
+                                    .path()
+                                    .join("LocalCache")
+                                    .join("Roaming")
+                                    .join("Claude");
+                                if dir.is_dir() {
+                                    return Ok(dir.join("claude_desktop_config.json"));
+                                }
+                            }
+                        }
+                    }
+                }
+            }
             let cfg = app.path().config_dir().map_err(|e| format!("config dir: {}", e))?;
             Ok(cfg.join("Claude").join("claude_desktop_config.json"))
         }
