@@ -7,7 +7,8 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "preview": "vite preview",
-    "lint": "tsc --noEmit"
+    "lint": "tsc --noEmit",
+    "export-catalog": "node scripts/build-catalog.mjs"
   },
   "dependencies": {
     "@fontsource-variable/inter": "^5.2.8",

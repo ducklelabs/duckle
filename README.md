@@ -48,6 +48,7 @@
 - [Workspace + Git flow](#workspace-and-git-flow)
 - [Schedules](#schedules-and-triggers)
 - [Server deployment](#server-deployment-build-pipeline)
+- [MCP server (LLM integration)](#mcp-server-connect-any-llm-to-duckle)
 - [Connection management](#connection-management)
 - [Context variables](#context-variables)
 
@@ -714,6 +715,49 @@ On Windows use **Task Scheduler**; on macOS a **launchd** plist; on Linux a **sy
 ```bash
 duckle-runner --pipeline /path/to/pipeline.json [--workspace /path/to/workspace] [--duckdb /path/to/duckdb]
 ```
+
+---
+
+## MCP server (connect any LLM to Duckle)
+
+`duckle-mcp` is a [Model Context Protocol](https://modelcontextprotocol.io)
+server, so any MCP client - Claude Desktop, Claude Code, or any other LLM agent -
+can drive Duckle directly. It speaks JSON-RPC over stdio and reuses the DuckDB
+engine in-process (no GUI, no Node runtime).
+
+The LLM can: browse the full component catalog and per-component property
+schemas, **generate a pipeline straight into a working directory you choose**,
+validate it (compile without running), run it headlessly, read existing
+pipelines and their run logs, build a standalone artifact, and manage saved
+connections.
+
+```bash
+cargo build -p duckle-mcp --release      # target/release/duckle-mcp
+claude mcp add duckle -- /path/to/duckle-mcp
+```
+
+For Claude Desktop and other clients, add it to `mcpServers`:
+
+```json
+{
+  "mcpServers": {
+    "duckle": {
+      "command": "/path/to/duckle-mcp",
+      "env": {
+        "DUCKLE_DUCKDB_BIN": "/path/to/duckdb",
+        "DUCKLE_RUNNER_BIN": "/path/to/duckle-runner"
+      }
+    }
+  }
+}
+```
+
+Tools: `list_components`, `get_component_schema`, `create_pipeline`,
+`validate_pipeline`, `run_pipeline`, `list_pipelines`, `read_pipeline`,
+`read_run_logs`, `build_pipeline`, `list_connections`, `create_connection`.
+`run_pipeline` / `build_pipeline` need a DuckDB binary (`DUCKLE_DUCKDB_BIN`);
+`build_pipeline` also needs `duckle-runner` (`DUCKLE_RUNNER_BIN`). Full guide:
+[docs/current/mcp.md](docs/current/mcp.md).
 
 ---
 

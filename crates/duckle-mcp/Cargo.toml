@@ -1,0 +1,21 @@
+[package]
+name = "duckle-mcp"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+# Model Context Protocol server for Duckle. Speaks newline-delimited JSON-RPC
+# over stdio so any MCP client (Claude Desktop / Claude Code, etc.) can list
+# components, generate pipelines into a chosen directory, validate them, run
+# them, build standalone artifacts, and manage saved connections - reusing the
+# DuckDB engine directly (no GUI, no Node runtime).
+[[bin]]
+name = "duckle-mcp"
+path = "src/main.rs"
+
+[dependencies]
+duckle-duckdb-engine = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
