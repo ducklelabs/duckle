@@ -21,8 +21,57 @@ fn main() {
     println!("cargo:rerun-if-changed=.duckle-always-restamp-build-epoch");
 
     embed_runner();
+    embed_mcp();
 
     tauri_build::build()
+}
+
+/// Locate a freshly built `duckle-mcp` and expose its bytes to lib.rs via
+/// include_bytes!(env!("DUCKLE_EMBEDDED_MCP")). Unlike the runner (required for
+/// Build Pipeline), the MCP server is optional: when it is not staged we embed
+/// an empty file so the desktop still builds, and the in-app MCP popup reports
+/// that this build carries no bundled server. CI / release stage it for real.
+fn embed_mcp() {
+    let manifest_dir = std::env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR");
+    let out_dir = std::env::var("OUT_DIR").expect("OUT_DIR");
+    let target_os = std::env::var("CARGO_CFG_TARGET_OS").unwrap_or_default();
+    let name = if target_os == "windows" {
+        "duckle-mcp.exe"
+    } else {
+        "duckle-mcp"
+    };
+
+    let staged = std::path::Path::new(&manifest_dir).join("bin").join(name);
+    let profile_dir = std::path::Path::new(&out_dir)
+        .ancestors()
+        .nth(3)
+        .map(|p| p.join(name));
+    let source = if staged.exists() {
+        Some(staged)
+    } else {
+        profile_dir.filter(|p| p.exists())
+    };
+
+    let dst = std::path::Path::new(&out_dir).join("embedded-mcp.bin");
+    match source {
+        Some(src) => {
+            std::fs::copy(&src, &dst)
+                .unwrap_or_else(|e| panic!("copy {} -> {}: {}", src.display(), dst.display(), e));
+            println!("cargo:rerun-if-changed={}", src.display());
+        }
+        None => {
+            std::fs::write(&dst, [])
+                .unwrap_or_else(|e| panic!("write empty embedded-mcp: {}", e));
+            println!(
+                "cargo:warning=duckle-mcp not staged (apps/desktop/bin/{name}); the in-app MCP popup will report no bundled server. Stage it: cargo build --profile release-runner -p duckle-mcp"
+            );
+        }
+    }
+    println!("cargo:rustc-env=DUCKLE_EMBEDDED_MCP={}", dst.display());
+    println!(
+        "cargo:rerun-if-changed={}",
+        std::path::Path::new(&manifest_dir).join("bin").join(name).display()
+    );
 }
 
 /// Locate a freshly built `duckle-runner` and expose its bytes to lib.rs via

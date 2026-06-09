@@ -12,7 +12,7 @@ import {
     type OnSelectionChangeParams,
 } from '@xyflow/react';
 import type { ConnectionType } from './canvas/connection-types';
-import { Braces, FolderOpen, GitBranch, Moon, Sparkles, Sun } from 'lucide-react';
+import { Bot, Braces, FolderOpen, GitBranch, Moon, Sparkles, Sun } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import LanguageSelector from './i18n/LanguageSelector';
 import { UpdateBanner } from './UpdateBanner';
@@ -33,6 +33,7 @@ import {
 } from './tauri-bridge';
 import ScheduleEditorModal from './workflow-ui/ScheduleEditorModal';
 import BuildPipelineModal from './workflow-ui/BuildPipelineModal';
+import { McpModal } from './workflow-ui/McpModal';
 import EngineSetupModal from './workflow-ui/EngineSetupModal';
 import ChatPanel from './workflow-ui/ChatPanel';
 import GitPanel from './workflow-ui/GitPanel';
@@ -418,6 +419,7 @@ export default function App() {
     }, []);
 
     const [buildModalPipelineId, setBuildModalPipelineId] = useState<string | null>(null);
+    const [showMcpModal, setShowMcpModal] = useState(false);
     const handleBuildPipeline = useCallback((pipelineId: string) => {
         setBuildModalPipelineId(pipelineId);
     }, []);
@@ -1559,6 +1561,15 @@ export default function App() {
                 <button
                     type="button"
                     className="topbar-theme-toggle"
+                    onClick={() => setShowMcpModal(true)}
+                    title="Connect to an AI (MCP)"
+                    aria-label="Connect Duckle to an AI assistant over MCP"
+                >
+                    <Bot size={14} />
+                </button>
+                <button
+                    type="button"
+                    className="topbar-theme-toggle"
                     onClick={() => setShowGitPanel(s => !s)}
                     title={t('topbar.git')}
                     aria-label={t('topbar.gitAriaToggle')}
@@ -1748,6 +1759,8 @@ export default function App() {
                     onClose={() => setBuildModalPipelineId(null)}
                 />
             ) : null}
+
+            {showMcpModal ? <McpModal onClose={() => setShowMcpModal(false)} /> : null}
 
             {repoEditor?.kind === 'connection' ? (
                 <ConnectionEditorModal

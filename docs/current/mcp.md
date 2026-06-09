@@ -33,6 +33,12 @@ time:
 
 ## 2. Connect a client
 
+**Easiest:** in Duckle, click the **MCP** button (robot icon) in the designer
+top bar. The popup bundles the server, fills in the real paths, and offers a
+one-click **Connect to Claude Code** plus copy buttons for the command and the
+mcpServers config. The steps below are the manual equivalent (or for a server
+built from source).
+
 ### Claude Code
 
 ```bash

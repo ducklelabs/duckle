@@ -511,3 +511,33 @@ export async function buildBundle(
         passphrase: secretsMode === 'passphrase' ? (passphrase ?? '') : null,
     });
 }
+
+// ---- MCP server ---------------------------------------------------------
+
+export type McpConnInfo = {
+    bundled: boolean;
+    duckdbFound: boolean;
+    claudeCli: boolean;
+    mcpPath: string;
+    duckdbPath: string;
+    runnerPath: string;
+    claudeCommand: string;
+    configJson: string;
+};
+
+/**
+ * Resolve the bundled MCP server: stages it to app-data and returns the
+ * paths plus a ready-to-paste `claude mcp add` command and mcpServers JSON.
+ */
+export async function mcpConnectionInfo(): Promise<McpConnInfo> {
+    return await invoke<McpConnInfo>('mcp_connection_info');
+}
+
+/**
+ * Run `claude mcp add duckle ...` to connect Claude Code in one click.
+ * Resolves with the CLI output; rejects (so the caller can show it) when the
+ * CLI is missing or the add fails.
+ */
+export async function connectClaudeCode(): Promise<string> {
+    return await invoke<string>('connect_claude_code');
+}

@@ -138,12 +138,13 @@ desktop-build:linux:
     - npm --prefix frontend ci
   script:
     - npm --prefix frontend run build
-    # Build + stage duckle-runner first: the desktop crate embeds it at
-    # compile time (build.rs include_bytes!). Release profile so the engine
-    # build is shared with the desktop release build below.
-    - cargo build --release -p duckle-runner
+    # Build + stage duckle-runner + duckle-mcp first: the desktop crate embeds
+    # both at compile time (build.rs include_bytes!). Release profile so the
+    # engine build is shared with the desktop release build below.
+    - cargo build --release -p duckle-runner -p duckle-mcp
     - mkdir -p apps/desktop/bin
     - cp target/release/duckle-runner apps/desktop/bin/duckle-runner
+    - cp target/release/duckle-mcp apps/desktop/bin/duckle-mcp
     - cargo build --release --manifest-path apps/desktop/Cargo.toml --features custom-protocol
     # Verify the embedded frontend chunk is actually in the binary. If
     # tauri-codegen embedded devUrl instead this would be absent.

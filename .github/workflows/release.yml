@@ -97,22 +97,24 @@ jobs:
             libwebkit2gtk-4.1-dev libgtk-3-dev \
             libayatana-appindicator3-dev librsvg2-dev libsoup-3.0-dev
 
-      - name: Build duckle-runner (bundled into the app)
+      - name: Build duckle-runner + duckle-mcp (bundled into the app)
         shell: bash
         run: |
           set -e
           if [ -n "${{ matrix.target }}" ]; then
-            cargo build --profile release-runner --target "${{ matrix.target }}" -p duckle-runner
-            src="target/${{ matrix.target }}/release-runner/duckle-runner"
+            cargo build --profile release-runner --target "${{ matrix.target }}" -p duckle-runner -p duckle-mcp
+            base="target/${{ matrix.target }}/release-runner"
           else
-            cargo build --profile release-runner -p duckle-runner
-            src="target/release-runner/duckle-runner"
+            cargo build --profile release-runner -p duckle-runner -p duckle-mcp
+            base="target/release-runner"
           fi
           mkdir -p apps/desktop/bin
           if [ "${{ runner.os }}" = "Windows" ]; then
-            cp "$src.exe" apps/desktop/bin/duckle-runner.exe
+            cp "$base/duckle-runner.exe" apps/desktop/bin/duckle-runner.exe
+            cp "$base/duckle-mcp.exe" apps/desktop/bin/duckle-mcp.exe
           else
-            cp "$src" apps/desktop/bin/duckle-runner
+            cp "$base/duckle-runner" apps/desktop/bin/duckle-runner
+            cp "$base/duckle-mcp" apps/desktop/bin/duckle-mcp
           fi
 
       - name: Build raw Duckle binary

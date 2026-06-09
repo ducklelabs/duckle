@@ -34,6 +34,11 @@ use llama_chat::{ChatEvent, ChatMessage};
 /// compile-on-click is needed.
 const EMBEDDED_RUNNER: &[u8] = include_bytes!(env!("DUCKLE_EMBEDDED_RUNNER"));
 
+/// The duckle-mcp server, embedded at compile time when staged. Empty when this
+/// build did not bundle it (see build.rs embed_mcp). Written to a stable
+/// app-data path on demand so an MCP client config can point at it.
+const EMBEDDED_MCP: &[u8] = include_bytes!(env!("DUCKLE_EMBEDDED_MCP"));
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tracing_subscriber::fmt()
@@ -128,7 +133,9 @@ pub fn run() {
             workspace_git_clear_pat,
             workspace_ci_status,
             check_for_update,
-            build_pipeline_bundle
+            build_pipeline_bundle,
+            mcp_connection_info,
+            connect_claude_code
         ])
         .run(tauri::generate_context!())
         .expect("error while running duckle");
@@ -702,5 +709,219 @@ async fn build_pipeline_bundle(
             );
             Ok(out_fallback)
         }
+    }
+}
+
+// ---- MCP server connection -------------------------------------------------
+
+/// What the MCP popup needs to show the user: the staged binary paths, a
+/// ready-to-paste `claude mcp add` command, a generic mcpServers JSON config,
+/// and flags for whether the server is bundled / DuckDB is installed / the
+/// Claude Code CLI is present.
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct McpConnInfo {
+    bundled: bool,
+    duckdb_found: bool,
+    claude_cli: bool,
+    mcp_path: String,
+    duckdb_path: String,
+    runner_path: String,
+    claude_command: String,
+    config_json: String,
+}
+
+/// Write `bytes` to `path` only when the on-disk size differs, via a unique
+/// sibling + rename so a concurrent reader never sees a half-written file.
+fn write_if_changed(path: &std::path::Path, bytes: &[u8]) -> Result<(), String> {
+    let same = std::fs::metadata(path)
+        .map(|m| m.len() as usize == bytes.len())
+        .unwrap_or(false);
+    if same {
+        return Ok(());
+    }
+    let tmp = path.with_extension(format!("tmp{}", std::process::id()));
+    std::fs::write(&tmp, bytes).map_err(|e| format!("write {}: {}", tmp.display(), e))?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = std::fs::set_permissions(&tmp, std::fs::Permissions::from_mode(0o755));
+    }
+    match std::fs::rename(&tmp, path) {
+        Ok(()) => Ok(()),
+        Err(_)
+            if std::fs::metadata(path)
+                .map(|m| m.len() as usize == bytes.len())
+                .unwrap_or(false) =>
+        {
+            let _ = std::fs::remove_file(&tmp);
+            Ok(())
+        }
+        Err(e) => {
+            let _ = std::fs::remove_file(&tmp);
+            Err(format!("stage {}: {}", path.display(), e))
+        }
+    }
+}
+
+/// Stage the embedded MCP server into a stable app-data dir, with the embedded
+/// runner written alongside it (so duckle-mcp's sibling lookup finds the runner
+/// for build_pipeline). Returns (mcp_path, runner_path).
+fn stage_mcp(app_data: &std::path::Path) -> Result<(PathBuf, PathBuf), String> {
+    if EMBEDDED_MCP.is_empty() {
+        return Err("This build does not bundle the duckle-mcp server".to_string());
+    }
+    let dir = app_data.join("engines").join("mcp");
+    std::fs::create_dir_all(&dir).map_err(|e| format!("create {}: {}", dir.display(), e))?;
+    let suffix = if cfg!(windows) { ".exe" } else { "" };
+    let mcp = dir.join(format!("duckle-mcp{suffix}"));
+    write_if_changed(&mcp, EMBEDDED_MCP)?;
+    let runner = dir.join(format!("duckle-runner{suffix}"));
+    write_if_changed(&runner, EMBEDDED_RUNNER)?;
+    Ok((mcp, runner))
+}
+
+/// Double-quote a token for a copyable shell command line (paths have spaces).
+fn shell_quote(s: &str) -> String {
+    format!("\"{}\"", s.replace('"', "\\\""))
+}
+
+/// Best-effort probe for the Claude Code CLI (`claude --version`).
+fn claude_available() -> bool {
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        std::process::Command::new("cmd")
+            .raw_arg("/C claude --version")
+            .output()
+            .map(|o| o.status.success())
+            .unwrap_or(false)
+    }
+    #[cfg(not(windows))]
+    {
+        std::process::Command::new("claude")
+            .arg("--version")
+            .output()
+            .map(|o| o.status.success())
+            .unwrap_or(false)
+    }
+}
+
+/// Stage the bundled MCP server and return everything the popup renders:
+/// resolved paths, a `claude mcp add` one-liner, and an mcpServers JSON config.
+#[tauri::command]
+fn mcp_connection_info(app: tauri::AppHandle) -> Result<McpConnInfo, String> {
+    let app_data = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| format!("app data dir: {}", e))?;
+    let bundled = !EMBEDDED_MCP.is_empty();
+    let (mcp_path, runner_path) = if bundled {
+        stage_mcp(&app_data)?
+    } else {
+        (PathBuf::new(), PathBuf::new())
+    };
+    let duckdb = DUCKDB_BIN.get().cloned().unwrap_or_default();
+    let duckdb_found = duckdb.exists();
+
+    let mcp_s = mcp_path.to_string_lossy().to_string();
+    let runner_s = runner_path.to_string_lossy().to_string();
+    let duckdb_s = duckdb.to_string_lossy().to_string();
+
+    let claude_command = format!(
+        "claude mcp add duckle --env {} --env {} -- {}",
+        shell_quote(&format!("DUCKLE_DUCKDB_BIN={}", duckdb_s)),
+        shell_quote(&format!("DUCKLE_RUNNER_BIN={}", runner_s)),
+        shell_quote(&mcp_s),
+    );
+
+    let config = serde_json::json!({
+        "mcpServers": {
+            "duckle": {
+                "command": mcp_s,
+                "env": { "DUCKLE_DUCKDB_BIN": duckdb_s, "DUCKLE_RUNNER_BIN": runner_s }
+            }
+        }
+    });
+    let config_json = serde_json::to_string_pretty(&config).unwrap_or_default();
+
+    Ok(McpConnInfo {
+        bundled,
+        duckdb_found,
+        claude_cli: claude_available(),
+        mcp_path: mcp_s,
+        duckdb_path: duckdb_s,
+        runner_path: runner_s,
+        claude_command,
+        config_json,
+    })
+}
+
+/// Run `claude mcp add duckle ...` so the user is connected to Claude Code in
+/// one click. Returns the CLI output on success; errors (with a hint to copy
+/// the command) when the CLI is missing or the add fails.
+#[tauri::command]
+async fn connect_claude_code(app: tauri::AppHandle) -> Result<String, String> {
+    let app_data = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| format!("app data dir: {}", e))?;
+    let (mcp_path, runner_path) = stage_mcp(&app_data)?;
+    let duckdb = DUCKDB_BIN.get().cloned().unwrap_or_default();
+    let mcp_s = mcp_path.to_string_lossy().to_string();
+    let runner_s = runner_path.to_string_lossy().to_string();
+    let duckdb_s = duckdb.to_string_lossy().to_string();
+
+    let output = tokio::task::spawn_blocking(move || {
+        #[cfg(windows)]
+        {
+            use std::os::windows::process::CommandExt;
+            // raw_arg so cmd resolves the claude.cmd npm shim and our quoting
+            // survives; each path is wrapped so spaces do not split args.
+            let line = format!(
+                "/C claude mcp add duckle --env \"DUCKLE_DUCKDB_BIN={}\" --env \"DUCKLE_RUNNER_BIN={}\" -- \"{}\"",
+                duckdb_s, runner_s, mcp_s
+            );
+            std::process::Command::new("cmd").raw_arg(line).output()
+        }
+        #[cfg(not(windows))]
+        {
+            std::process::Command::new("claude")
+                .arg("mcp")
+                .arg("add")
+                .arg("duckle")
+                .arg("--env")
+                .arg(format!("DUCKLE_DUCKDB_BIN={}", duckdb_s))
+                .arg("--env")
+                .arg(format!("DUCKLE_RUNNER_BIN={}", runner_s))
+                .arg("--")
+                .arg(&mcp_s)
+                .output()
+        }
+    })
+    .await
+    .map_err(|e| format!("join: {}", e))?;
+
+    match output {
+        Ok(o) if o.status.success() => {
+            let out = String::from_utf8_lossy(&o.stdout);
+            let err = String::from_utf8_lossy(&o.stderr);
+            let msg = format!("{} {}", out.trim(), err.trim());
+            Ok(if msg.trim().is_empty() {
+                "Added the duckle MCP server to Claude Code.".to_string()
+            } else {
+                msg.trim().to_string()
+            })
+        }
+        Ok(o) => {
+            let err = String::from_utf8_lossy(&o.stderr);
+            let out = String::from_utf8_lossy(&o.stdout);
+            let detail = if err.trim().is_empty() { out.trim() } else { err.trim() };
+            Err(format!("claude mcp add failed: {}", detail))
+        }
+        Err(e) => Err(format!(
+            "Claude Code CLI not found (is `claude` installed and on PATH?). Copy the command instead. ({})",
+            e
+        )),
     }
 }
