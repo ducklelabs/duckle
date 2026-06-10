@@ -6126,23 +6126,54 @@ impl DuckdbEngine {
                 .to_string();
             poll_snowflake_until_done(&base_url, &auth_header, is_jwt, &handle)?
         };
-        let cols = response
+        // resultSetMetaData.rowType carries each column's name + type (+
+        // scale/precision). Snowflake encodes EVERY cell as a JSON string, so
+        // we read each column as VARCHAR and cast it to its real type from
+        // rowType - timestamps are float epoch-seconds strings, dates are day
+        // counts, numbers are decimal strings; read_json_auto would otherwise
+        // infer them as VARCHAR/DOUBLE (GitHub #24, column-type inference).
+        let row_type = response
             .pointer("/resultSetMetaData/rowType")
             .and_then(|v| v.as_array())
             .ok_or_else(|| {
                 EngineError::Query("Snowflake response missing resultSetMetaData.rowType".into())
-            })?
-            .iter()
-            .filter_map(|c| c.get("name").and_then(|n| n.as_str()).map(String::from))
-            .collect::<Vec<_>>();
+            })?;
+        let mut cols: Vec<String> = Vec::with_capacity(row_type.len());
+        let mut columns_spec_parts: Vec<String> = Vec::with_capacity(row_type.len());
+        let mut select_parts: Vec<String> = Vec::with_capacity(row_type.len());
+        for c in row_type {
+            let Some(name) = c.get("name").and_then(|n| n.as_str()) else {
+                continue;
+            };
+            let sf_type = c
+                .get("type")
+                .and_then(|t| t.as_str())
+                .unwrap_or("text")
+                .to_ascii_lowercase();
+            let scale = c.get("scale").and_then(|s| s.as_i64()).unwrap_or(0);
+            let precision = c.get("precision").and_then(|p| p.as_i64()).unwrap_or(38);
+            let ident = plan::quote_ident(name);
+            cols.push(name.to_string());
+            columns_spec_parts.push(format!("'{}': 'VARCHAR'", name.replace('\'', "''")));
+            select_parts.push(format!(
+                "{} AS {}",
+                snowflake_cast_expr(&ident, &sf_type, scale, precision),
+                ident
+            ));
+        }
+        let columns_spec = columns_spec_parts.join(", ");
+        let select_list = select_parts.join(", ");
         let mut all_data = response
             .get("data")
             .and_then(|v| v.as_array())
             .cloned()
             .unwrap_or_default();
-        // Multi-partition: partitionInfo[0] is what we just ate; fetch
-        // partitions 1..N. statementHandle is available even in the
-        // inline case.
+        // Multi-partition: partitionInfo[0] shipped inline (the `data` above);
+        // fetch partitions 1..N. Each `?partition=N` body is gzip-compressed
+        // (decoded transparently by ureq's gzip feature) and carries NO
+        // metadata - it is the row payload only, which Snowflake may serialize
+        // as a bare array of rows OR as a {"data": [...]} object, so accept
+        // both. statementHandle is present even in the inline case (GitHub #24).
         let partition_count = response
             .pointer("/resultSetMetaData/partitionInfo")
             .and_then(|v| v.as_array())
@@ -6162,15 +6193,33 @@ impl DuckdbEngine {
                 self.check_cancelled()?;
                 let part_url = format!("{}/{}?partition={}", base_url, handle, i);
                 let part = sf_request(&part_url, "GET", &auth_header, is_jwt, None)?;
-                if let Some(part_data) = part.get("data").and_then(|v| v.as_array()) {
-                    all_data.extend(part_data.iter().cloned());
+                let part_rows = match &part {
+                    JsonValue::Array(a) => Some(a.clone()),
+                    _ => part.get("data").and_then(|v| v.as_array()).cloned(),
+                };
+                match part_rows {
+                    Some(rows) => all_data.extend(rows),
+                    None => {
+                        return Err(EngineError::Query(format!(
+                            "Snowflake partition {} returned no row data (unexpected response shape)",
+                            i
+                        )))
+                    }
                 }
             }
         }
         // Pretend warning to silence "response variable unused after
         // reassignment" if all_data didn't grow.
         let _ = &mut response;
-        materialize_arrayrows_as_table(&self.bin, db, &spec.node_id, &cols, &all_data)?;
+        materialize_typed_arrayrows(
+            &self.bin,
+            db,
+            &spec.node_id,
+            &cols,
+            &columns_spec,
+            &select_list,
+            &all_data,
+        )?;
         Ok(format!(
             "snowflake: materialized {} rows ({} partition(s)) into {}",
             all_data.len(),
@@ -6680,6 +6729,56 @@ fn snowflake_body_error(body: &str) -> Option<String> {
         Some(format!("{} (sqlState {})", msg.chars().take(300).collect::<String>(), sql_state))
     } else {
         None
+    }
+}
+
+/// Build the SELECT expression that casts a Snowflake SQL-API cell (always a
+/// VARCHAR after read_json) to its real DuckDB type, per the `jsonv2` encoding
+/// (Snowflake "Handling responses" docs). `ident` is the already-quoted column
+/// reference; `sf_type` is the lowercased rowType `type`. Temporal columns are
+/// epoch-based numeric strings, so they must be converted, not parsed as
+/// literals (GitHub #24). Unknown / text / semi-structured types stay VARCHAR.
+fn snowflake_cast_expr(ident: &str, sf_type: &str, scale: i64, precision: i64) -> String {
+    match sf_type {
+        // NUMBER(p,s): decimal string. Scale 0 -> integer (BIGINT, or HUGEINT
+        // when the precision can exceed i64); otherwise DECIMAL(p,s) clamped to
+        // DuckDB's max precision of 38.
+        "fixed" => {
+            if scale > 0 {
+                let p = precision.clamp(1, 38);
+                let s = scale.clamp(0, p);
+                format!("CAST({ident} AS DECIMAL({p},{s}))")
+            } else if (1..=18).contains(&precision) {
+                format!("CAST({ident} AS BIGINT)")
+            } else {
+                format!("CAST({ident} AS HUGEINT)")
+            }
+        }
+        "real" => format!("CAST({ident} AS DOUBLE)"),
+        "boolean" => format!("CAST({ident} AS BOOLEAN)"),
+        // DATE: integer string = days since the Unix epoch.
+        "date" => format!("(DATE '1970-01-01' + CAST({ident} AS INTEGER))"),
+        // TIME: float string = seconds since midnight. make_timestamp builds a
+        // naive timestamp from microseconds; the TIME cast keeps the time part.
+        "time" => format!(
+            "CAST(make_timestamp(CAST(round(CAST({ident} AS DOUBLE) * 1000000) AS BIGINT)) AS TIME)"
+        ),
+        // TIMESTAMP_NTZ: float seconds since epoch, wall-clock (no zone).
+        "timestamp_ntz" => format!(
+            "make_timestamp(CAST(round(CAST({ident} AS DOUBLE) * 1000000) AS BIGINT))"
+        ),
+        // TIMESTAMP_LTZ: float seconds since epoch = a UTC instant.
+        "timestamp_ltz" => format!("to_timestamp(CAST({ident} AS DOUBLE))"),
+        // TIMESTAMP_TZ: "<seconds.frac> <offset>"; the seconds part is the UTC
+        // instant (the trailing offset is display-only). Take the instant.
+        "timestamp_tz" => {
+            format!("to_timestamp(CAST(split_part({ident}, ' ', 1) AS DOUBLE))")
+        }
+        // BINARY: hexadecimal string.
+        "binary" => format!("unhex({ident})"),
+        // text, variant, object, array, and anything unrecognized stay VARCHAR
+        // (semi-structured values are returned as their JSON text).
+        _ => ident.to_string(),
     }
 }
 

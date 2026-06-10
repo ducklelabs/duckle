@@ -19,7 +19,11 @@ duckle-plugin-sdk = { workspace = true }
 # src.rest, vector-DB HTTP APIs). ureq is ~20kb with minimal deps
 # vs ~100kb for reqwest + tokio, and it matches the per-stage CLI
 # shell-out model we already use (one synchronous round-trip).
-ureq = { version = "2.10", default-features = false, features = ["tls", "json"] }
+# `gzip` is required for the Snowflake SQL API: GET ?partition=N bodies are
+# always gzip-compressed (Content-Encoding: gzip). Without it ureq hands back
+# raw gzip bytes and JSON parsing dies with "expected value at line 1 column 1"
+# on any result that splits into >1 partition (GitHub #24).
+ureq = { version = "2.10", default-features = false, features = ["tls", "json", "gzip"] }
 # TLS trust roots for the HTTP clients above. We build one rustls config
 # that unions the bundled Mozilla roots (webpki-roots, the prior default)
 # with the OS native store (rustls-native-certs) so connections succeed
@@ -179,3 +183,7 @@ arboard = { version = "3", default-features = false }
 # format) to bytes so we don't have to ship a pre-compiled .wasm
 # fixture in the repo.
 wat = "1"
+# Used by the Snowflake source test to gzip a partition body inline
+# (Content-Encoding: gzip), reproducing the real SQL API partition
+# format that GitHub #24 was choking on.
+flate2 = "1"

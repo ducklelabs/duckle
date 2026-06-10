@@ -3993,6 +3993,117 @@ fn src_snowflake_walks_partitions() {
 }
 
 #[test]
+fn src_snowflake_gzip_partition_and_typed_columns() {
+    // GitHub #24: (1) partition>=1 bodies are gzip-compressed (Content-Encoding:
+    // gzip) AND served as a bare JSON array of rows - the old code failed JSON
+    // parsing ("expected value at line 1 column 1") on any result that split
+    // into >1 partition (n>300). (2) Snowflake encodes every cell as a string,
+    // so timestamps/dates must be cast from rowType, not inferred. This mock
+    // returns a typed rowType, an inline partition 0, and a GZIPPED bare-array
+    // partition 1; we write to Parquet (which preserves types) and assert both
+    // the row count and the real column types/values.
+    use std::io::{Read, Write};
+    use std::net::TcpListener;
+    use std::sync::Arc;
+    use std::time::Duration;
+
+    let engine = engine_or_skip!();
+    let listener = TcpListener::bind("127.0.0.1:0").expect("bind");
+    let port = listener.local_addr().unwrap().port();
+
+    // rowType: a BIGINT id, a TIMESTAMP_NTZ (float epoch seconds), a DATE
+    // (integer days since epoch). partitionInfo has two entries.
+    let initial_body = br#"{"code":"090001","statementHandle":"h1","resultSetMetaData":{"rowType":[{"name":"id","type":"fixed","scale":0,"precision":10},{"name":"ts","type":"timestamp_ntz","scale":9},{"name":"d","type":"date","scale":0}],"partitionInfo":[{"rowCount":1},{"rowCount":1}]},"data":[["1","1700000000.000000000","19723"]]}"#.to_vec();
+    // Partition 1: a BARE ARRAY of rows (no {"data":...} wrapper), gzip-compressed.
+    let partition_json = br#"[["2","1700000060.000000000","19724"]]"#;
+    let mut enc = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
+    enc.write_all(partition_json).unwrap();
+    let partition_gz = enc.finish().unwrap();
+
+    let request_count = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let rc = request_count.clone();
+    let handle = std::thread::spawn(move || {
+        for stream in listener.incoming().take(2) {
+            let mut stream = match stream { Ok(s) => s, Err(_) => break };
+            stream.set_read_timeout(Some(Duration::from_millis(250))).ok();
+            stream.set_nodelay(true).ok();
+            let mut buf = Vec::with_capacity(8192);
+            let mut chunk = [0u8; 4096];
+            for _ in 0..16 {
+                match stream.read(&mut chunk) {
+                    Ok(0) => break,
+                    Ok(n) => buf.extend_from_slice(&chunk[..n]),
+                    Err(_) => break,
+                }
+            }
+            let idx = rc.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            let resp = if idx == 0 {
+                // Initial POST: plain JSON.
+                format!(
+                    "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                    initial_body.len()
+                )
+            } else {
+                // Partition GET: gzip-compressed body.
+                format!(
+                    "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Encoding: gzip\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                    partition_gz.len()
+                )
+            };
+            let _ = stream.write_all(resp.as_bytes());
+            if idx == 0 {
+                let _ = stream.write_all(&initial_body);
+            } else {
+                let _ = stream.write_all(&partition_gz);
+            }
+            let _ = stream.flush();
+            let _ = stream.shutdown(std::net::Shutdown::Write);
+            std::thread::sleep(Duration::from_millis(100));
+        }
+    });
+
+    let tmp = tempfile::tempdir().unwrap();
+    let out = out_path(tmp.path(), "out.parquet");
+    let endpoint = format!("http://127.0.0.1:{}/api/v2/statements", port);
+    let r = engine.execute_pipeline(&doc(
+        json!([
+            node("sf", "src.snowflake", json!({
+                "account": "test-account", "endpoint": endpoint,
+                "authType": "pat", "pat": "secret",
+                "query": "SELECT id, ts, d FROM events"
+            })),
+            node("k", "snk.parquet", json!({ "path": out })),
+        ]),
+        json!([main_edge("e1", "sf", "k")]),
+    ));
+    let _ = handle.join();
+    assert_eq!(r.status, "ok", "snowflake gzip partition failed: {:?}", r.error);
+
+    // Both partitions (inline + gzipped bare array) land.
+    let n = count(&format!("read_parquet('{}')", out));
+    assert_eq!(n, 2, "expected 2 rows (inline + gzip partition), got {}", n);
+
+    // Types come from rowType, not read_json_auto inference.
+    let id_ty = scalar_string(&format!("SELECT typeof(id) FROM read_parquet('{}') LIMIT 1", out));
+    assert_eq!(id_ty, "BIGINT", "id should be BIGINT, got {}", id_ty);
+    let ts_ty = scalar_string(&format!("SELECT typeof(ts) FROM read_parquet('{}') LIMIT 1", out));
+    assert_eq!(ts_ty, "TIMESTAMP", "ts should be TIMESTAMP, got {}", ts_ty);
+    let d_ty = scalar_string(&format!("SELECT typeof(d) FROM read_parquet('{}') LIMIT 1", out));
+    assert_eq!(d_ty, "DATE", "d should be DATE, got {}", d_ty);
+
+    // Values are decoded correctly: 1700000000 epoch s = 2023-11-14 22:13:20,
+    // 19723 days since epoch = 2024-01-01.
+    let ts_val = scalar_string(&format!(
+        "SELECT ts::VARCHAR FROM read_parquet('{}') WHERE id = 1", out
+    ));
+    assert_eq!(ts_val, "2023-11-14 22:13:20", "ts value mismatch: {}", ts_val);
+    let d_val = scalar_string(&format!(
+        "SELECT d::VARCHAR FROM read_parquet('{}') WHERE id = 1", out
+    ));
+    assert_eq!(d_val, "2024-01-01", "date value mismatch: {}", d_val);
+}
+
+#[test]
 fn src_databricks_follows_chunk_links() {
     // Initial response carries result.next_chunk_internal_link pointing
     // at chunk index 1; the engine GETs it and stops when no further

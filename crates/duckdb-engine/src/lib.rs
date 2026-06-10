@@ -1902,6 +1902,42 @@ impl JsonLinesWriter {
         );
         apply_duckdb_sql(bin, db, &sql)
     }
+
+    /// Like finalize_into_table, but reads every JSON field as VARCHAR and
+    /// projects through a caller-supplied SELECT list, so the caller can apply
+    /// exact per-column casts. Used by the Snowflake source, whose cells are
+    /// all JSON strings that must be cast to their real types (TIMESTAMP /
+    /// DATE / DECIMAL ...) rather than left to read_json_auto's inference.
+    /// `columns_spec` is the body of read_json's `columns={...}` map (no
+    /// braces); `select_list` is the projection (e.g. `expr AS "name", ...`).
+    pub(crate) fn finalize_typed(
+        mut self,
+        bin: &Path,
+        db: &Path,
+        node_id: &str,
+        columns_spec: &str,
+        select_list: &str,
+    ) -> Result<(), EngineError> {
+        use std::io::Write;
+        self.writer
+            .flush()
+            .map_err(|e| EngineError::Query(format!("rest source: flush tmp file: {}", e)))?;
+        drop(self.writer);
+        let path = self
+            .path
+            .display()
+            .to_string()
+            .replace('\\', "/")
+            .replace('\'', "''");
+        let sql = format!(
+            "CREATE OR REPLACE TABLE {} AS SELECT {} FROM read_json('{}', format='newline_delimited', columns={{{}}})",
+            plan::quote_ident(node_id),
+            select_list,
+            path,
+            columns_spec,
+        );
+        apply_duckdb_sql(bin, db, &sql)
+    }
 }
 
 /// Unique temp path for a REST/Snowflake/Databricks source's
@@ -1958,6 +1994,36 @@ fn materialize_arrayrows_as_table(
         writer.write_row(&JsonValue::Object(obj))?;
     }
     writer.finalize_into_table(bin, db, node_id)
+}
+
+/// Snowflake variant of materialize_arrayrows_as_table: writes the raw
+/// (string) cells as NDJSON keyed by column name, then reads every column as
+/// VARCHAR and projects through `select_list` so each column lands at its real
+/// Snowflake type. `columns_spec` (the read_json `columns={...}` body) and
+/// `select_list` are both built from resultSetMetaData.rowType by the caller.
+fn materialize_typed_arrayrows(
+    bin: &Path,
+    db: &Path,
+    node_id: &str,
+    cols: &[String],
+    columns_spec: &str,
+    select_list: &str,
+    rows: &[JsonValue],
+) -> Result<(), EngineError> {
+    let mut writer = JsonLinesWriter::open(node_id)?;
+    for row in rows {
+        let arr = row.as_array();
+        let mut obj = serde_json::Map::new();
+        for (i, name) in cols.iter().enumerate() {
+            let v = arr
+                .and_then(|a| a.get(i))
+                .cloned()
+                .unwrap_or(JsonValue::Null);
+            obj.insert(name.clone(), v);
+        }
+        writer.write_row(&JsonValue::Object(obj))?;
+    }
+    writer.finalize_typed(bin, db, node_id, columns_spec, select_list)
 }
 
 /// Run a single SQL statement against `db` using the engine's own DuckDB

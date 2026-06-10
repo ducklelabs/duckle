@@ -52,7 +52,7 @@ flate2 = "1"
 # Used by the AI chat assistant to talk to the local llama-server
 # subprocess over HTTP. Same blocking client we use in the engine
 # crate; reading the SSE stream via BufReader<impl Read>.
-ureq = { version = "2.10", default-features = false, features = ["tls", "json"] }
+ureq = { version = "2.10", default-features = false, features = ["tls", "json", "gzip"] }
 # Staging the embedded duckle-runner stub to a temp file at build time
 # (build_pipeline_bundle), so this is a runtime dep, not just a dev one.
 tempfile = "3.10"
