@@ -1878,3 +1878,51 @@
         );
         assert!(compile(&p).is_err());
     }
+
+    #[test]
+    fn excel_source_honors_declared_schema(){
+        // Issue #25: read_xlsx has no type map, so a declared schema must be
+        // applied as an all_varchar read + cast/project wrapper. No declared
+        // schema -> unchanged read (all columns, auto-inferred).
+        use duckle_metadata::{Column, DataType};
+        let col = |name: &str, dt: DataType, fmt: Option<&str>| Column {
+            name: name.into(),
+            data_type: dt,
+            nullable: true,
+            primary_key: None,
+            format: fmt.map(|s| s.to_string()),
+        };
+        let props = serde_json::json!({ "path": "/tmp/book.xlsx", "hasHeader": true });
+
+        let plain = builders::build_excel_source(&props, None);
+        assert!(
+            plain.trim_start().starts_with("SELECT * FROM read_xlsx"),
+            "plain read should be unchanged: {}",
+            plain
+        );
+        assert!(!plain.contains("all_varchar"), "plain must not force all_varchar: {}", plain);
+
+        // Keep id (BIGINT) + name (VARCHAR) + d (DATE w/ format); a file column
+        // not in this list ("junk") is dropped by the projection.
+        let declared = vec![
+            col("id", DataType::Int64, None),
+            col("name", DataType::String, None),
+            col("d", DataType::Date, Some("%d/%m/%Y")),
+        ];
+        let typed = builders::build_excel_source(&props, Some(&declared));
+        assert!(typed.contains("all_varchar = true"), "typed must read all_varchar: {}", typed);
+        assert!(typed.contains("CAST(\"id\" AS BIGINT)"), "id cast missing: {}", typed);
+        assert!(
+            typed.contains("try_strptime(\"d\", '%d/%m/%Y')::DATE"),
+            "date format parse missing: {}",
+            typed
+        );
+        assert!(typed.contains("\"name\""), "name column missing: {}", typed);
+        // Explicit projection over the inner read, not SELECT *.
+        assert!(
+            typed.contains("FROM (SELECT * FROM read_xlsx("),
+            "should wrap the raw read: {}",
+            typed
+        );
+        assert!(!typed.contains("junk"), "non-declared column leaked: {}", typed);
+    }

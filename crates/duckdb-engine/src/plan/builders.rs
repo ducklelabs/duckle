@@ -18,7 +18,7 @@ pub fn source_select_for_format(format: &str, props: &JsonValue) -> Option<Strin
         "json" | "jsonl" | "ndjson" => build_json_source(props),
         "sqlite" => build_sqlite_source(props),
         "duckdb" => build_duckdb_source(props),
-        "excel" => build_excel_source(props),
+        "excel" => build_excel_source(props, None),
         "avro" => build_avro_source(props),
         "iceberg" => build_iceberg_source(props),
         "delta" => build_delta_source(props),
@@ -50,9 +50,10 @@ pub(crate) fn build_view_sql(
     reject_wired: bool,
 ) -> Result<String, String> {
     match component_id {
-        // Sources - declared schema is consulted only by formats that
-        // accept a `columns = {...}` override (CSV / TSV today). Other
-        // sources auto-infer and ignore `declared`.
+        // Sources - declared schema is consulted by CSV / TSV (via `types=`)
+        // and Excel (via an all_varchar read + cast/project wrapper, since
+        // read_xlsx has no type map; issue #25). Other sources auto-infer and
+        // ignore `declared`.
         //
         // When the reject port is wired (issue #15) the CSV/TSV main read
         // switches to a tolerant split: declared columns are read as raw text,
@@ -86,7 +87,7 @@ pub(crate) fn build_view_sql(
         | "src.motherduck" | "src.ducklake" | "src.pgvector"
         | "src.redshift" | "src.bigquery" | "src.quack" => build_relational_source(component_id, props),
         "src.avro" => Ok(build_avro_source(props)),
-        "src.excel" => Ok(build_excel_source(props)),
+        "src.excel" => Ok(build_excel_source(props, declared)),
         "src.iceberg" => Ok(build_iceberg_source(props)),
         "src.delta" => Ok(build_delta_source(props)),
         "src.spatial" => Ok(build_spatial_source(props)),
@@ -4922,8 +4923,18 @@ pub(crate) fn build_delta_source(props: &JsonValue) -> String {
 /// Excel (.xlsx) source via DuckDB v1.2+ `read_xlsx`. Supports an
 /// optional `sheet` form field (omitted defaults to the first sheet)
 /// and a `hasHeader` toggle.
-pub(crate) fn build_excel_source(props: &JsonValue) -> String {
+pub(crate) fn build_excel_source(
+    props: &JsonValue,
+    declared: Option<&[duckle_metadata::Column]>,
+) -> String {
     let path = string_prop(props, "path").unwrap_or_default();
+    // read_xlsx has no `types=` / `columns=` (unlike read_csv_auto), so the
+    // Schema panel (retype + remove columns) used to be silently ignored -
+    // every column came through with the reader's inferred types (issue #25).
+    // When a schema is declared, read every cell as text (all_varchar) and
+    // cast + project to exactly the declared columns in an outer SELECT. With
+    // no declared schema the read is unchanged (auto-infer, all columns).
+    let typed = declared.filter(|c| !c.is_empty());
 
     // Extra read_xlsx options (sheet / header) are shared by every file.
     let mut opts: Vec<String> = Vec::new();
@@ -4932,6 +4943,9 @@ pub(crate) fn build_excel_source(props: &JsonValue) -> String {
     }
     if let Some(has_header) = props.get("hasHeader").and_then(JsonValue::as_bool) {
         opts.push(format!("header = {}", has_header));
+    }
+    if typed.is_some() {
+        opts.push("all_varchar = true".to_string());
     }
     let one = |p: &str| {
         let mut args = vec![format!("'{}'", sql_escape(p))];
@@ -4943,7 +4957,7 @@ pub(crate) fn build_excel_source(props: &JsonValue) -> String {
     // directory would silently read only the first file. Expand it ourselves
     // and UNION the per-file reads (BY NAME tolerates column-order drift).
     let files = expand_excel_paths(&path);
-    match files.len() {
+    let base = match files.len() {
         0 => one(&path), // nothing matched (or no fs access) - let DuckDB report it
         1 => one(&files[0]),
         _ => files
@@ -4951,7 +4965,38 @@ pub(crate) fn build_excel_source(props: &JsonValue) -> String {
             .map(|f| one(f))
             .collect::<Vec<_>>()
             .join(" UNION ALL BY NAME "),
-    }
+    };
+
+    let Some(cols) = typed else {
+        return base;
+    };
+    // Project + cast to exactly the declared columns. Mirrors the CSV path:
+    // a DATE/TIMESTAMP column with its own format is re-parsed via
+    // try_strptime (NULL on a value the format can't parse); everything else
+    // is a plain cast from the all_varchar text.
+    use duckle_metadata::DataType;
+    let proj = cols
+        .iter()
+        .map(|c| {
+            let id = quote_ident(&c.name);
+            let fmt = c.format.as_deref().filter(|s| !s.is_empty());
+            match (fmt, c.data_type) {
+                (Some(fmt), DataType::Date) => {
+                    format!("try_strptime({id}, '{f}')::DATE AS {id}", id = id, f = sql_escape(fmt))
+                }
+                (Some(fmt), DataType::Timestamp) => format!(
+                    "try_strptime({id}, '{f}')::TIMESTAMP AS {id}",
+                    id = id,
+                    f = sql_escape(fmt)
+                ),
+                // String is already VARCHAR from all_varchar - select as-is.
+                _ if matches!(c.data_type, DataType::String) => id.clone(),
+                _ => format!("CAST({id} AS {ty}) AS {id}", id = id, ty = data_type_to_duckdb_sql(&c.data_type)),
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(", ");
+    format!("SELECT {} FROM ({})", proj, base)
 }
 
 /// Expand an Excel `path` into concrete .xlsx/.xls files. Handles a plain
