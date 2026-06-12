@@ -403,6 +403,23 @@ export default function App() {
         return () => window.removeEventListener('keydown', onKey);
     }, [workspacePathState, pipelineData, activeJobId, repo, engine, jobs]);
 
+    // Suppress the native webview right-click menu (Back / Reload / Print ...)
+    // in the desktop app - it looks out of place on the header, footer and
+    // chrome. Editable fields keep their native copy/paste menu, and the
+    // canvas + Projects tree open their own context menus via their own
+    // handlers (unaffected - this only kills the default where nothing else
+    // handles the event).
+    useEffect(() => {
+        if (!isInTauri()) return;
+        const onCtx = (e: MouseEvent) => {
+            const t = e.target as HTMLElement | null;
+            if (t && (t.isContentEditable || t.closest('input, textarea'))) return;
+            e.preventDefault();
+        };
+        window.addEventListener('contextmenu', onCtx);
+        return () => window.removeEventListener('contextmenu', onCtx);
+    }, []);
+
     const handlePickedWorkspace = useCallback((path: string) => {
         setWorkspacePath(path);
         setWorkspacePathState(path);
