@@ -372,6 +372,44 @@ fn preview_returned_for_leaf_without_sink() {
 }
 
 #[test]
+fn addcol_with_name_but_no_expression_errors_not_silent_noop() {
+    // Regression: a user sets the Add Column name (+ type) but leaves the
+    // Expression blank (the form shows its `amount * 1.08` placeholder). This
+    // used to compile to a plain `SELECT * FROM upstream` - the run reported
+    // success and the column was silently absent. It must fail loud instead.
+    let tmp = tempfile::tempdir().unwrap();
+    let csv = write_file(tmp.path(), "p.csv", "post_id,campaign_id\n1,x\n2,y\n");
+    let engine = engine_or_skip!();
+
+    let empty = doc(
+        json!([
+            node("s1", "src.csv", json!({ "path": csv, "hasHeader": true })),
+            node("a1", "xf.addcol", json!({ "name": "dt_col", "type": "string", "expression": "" })),
+        ]),
+        json!([main_edge("e1", "s1", "a1")]),
+    );
+    let r = engine.execute_pipeline(&empty);
+    assert_eq!(r.status, "error", "empty expression must not succeed silently");
+    let err = r.error.unwrap_or_default();
+    assert!(err.contains("dt_col") && err.contains("expression"),
+        "error should name the column and the missing expression: {}", err);
+
+    // A valid expression still works and the new column is present.
+    let good = doc(
+        json!([
+            node("s1", "src.csv", json!({ "path": csv, "hasHeader": true })),
+            node("a1", "xf.addcol", json!({ "name": "dt_col", "type": "string", "expression": "post_id + 1" })),
+        ]),
+        json!([main_edge("e1", "s1", "a1")]),
+    );
+    let r2 = engine.execute_pipeline(&good);
+    assert_eq!(r2.status, "ok", "valid expression should run: {:?}", r2.error);
+    let p = r2.preview.iter().find(|p| p.node_id == "a1").expect("addcol preview");
+    assert!(p.columns.iter().any(|c| c.name == "dt_col"),
+        "the new column must be present: {:?}", p.columns);
+}
+
+#[test]
 fn structured_filter_predicate_actually_filters() {
     // The visual filter builder stores a structured object carrying its
     // compiled SQL - the executor must honor it, not fall back to TRUE.

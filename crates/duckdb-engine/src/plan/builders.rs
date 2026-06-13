@@ -2052,17 +2052,31 @@ pub(crate) fn build_addcol(inputs: &NodeInputs, props: &JsonValue) -> Result<Str
     }
     // The Add-Column / Coalesce form is single: { name, type, expression }.
     if additions.is_empty() {
-        let name = string_prop(props, "name").filter(|s| !s.is_empty());
-        let expr = string_prop(props, "expression").or_else(|| string_prop(props, "expr"));
-        if let (Some(name), Some(expr)) = (name, expr) {
-            if !expr.trim().is_empty() {
+        let name = string_prop(props, "name").filter(|s| !s.trim().is_empty());
+        let expr = string_prop(props, "expression")
+            .or_else(|| string_prop(props, "expr"))
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty());
+        match (name, expr) {
+            (Some(name), Some(expr)) => {
                 let ty = string_prop(props, "type");
                 additions.push(format!(
                     "{} AS {}",
-                    typed_expr(expr.trim(), ty.as_deref()),
+                    typed_expr(&expr, ty.as_deref()),
                     quote_ident(&name)
                 ));
             }
+            // A column name with no expression would otherwise silently
+            // produce no column yet still report success (the form leaves the
+            // `amount * 1.08` placeholder visible, so users think it's set).
+            // Fail loud instead.
+            (Some(name), None) => {
+                return Err(format!(
+                    "Add Column '{}' has no expression; enter one (e.g. amount * 1.08) or remove the node",
+                    name
+                ));
+            }
+            _ => {}
         }
     }
     if additions.is_empty() {

@@ -2401,7 +2401,7 @@ function synthFieldsTransform(comp: ComponentDef): ComponentManifest {
                             { label: 'timestamp', value: 'timestamp' },
                         ],
                     },
-                    { key: 'expression', label: 'Expression', kind: 'expression', rows: 3,
+                    { key: 'expression', label: 'Expression', kind: 'expression', rows: 3, required: true,
                       placeholder: id === 'xf.coalesce' ? "COALESCE(col_a, col_b, 'default')" : 'amount * 1.08' },
                 ],
             },
