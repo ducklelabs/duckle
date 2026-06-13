@@ -357,24 +357,19 @@ fn install_spec<F: FnMut(InstallProgress)>(
             let is_target_binary =
                 leaf.eq_ignore_ascii_case(&want) || leaf.eq_ignore_ascii_case(s.binary);
             if extract_all {
-                let out_path = dir.join(&leaf);
-                let mut out =
-                    std::fs::File::create(&out_path).map_err(|e| e.to_string())?;
-                std::io::copy(&mut file, &mut out).map_err(|e| e.to_string())?;
                 if is_target_binary {
+                    // Write the binary status() keys off of atomically so a
+                    // crash mid-extract can't leave a partial "installed" file.
+                    copy_atomic(&mut file, &target)?;
                     extracted = true;
-                }
-                #[cfg(unix)]
-                if is_target_binary {
-                    use std::os::unix::fs::PermissionsExt;
-                    let _ = std::fs::set_permissions(
-                        &out_path,
-                        std::fs::Permissions::from_mode(0o755),
-                    );
+                } else {
+                    let out_path = dir.join(&leaf);
+                    let mut out =
+                        std::fs::File::create(&out_path).map_err(|e| e.to_string())?;
+                    std::io::copy(&mut file, &mut out).map_err(|e| e.to_string())?;
                 }
             } else if is_target_binary {
-                let mut out = std::fs::File::create(&target).map_err(|e| e.to_string())?;
-                std::io::copy(&mut file, &mut out).map_err(|e| e.to_string())?;
+                copy_atomic(&mut file, &target)?;
                 extracted = true;
                 break;
             }
@@ -406,19 +401,22 @@ fn install_spec<F: FnMut(InstallProgress)>(
             }
             let is_target_binary =
                 leaf.eq_ignore_ascii_case(&want) || leaf.eq_ignore_ascii_case(s.binary);
-            let out_path = dir.join(&leaf);
-            let mut out = std::fs::File::create(&out_path).map_err(|e| e.to_string())?;
-            std::io::copy(&mut entry, &mut out).map_err(|e| e.to_string())?;
             if is_target_binary {
+                // Atomic for the binary status() keys off of.
+                copy_atomic(&mut entry, &target)?;
                 extracted = true;
-            }
-            #[cfg(unix)]
-            {
-                use std::os::unix::fs::PermissionsExt;
-                let _ = std::fs::set_permissions(
-                    &out_path,
-                    std::fs::Permissions::from_mode(0o755),
-                );
+            } else {
+                let out_path = dir.join(&leaf);
+                let mut out = std::fs::File::create(&out_path).map_err(|e| e.to_string())?;
+                std::io::copy(&mut entry, &mut out).map_err(|e| e.to_string())?;
+                #[cfg(unix)]
+                {
+                    use std::os::unix::fs::PermissionsExt;
+                    let _ = std::fs::set_permissions(
+                        &out_path,
+                        std::fs::Permissions::from_mode(0o755),
+                    );
+                }
             }
         }
         if !extracted {
@@ -432,7 +430,20 @@ fn install_spec<F: FnMut(InstallProgress)>(
         if buf.is_empty() {
             return Err(format!("{} download was empty", s.name));
         }
-        std::fs::write(&target, &buf).map_err(|e| e.to_string())?;
+        // Reject a truncated transfer, then install atomically so a partial
+        // binary never lands at the final path (status() would call it
+        // installed).
+        if let Some(t) = total {
+            if (buf.len() as u64) < t {
+                return Err(format!(
+                    "{} download truncated ({} of {} bytes); try again",
+                    s.name,
+                    buf.len(),
+                    t
+                ));
+            }
+        }
+        write_atomic(&target, &buf)?;
     }
 
     #[cfg(unix)]
@@ -467,6 +478,58 @@ fn install_spec<F: FnMut(InstallProgress)>(
     let path = target.to_string_lossy().to_string();
     on_progress(InstallProgress::Done { path: path.clone() });
     Ok(path)
+}
+
+/// A unique temp sibling of `target` for atomic download/extract: write here,
+/// then rename into place so a truncated / crash-interrupted file never appears
+/// at the final path (where status()/idempotency checks would treat it as
+/// installed).
+fn part_path(target: &Path) -> PathBuf {
+    let mut name = target
+        .file_name()
+        .map(|n| n.to_os_string())
+        .unwrap_or_default();
+    name.push(format!(".part{}", std::process::id()));
+    target.with_file_name(name)
+}
+
+/// Rename a fully-written temp file into `target` (exec perms on unix first);
+/// removes the temp on failure so a partial never lingers.
+fn finalize_download(tmp: &Path, target: &Path) -> Result<(), String> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = std::fs::set_permissions(tmp, std::fs::Permissions::from_mode(0o755));
+    }
+    std::fs::rename(tmp, target).map_err(|e| {
+        let _ = std::fs::remove_file(tmp);
+        format!("finalize {}: {}", target.display(), e)
+    })
+}
+
+/// Write `bytes` to a temp sibling, then rename into `target` atomically.
+fn write_atomic(target: &Path, bytes: &[u8]) -> Result<(), String> {
+    let tmp = part_path(target);
+    if let Err(e) = std::fs::write(&tmp, bytes) {
+        let _ = std::fs::remove_file(&tmp);
+        return Err(e.to_string());
+    }
+    finalize_download(&tmp, target)
+}
+
+/// Copy a reader to a temp sibling, then rename into `target` atomically.
+fn copy_atomic(reader: &mut impl std::io::Read, target: &Path) -> Result<(), String> {
+    let tmp = part_path(target);
+    let res = (|| -> Result<(), String> {
+        let mut out = std::fs::File::create(&tmp).map_err(|e| e.to_string())?;
+        std::io::copy(reader, &mut out).map_err(|e| e.to_string())?;
+        Ok(())
+    })();
+    if let Err(e) = res {
+        let _ = std::fs::remove_file(&tmp);
+        return Err(e);
+    }
+    finalize_download(&tmp, target)
 }
 
 /// Download the Qwen GGUF model file into the llamacpp engine dir.
@@ -506,30 +569,52 @@ fn install_llama_model<F: FnMut(InstallProgress)>(
     }
     let total = resp.content_length();
     on_progress(InstallProgress::DownloadingModel { received: 0, total });
-    let mut out = std::fs::File::create(&target).map_err(|e| e.to_string())?;
+    // Stream to a temp sibling, validate, then rename into place - so a
+    // truncated or interrupted download never lands at the model path where the
+    // idempotency check above would treat it as fully installed.
+    let tmp = part_path(&target);
+    let mut out = std::fs::File::create(&tmp).map_err(|e| e.to_string())?;
     let mut chunk = [0u8; 256 * 1024];
     let mut received: u64 = 0;
-    loop {
-        let n = resp.read(&mut chunk).map_err(|e| e.to_string())?;
-        if n == 0 {
-            break;
+    let validated = (|| -> Result<(), String> {
+        loop {
+            let n = resp.read(&mut chunk).map_err(|e| e.to_string())?;
+            if n == 0 {
+                break;
+            }
+            std::io::Write::write_all(&mut out, &chunk[..n]).map_err(|e| e.to_string())?;
+            received += n as u64;
+            on_progress(InstallProgress::DownloadingModel { received, total });
         }
-        std::io::Write::write_all(&mut out, &chunk[..n]).map_err(|e| e.to_string())?;
-        received += n as u64;
-        on_progress(InstallProgress::DownloadingModel { received, total });
+        std::io::Write::flush(&mut out).map_err(|e| e.to_string())?;
+        // Truncated transfer: the server declared more bytes than arrived.
+        if let Some(t) = total {
+            if received < t {
+                return Err(format!(
+                    "model download truncated ({} of {} bytes); try again",
+                    received, t
+                ));
+            }
+        }
+        // GGUF files start with the magic bytes "GGUF".
+        if received < 4 {
+            return Err("model download too small to be a GGUF file".into());
+        }
+        let mut header = [0u8; 4];
+        let mut f = std::fs::File::open(&tmp).map_err(|e| e.to_string())?;
+        std::io::Read::read_exact(&mut f, &mut header)
+            .map_err(|e| format!("read model header: {}", e))?;
+        if &header != b"GGUF" {
+            return Err("Downloaded model is not a valid GGUF file (header mismatch)".into());
+        }
+        Ok(())
+    })();
+    drop(out); // close the handle before rename (Windows)
+    if let Err(e) = validated {
+        let _ = std::fs::remove_file(&tmp);
+        return Err(e);
     }
-    // Sanity check: GGUF files start with the magic bytes "GGUF". Use
-    // read_exact so a short or failed read surfaces as an error instead of
-    // leaving the header zeroed and reporting a false "header mismatch".
-    let mut header = [0u8; 4];
-    let mut f = std::fs::File::open(&target).map_err(|e| e.to_string())?;
-    std::io::Read::read_exact(&mut f, &mut header)
-        .map_err(|e| format!("read model header: {}", e))?;
-    if &header != b"GGUF" {
-        let _ = std::fs::remove_file(&target);
-        return Err("Downloaded model is not a valid GGUF file (header mismatch)".into());
-    }
-    Ok(())
+    finalize_download(&tmp, &target)
 }
 
 #[cfg(test)]
