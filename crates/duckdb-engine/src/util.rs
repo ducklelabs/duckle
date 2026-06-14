@@ -312,6 +312,16 @@ pub(crate) fn walk_xml_to_rows(
                     last.2.push_str(&text);
                 }
             }
+            Event::CData(e) => {
+                // CDATA holds literal text (no XML entity escaping). snk.xml
+                // writes complex / JSON-encoded cell values inside CDATA, and an
+                // author may wrap any value this way, so capture it like Text -
+                // otherwise the content is silently dropped (issue #33).
+                let text = String::from_utf8_lossy(e.into_inner().as_ref()).to_string();
+                if let Some(last) = stack.last_mut() {
+                    last.2.push_str(&text);
+                }
+            }
             Event::End(_) => {
                 if let Some((name, builder, text)) = stack.pop() {
                     xml_close_element(&mut stack, &mut rows, &row_path_parts, &name, builder, text);
@@ -889,8 +899,24 @@ pub(crate) fn chunk_text(text: &str, size: usize, overlap: usize) -> Vec<String>
 
 #[cfg(test)]
 mod tests {
-    use super::infer_avro_nullable_field;
+    use super::{infer_avro_nullable_field, walk_xml_to_rows};
     use serde_json::json;
+    use std::sync::atomic::AtomicBool;
+    use std::sync::Arc;
+
+    #[test]
+    fn xml_cdata_text_is_captured_not_dropped() {
+        // issue #33: a value wrapped in <![CDATA[...]]> (how snk.xml writes
+        // complex/JSON cells) was skipped on read, so the column came back empty.
+        let xml = "<root><row><id>1</id><payload><![CDATA[{\"a\":1}]]></payload></row>\
+                   <row><id>2</id><payload>plain</payload></row></root>";
+        let cancel = Arc::new(AtomicBool::new(false));
+        let rows = walk_xml_to_rows(xml, "root/row", &cancel).unwrap();
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0]["payload"], json!("{\"a\":1}"), "CDATA content must be captured");
+        assert_eq!(rows[0]["id"], json!("1"));
+        assert_eq!(rows[1]["payload"], json!("plain"), "plain text still works");
+    }
 
     #[test]
     fn avro_field_is_nullable_union_inferred_past_leading_null() {
