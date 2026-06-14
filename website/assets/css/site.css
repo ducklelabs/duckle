@@ -117,8 +117,10 @@ p { margin: 0 0 1em; color: var(--ink-2); }
 .btn { display: inline-flex; align-items: center; gap: 9px; font-weight: 640; font-size: .97rem; padding: 12px 20px; border-radius: var(--radius-sm); border: 1px solid transparent; cursor: pointer; transition: transform .12s, box-shadow .18s, background .18s, border-color .18s; white-space: nowrap; }
 .btn:hover { text-decoration: none; transform: translateY(-1px); }
 .btn svg { width: 17px; height: 17px; }
-.btn-primary { background: var(--lemon); color: #0a0a0a; border-color: var(--lemon); box-shadow: 0 6px 18px rgba(255, 220, 0, .3); }
-.btn-primary:hover { background: #ffd400; border-color: #ffd400; box-shadow: 0 12px 30px rgba(255, 215, 0, .5); transform: translateY(-2px); }
+.btn-primary { background: #171717; color: var(--lemon); border-color: #171717; box-shadow: 0 6px 18px rgba(0, 0, 0, .22); }
+.btn-primary:hover { background: #000; }
+:root[data-theme="dark"] .btn-primary { background: var(--lemon); color: #0a0a0a; border-color: var(--lemon); box-shadow: 0 6px 18px rgba(255, 220, 0, .28); }
+:root[data-theme="dark"] .btn-primary:hover { background: #ffd400; }
 .btn-ghost { background: var(--panel); color: var(--ink); border-color: var(--border-2); box-shadow: var(--shadow-sm); }
 .btn-ghost:hover { background: var(--bg-2); }
 .btn-lg { padding: 15px 28px; font-size: 1.04rem; }
