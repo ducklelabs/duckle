@@ -3477,6 +3477,14 @@ function synthRoutingControl(comp: ComponentDef): ComponentManifest {
                 required: true,
                 description: 'How many times to run the child pipeline.',
             });
+        } else {
+            fields.push({
+                key: 'concurrency',
+                label: 'Concurrency',
+                kind: 'integer',
+                defaultValue: 1,
+                description: 'How many rows to process at the same time. 1 runs sequentially; higher overlaps slow per-row work (e.g. a cloud sink that re-connects each run). Each row still runs in isolation.',
+            });
         }
         return base(comp, [{ label: isIterate ? 'Iterate' : 'For each row', fields }], 'upstream');
     }

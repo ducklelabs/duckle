@@ -129,8 +129,15 @@ pub(crate) fn procedural_note(s: &plan::Stage) -> String {
             "control step: runs sub-pipeline '{}' x{} (ctl.iterate)",
             path, count
         )
-    } else if let Some(RuntimeSpec::Foreach(p)) = s.runtime.as_ref() {
-        format!("control step: runs sub-pipeline '{}' once per upstream row (ctl.foreach)", p)
+    } else if let Some(RuntimeSpec::Foreach { path, concurrency }) = s.runtime.as_ref() {
+        if *concurrency > 1 {
+            format!(
+                "control step: runs sub-pipeline '{}' once per upstream row, up to {} at a time (ctl.foreach)",
+                path, concurrency
+            )
+        } else {
+            format!("control step: runs sub-pipeline '{}' once per upstream row (ctl.foreach)", path)
+        }
     } else if let Some(RuntimeSpec::Parallelize(spec)) = s.runtime.as_ref() {
         format!(
             "control step: runs {} downstream branch(es) in parallel",

@@ -31289,6 +31289,13 @@
                 "kind": "pipeline-ref",
                 "required": true,
                 "description": "Child pipeline, run once per upstream row. Use ${ITER_ITEM_<COLUMN>} (uppercased) and ${ITER_INDEX} inside it."
+              },
+              {
+                "key": "concurrency",
+                "label": "Concurrency",
+                "kind": "integer",
+                "defaultValue": 1,
+                "description": "How many rows to process at the same time. 1 runs sequentially; higher overlaps slow per-row work (e.g. a cloud sink that re-connects each run). Each row still runs in isolation."
               }
             ]
           }

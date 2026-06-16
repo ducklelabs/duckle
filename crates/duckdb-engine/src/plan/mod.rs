@@ -86,7 +86,10 @@ pub enum RuntimeSpec {
     },
     InstallFallback(String),
     Iterate { path: String, count: u64 },
-    Foreach(String),
+    /// Run `path` once per upstream row. `concurrency` > 1 runs the per-row
+    /// children in bounded concurrent waves (each in its own temp DB); 1 is
+    /// the default sequential behaviour.
+    Foreach { path: String, concurrency: usize },
     Parallelize(ParallelizeSpec),
     /// ctl.log / ctl.warn: emit a log line at `level` ("info" / "warn")
     /// then pass the upstream through. `{rows}` in the message is replaced
@@ -538,6 +541,7 @@ fn build_stage(
     let mut iterate_pipeline_path: Option<String> = None;
     let mut iterate_count: Option<u64> = None;
     let mut foreach_pipeline_path: Option<String> = None;
+    let mut foreach_concurrency: usize = 1;
     // (level, message) for ctl.log / ctl.warn; (message, condition) for ctl.die.
     let mut log_spec: Option<(String, String)> = None;
     let mut die_spec: Option<(String, String)> = None;
@@ -1478,6 +1482,17 @@ fn build_stage(
             .ok_or_else(|| EngineError::Config(format!("{}: pipelineRef required", component_id)))?;
         let from_view = inputs.main().ok_or_else(|| missing_input(node, "main"))?;
         foreach_pipeline_path = Some(path);
+        // Optional: run the per-row children concurrently. Default 1 keeps the
+        // existing sequential behaviour. Accepts a JSON number or a numeric
+        // string (the form stores it as text).
+        foreach_concurrency = props
+            .get("concurrency")
+            .and_then(|v| {
+                v.as_u64()
+                    .or_else(|| v.as_str().and_then(|s| s.trim().parse::<u64>().ok()))
+            })
+            .unwrap_or(1)
+            .max(1) as usize;
         let sql = passthrough_view_sql(&node.id, from_view);
         (sql, StageKind::View, Some(from_view.to_string()))
     } else if component_id == "ctl.try" {
@@ -3219,7 +3234,8 @@ fn build_stage(
         .or_else(|| install_fallback_path.map(RuntimeSpec::InstallFallback))
         .or_else(|| iterate_pipeline_path
             .map(|path| RuntimeSpec::Iterate { path, count: iterate_count.unwrap_or(0) }))
-        .or_else(|| foreach_pipeline_path.map(RuntimeSpec::Foreach))
+        .or_else(|| foreach_pipeline_path
+            .map(|path| RuntimeSpec::Foreach { path, concurrency: foreach_concurrency }))
         .or_else(|| log_spec.map(|(level, message)| RuntimeSpec::Log { level, message }))
         .or_else(|| die_spec.map(|(message, condition)| RuntimeSpec::Die { message, condition }))
         .or_else(|| incremental.map(RuntimeSpec::Incremental))

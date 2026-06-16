@@ -647,7 +647,9 @@ impl DuckdbEngine {
                 }
                 // ctl.foreach: read upstream rows, run the sub-pipeline
                 // once per row with ${ITER_ITEM_<FIELD>} substitutions.
-                if let Some(RuntimeSpec::Foreach(each_path)) = stage.runtime.as_ref() {
+                if let Some(RuntimeSpec::Foreach { path: each_path, concurrency }) =
+                    stage.runtime.as_ref()
+                {
                     // Materialize upstream first if it isn't already
                     // (the stage's own pass-through SQL runs *after*
                     // these hooks, so the upstream view is what we
@@ -666,28 +668,78 @@ impl DuckdbEngine {
                             continue;
                         }
                     };
+                    // Build each row's ${ITER_*} substitution map up front.
+                    let per_row: Vec<std::collections::HashMap<String, String>> = rows
+                        .iter()
+                        .enumerate()
+                        .map(|(i, row)| {
+                            let mut subs = std::collections::HashMap::new();
+                            subs.insert("ITER_INDEX".to_string(), i.to_string());
+                            if let Some(obj) = row.as_object() {
+                                for (k, v) in obj {
+                                    let val_str = v
+                                        .as_str()
+                                        .map(String::from)
+                                        .unwrap_or_else(|| v.to_string());
+                                    subs.insert(format!("ITER_ITEM_{}", k.to_uppercase()), val_str);
+                                }
+                            }
+                            subs
+                        })
+                        .collect();
+
                     let mut each_err: Option<String> = None;
-                    for (i, row) in rows.iter().enumerate() {
-                        let mut subs = std::collections::HashMap::new();
-                        subs.insert("ITER_INDEX".to_string(), i.to_string());
-                        if let Some(obj) = row.as_object() {
-                            for (k, v) in obj {
-                                let val_str = v
-                                    .as_str()
-                                    .map(String::from)
-                                    .unwrap_or_else(|| v.to_string());
-                                subs.insert(
-                                    format!("ITER_ITEM_{}", k.to_uppercase()),
-                                    val_str,
-                                );
+                    if *concurrency <= 1 {
+                        // Sequential: stop at the first failing row.
+                        for (i, subs) in per_row.iter().enumerate() {
+                            if let Err(e) = self.run_subpipeline_with_subs(each_path, subs) {
+                                each_err =
+                                    Some(format!("ctl.foreach({})[row {}]: {}", each_path, i, e));
+                                break;
                             }
                         }
-                        if let Err(e) = self.run_subpipeline_with_subs(each_path, &subs) {
-                            each_err = Some(format!(
-                                "ctl.foreach({})[row {}]: {}",
-                                each_path, i, e
-                            ));
-                            break;
+                    } else {
+                        // Concurrent: run the per-row children in bounded waves,
+                        // each on its own thread (and its own temp DB via
+                        // run_subpipeline_with_subs -> execute_pipeline). Rows
+                        // write to independent targets, so there is no shared
+                        // write state. Report the first error by row index.
+                        let wave = (*concurrency).min(per_row.len().max(1));
+                        'waves: for chunk in per_row.chunks(wave) {
+                            let mut handles = Vec::with_capacity(chunk.len());
+                            for subs in chunk {
+                                let engine = self.clone();
+                                let path = each_path.clone();
+                                let subs = subs.clone();
+                                let idx = subs
+                                    .get("ITER_INDEX")
+                                    .cloned()
+                                    .unwrap_or_default();
+                                handles.push(std::thread::spawn(move || {
+                                    engine
+                                        .run_subpipeline_with_subs(&path, &subs)
+                                        .map_err(|e| (idx, e))
+                                }));
+                            }
+                            for h in handles {
+                                match h.join() {
+                                    Ok(Ok(())) => {}
+                                    Ok(Err((idx, e))) => {
+                                        each_err = Some(format!(
+                                            "ctl.foreach({})[row {}]: {}",
+                                            each_path, idx, e
+                                        ));
+                                        break 'waves;
+                                    }
+                                    Err(_) => {
+                                        each_err = Some(format!(
+                                            "ctl.foreach({}): a child thread panicked",
+                                            each_path
+                                        ));
+                                        break 'waves;
+                                    }
+                                }
+                            }
                         }
                     }
                     if let Some(e) = each_err {
