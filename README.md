@@ -342,6 +342,7 @@ Every node has an **Advanced** tab with fields the engine honours at run time:
 | **Retry backoff (ms)** | Inter-attempt sleep, linearly scaled by attempt index. |
 | **Memory limit (MB)** | `PRAGMA memory_limit` applied to this stage only. |
 | **Log row count** | Print the post-stage rowcount to the run output. |
+| **Materialize** | `auto` (view for a single consumer, table for several), `view` (lazy even with several consumers), or `table` (read once, held in the run database). Pick `table` to scan an expensive source only once when a downstream split (e.g. a validator with its reject port wired) would otherwise re-read it. |
 
 ### Orchestration and workspace
 
@@ -911,6 +912,7 @@ A few knobs you can set without touching code.
 | **AI Assistant baseURL** | `xf.ai.llm` / `xf.ai.embed` / `xf.ai.classify` props | Point at any OpenAI-compatible endpoint (default: Duckie's local llama-server) |
 | **Per-stage retry** | Properties panel -> Advanced tab | Total attempts + linear-scaled backoff per stage |
 | **Per-stage memory cap** | Properties panel -> Advanced tab | `PRAGMA memory_limit` applied just to that stage |
+| **Per-stage materialize** | Properties panel -> Advanced tab | Force a step to a lazy `view` or a read-once `table`, or leave it on `auto` |
 | **DuckDB extensions** | Pre-fetched at install; lazy-loaded for `spatial` | See [First-launch extension pre-fetch](#first-launch-extension-pre-fetch) |
 | **Env var `RUST_LOG`** | Before launching the binary | `RUST_LOG=debug duckle.exe` to see verbose engine logs |
 | **Env var `DUCKLE_DUCKDB_BIN`** | Before running engine tests | Points the integration test suite at a DuckDB CLI |

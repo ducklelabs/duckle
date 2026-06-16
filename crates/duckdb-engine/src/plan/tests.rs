@@ -479,6 +479,117 @@
     }
 
     #[test]
+    fn source_feeding_reject_wired_filter_materializes_once() {
+        // A source feeding a filter/validator whose reject port is wired is read
+        // TWICE (the pass body and the reject body both `SELECT ... FROM src`).
+        // It must materialize as a TABLE so an expensive source (read_csv_auto /
+        // read_json_auto) is scanned once, not re-evaluated for each side
+        // (darekdan: "the source will be processed twice").
+        let p = pipeline_from_json(
+            r#"{
+              "nodes": [
+                {"id":"s1","position":{"x":0,"y":0},"data":{
+                  "label":"CSV","componentId":"src.csv",
+                  "properties":{"path":"/tmp/orders.csv","hasHeader":true}}},
+                {"id":"f1","position":{"x":0,"y":0},"data":{
+                  "label":"Filter","componentId":"xf.filter",
+                  "properties":{"predicate":"status = 'paid'"}}},
+                {"id":"k1","position":{"x":0,"y":0},"data":{
+                  "label":"Pass","componentId":"snk.parquet",
+                  "properties":{"path":"/tmp/pass.parquet"}}},
+                {"id":"k2","position":{"x":0,"y":0},"data":{
+                  "label":"Rejected","componentId":"snk.parquet",
+                  "properties":{"path":"/tmp/rej.parquet"}}}
+              ],
+              "edges": [
+                {"id":"e1","source":"s1","target":"f1","data":{"connectionType":"main"}},
+                {"id":"e2","source":"f1","target":"k1","data":{"connectionType":"main"}},
+                {"id":"e3","source":"f1","sourceHandle":"reject","target":"k2","data":{"connectionType":"main"}}
+              ]
+            }"#,
+        );
+        let compiled = compile(&p).unwrap();
+        let src = compiled
+            .stages
+            .iter()
+            .find(|s| s.node_id == "s1")
+            .expect("source stage");
+        assert!(
+            src.sql.contains("CREATE OR REPLACE TABLE \"s1\""),
+            "source feeding a reject-wired filter must materialize once as a TABLE, got: {}",
+            src.sql
+        );
+    }
+
+    #[test]
+    fn materialize_table_override_forces_table_for_single_consumer() {
+        // materialize=table forces a materialized TABLE even when the node has a
+        // single consumer (which would default to a lazy VIEW).
+        let p = pipeline_from_json(
+            r#"{
+              "nodes": [
+                {"id":"s1","position":{"x":0,"y":0},"data":{
+                  "label":"CSV","componentId":"src.csv",
+                  "properties":{"path":"/tmp/orders.csv","hasHeader":true,"materialize":"table"}}},
+                {"id":"k1","position":{"x":0,"y":0},"data":{
+                  "label":"Out","componentId":"snk.parquet",
+                  "properties":{"path":"/tmp/out.parquet"}}}
+              ],
+              "edges": [
+                {"id":"e1","source":"s1","target":"k1","data":{"connectionType":"main"}}
+              ]
+            }"#,
+        );
+        let compiled = compile(&p).unwrap();
+        let src = compiled
+            .stages
+            .iter()
+            .find(|s| s.node_id == "s1")
+            .expect("source stage");
+        assert!(
+            src.sql.contains("CREATE OR REPLACE TABLE \"s1\""),
+            "materialize=table must force a TABLE for a single consumer, got: {}",
+            src.sql
+        );
+    }
+
+    #[test]
+    fn materialize_view_override_keeps_view_with_multiple_consumers() {
+        // materialize=view forces a lazy VIEW even when 2+ consumers would
+        // otherwise materialize it as a TABLE (per-node DUCKLE_FORCE_VIEWS).
+        let p = pipeline_from_json(
+            r#"{
+              "nodes": [
+                {"id":"s1","position":{"x":0,"y":0},"data":{
+                  "label":"CSV","componentId":"src.csv",
+                  "properties":{"path":"/tmp/orders.csv","hasHeader":true,"materialize":"view"}}},
+                {"id":"k1","position":{"x":0,"y":0},"data":{
+                  "label":"A","componentId":"snk.parquet",
+                  "properties":{"path":"/tmp/a.parquet"}}},
+                {"id":"k2","position":{"x":0,"y":0},"data":{
+                  "label":"B","componentId":"snk.parquet",
+                  "properties":{"path":"/tmp/b.parquet"}}}
+              ],
+              "edges": [
+                {"id":"e1","source":"s1","target":"k1","data":{"connectionType":"main"}},
+                {"id":"e2","source":"s1","target":"k2","data":{"connectionType":"main"}}
+              ]
+            }"#,
+        );
+        let compiled = compile(&p).unwrap();
+        let src = compiled
+            .stages
+            .iter()
+            .find(|s| s.node_id == "s1")
+            .expect("source stage");
+        assert!(
+            src.sql.contains("CREATE OR REPLACE VIEW \"s1\""),
+            "materialize=view must keep a VIEW even with multiple consumers, got: {}",
+            src.sql
+        );
+    }
+
+    #[test]
     fn cdc_diff_requires_compare_columns() {
         // Regression (audit B3): without compareColumns, build_cdc_diff's
         // `updated` arm is empty so every changed row is tagged 'unchanged'

@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import type { Edge, Node } from '@xyflow/react';
 import { CheckCircle2, ChevronLeft, ChevronRight, MousePointer2, Workflow } from 'lucide-react';
 import { resolveUpstreamSchema, resolveUpstreamSampleRows } from '../schema-resolve';
+import { buildContextVars, substituteDeep } from '../run-resolve';
 import type { Column, DuckleNodeData } from '../pipeline-types';
 import type {
     ConnectionPayload,
@@ -50,6 +51,18 @@ const ADVANCED_FIELDS: Field[] = [
         kind: 'bool',
         defaultValue: false,
         description: 'Print the post-stage row count to the run output (descriptive; row counts already surface in node badges).',
+    },
+    {
+        key: 'materialize',
+        label: 'Materialize',
+        kind: 'select',
+        defaultValue: 'auto',
+        options: [
+            { label: 'Auto (view if one consumer, table if several)', value: 'auto' },
+            { label: 'View (lazy, may re-scan the source)', value: 'view' },
+            { label: 'Table (read once, held in the run database)', value: 'table' },
+        ],
+        description: 'How this step is stored. Auto uses a view for a single consumer and a table when several steps read it. Pick Table to read an expensive source only once when a downstream split (e.g. a validator with its reject port wired) would otherwise scan it twice. Pick View to keep it lazy even with several consumers.',
     },
 ];
 
@@ -205,7 +218,15 @@ export default function PropertiesPanel({
         if (!manifest?.autodetect) return;
         setAutodetecting(true);
         try {
-            const result = await manifest.autodetect(data.properties ?? {});
+            // Resolve ${context} variables the same way the run path does, so a
+            // context-bound value (e.g. a Path set to ${DUCKLE_PATH}) is
+            // inspectable. Without this, autodetect sends the raw placeholder to
+            // the engine and fails with "No files found that match the pattern
+            // ${DUCKLE_PATH}" - the path's contents (including spaces) are
+            // irrelevant; it is the unsubstituted placeholder that breaks.
+            const vars = buildContextVars(repoItems);
+            const resolvedProps = substituteDeep(data.properties ?? {}, vars) as Record<string, unknown>;
+            const result = await manifest.autodetect(resolvedProps);
             onUpdate(selected.id, {
                 schema: result.columns,
                 sampleRows: result.sampleRows,

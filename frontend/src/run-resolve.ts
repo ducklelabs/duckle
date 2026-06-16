@@ -52,7 +52,7 @@ function substituteString(value: string, vars: Record<string, string>): string {
     });
 }
 
-function substituteDeep(value: unknown, vars: Record<string, string>): unknown {
+export function substituteDeep(value: unknown, vars: Record<string, string>): unknown {
     if (typeof value === 'string') return substituteString(value, vars);
     if (Array.isArray(value)) return value.map(v => substituteDeep(v, vars));
     if (value && typeof value === 'object') {

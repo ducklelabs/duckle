@@ -251,6 +251,18 @@ pub fn compile(pipeline: &PipelineDoc) -> Result<CompiledPipeline, EngineError> 
     // skips an intermediate materialize-to-disk. A node with multiple
     // consumers gets materialized so each consumer reads it once
     // instead of re-evaluating the chain.
+    // A node whose reject output is wired (a filter / quality validator with
+    // its reject port connected) reads its main input TWICE: once for the pass
+    // body (`... WHERE pred`) and once for the reject body (`... WHERE NOT
+    // pred`) - see build_quality / build_filter. Count such a consumer as two
+    // so the upstream materializes as a TABLE and an expensive source (e.g.
+    // read_json_auto) is scanned once instead of re-evaluated for each side.
+    let mut reject_wired: std::collections::HashSet<&str> = std::collections::HashSet::new();
+    for edge in &data_edges {
+        if matches!(edge.source_handle.as_deref(), Some("reject") | Some("filter")) {
+            reject_wired.insert(edge.source.as_str());
+        }
+    }
     let mut consumer_count: HashMap<String, usize> = HashMap::new();
     for edge in &data_edges {
         let port = edge
@@ -261,7 +273,12 @@ pub fn compile(pipeline: &PipelineDoc) -> Result<CompiledPipeline, EngineError> 
         // Resolve which materialized table this edge actually reads, based
         // on the SOURCE node's output handle (main vs reject).
         let source_ref = output_table_ref(&edge.source, edge.source_handle.as_deref());
-        *consumer_count.entry(source_ref.clone()).or_insert(0) += 1;
+        let weight = if port_key == "main" && reject_wired.contains(edge.target.as_str()) {
+            2
+        } else {
+            1
+        };
+        *consumer_count.entry(source_ref.clone()).or_insert(0) += weight;
         inputs
             .entry(edge.target.as_str())
             .or_default()
@@ -3066,8 +3083,24 @@ fn build_stage(
         // the other external sources (Oracle / SQL Server / ADBC) already
         // behave. (Sinks take a different path and are unaffected.)
         let attach_backed = !attach.is_empty();
+        // Per-stage materialization override (Properties > Advanced > Materialize).
+        // "view" forces a lazy VIEW even with several consumers (DUCKLE_FORCE_VIEWS
+        // scoped to one node); "table" (also "memory" / "disk") forces a
+        // materialized TABLE so an expensive source is read once even when a
+        // single downstream split would otherwise re-scan it. The run database is
+        // on-disk, so a TABLE is buffered in RAM and spills under memory pressure.
+        // "auto" (default) keeps the single-consumer => VIEW, multi => TABLE policy.
+        let materialize = props
+            .get("materialize")
+            .and_then(|v| v.as_str())
+            .unwrap_or("auto");
+        let forced_view = force_views || materialize == "view";
+        let forced_table = matches!(materialize, "table" | "memory" | "disk");
         let view_ok = |consumers: usize| {
-            !uses_dynamic_pivot && !attach_backed && (force_views || consumers <= 1)
+            !uses_dynamic_pivot
+                && !attach_backed
+                && !forced_table
+                && (forced_view || consumers <= 1)
         };
         let main_kw = if view_ok(main_consumers) { "VIEW" } else { "TABLE" };
         // Remote / catalog sources that exactly one stage consumes: COPY the
