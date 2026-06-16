@@ -1215,6 +1215,7 @@ function synthWarehouseSource(comp: ComponentDef): ComponentManifest {
                     { key: 'privateKeyPath', label: 'PEM private key path (JWT mode)', kind: 'file-path' },
                     { key: 'warehouse', label: 'Warehouse', kind: 'text', placeholder: 'compute_wh' },
                     { key: 'role', label: 'Role', kind: 'text', placeholder: 'analyst' },
+                    { key: 'endpoint', label: 'SQL API endpoint (override)', kind: 'text', placeholder: 'https://<account>.snowflakecomputing.com/api/v2/statements' },
                 ],
             },
             {
@@ -1519,7 +1520,15 @@ function synthWarehouseSink(comp: ComponentDef): ComponentManifest {
                             { label: 'Create or replace', value: 'overwrite' },
                             { label: 'Append (insert)', value: 'append' },
                             { label: 'Truncate + insert', value: 'truncate' },
+                            { label: 'Upsert (delete-by-key + re-insert)', value: 'upsert' },
                         ],
+                        description: 'Upsert deletes rows matching the conflict columns, then re-inserts (issue #19).',
+                    },
+                    {
+                        key: 'conflictColumns',
+                        label: 'Conflict columns (upsert key)',
+                        kind: 'columns',
+                        description: 'Key columns to match on for Upsert. Required when Write mode is Upsert.',
                     },
                 ],
             },
