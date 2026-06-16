@@ -46,6 +46,7 @@ import { engineStatus } from './tauri-bridge';
 import { copyText, saveTextFile } from './tauri-io';
 import { writeClipboard, readClipboard, instantiateClipboard } from './clipboard';
 import { RunStatusContext } from './canvas/run-status-context';
+import { layoutByDependency } from './canvas/layout';
 import { validatePipeline } from './validation';
 import { resolveForRun } from './run-resolve';
 import WorkspacePickerModal from './workflow-ui/WorkspacePickerModal';
@@ -1286,14 +1287,9 @@ export default function App() {
     }, [importFromText]);
 
     const handleAutoLayout = useCallback(() => {
-        setNodes(ns =>
-            ns.map((n, i) => ({
-                ...n,
-                position: { x: 60 + i * 280, y: 140 },
-            })),
-        );
+        setNodes(ns => layoutByDependency(ns, edges));
         markDirty();
-    }, [setNodes, markDirty]);
+    }, [setNodes, edges, markDirty]);
 
     const handleDropComponent = useCallback(
         (component: ComponentDef, position: DropPosition) => {
