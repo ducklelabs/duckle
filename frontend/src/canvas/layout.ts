@@ -1,13 +1,25 @@
 import type { Edge, Node } from '@xyflow/react';
 import type { DuckleNodeData } from '../pipeline-types';
 
-// Node cards are min-width 220px and grow with longer labels, so leave a wide
-// horizontal gap between dependency levels for the edges and side connectors to
-// breathe, plus a generous vertical gap between siblings sharing a level.
-const RANK_GAP_X = 460; // horizontal distance between dependency levels
+// Node cards are min-width 220px and grow with longer labels. Horizontal
+// placement accounts for each column's actual rendered width (issue #36: a long
+// source-file label widens the node, and a fixed center-to-center gap let it
+// crowd / overlap the next column). COL_GAP is the constant empty space left
+// between a column's right edge and the next column's left edge - for edges and
+// side connectors to breathe - so the gap stays consistent regardless of label
+// length. NODE_GAP_Y is the vertical gap between siblings sharing a level.
+const COL_GAP = 200; // horizontal breathing room between dependency levels
 const NODE_GAP_Y = 210; // vertical distance between nodes sharing a level
 const ORIGIN_X = 80;
 const ORIGIN_Y = 140;
+const DEFAULT_NODE_W = 240; // fallback when a node hasn't been measured yet
+
+// Rendered width of a node, preferring the live measured width and falling
+// back to the persisted measured width, then a sensible default.
+function nodeWidth(n: Node<DuckleNodeData>): number {
+    const measured = (n.measured?.width ?? n.width) as number | undefined;
+    return measured && measured > 0 ? measured : DEFAULT_NODE_W;
+}
 
 /**
  * Arrange nodes left-to-right by dependency depth so the canvas reads in the
@@ -77,6 +89,25 @@ export function layoutByDependency(
         list.forEach((id, i) => indexInRank.set(id, i));
     }
 
+    // Each column's left x is the previous column's left x plus that column's
+    // widest node plus COL_GAP, so wide nodes push later columns right instead
+    // of overlapping them. Ranks are walked in ascending order; gaps in the
+    // rank sequence (possible after cycle-parking) are handled by iterating the
+    // sorted present ranks.
+    const byId = new Map(nodes.map(n => [n.id, n] as const));
+    const maxWidthByRank = new Map<number, number>();
+    for (const [r, list] of byRank) {
+        let w = DEFAULT_NODE_W;
+        for (const id of list) w = Math.max(w, nodeWidth(byId.get(id)!));
+        maxWidthByRank.set(r, w);
+    }
+    const rankX = new Map<number, number>();
+    let x = ORIGIN_X;
+    for (const r of [...byRank.keys()].sort((a, b) => a - b)) {
+        rankX.set(r, x);
+        x += maxWidthByRank.get(r)! + COL_GAP;
+    }
+
     return nodes.map(n => {
         const r = rank.get(n.id)!;
         const i = indexInRank.get(n.id)!;
@@ -84,7 +115,7 @@ export function layoutByDependency(
         return {
             ...n,
             position: {
-                x: ORIGIN_X + r * RANK_GAP_X,
+                x: rankX.get(r)!,
                 y: ORIGIN_Y + (i - (count - 1) / 2) * NODE_GAP_Y,
             },
         };
