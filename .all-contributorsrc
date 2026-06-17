@@ -23,6 +23,17 @@
         "infra",
         "test"
       ]
+    },
+    {
+      "login": "ssnowball",
+      "name": "Steven Snowball",
+      "avatar_url": "https://avatars.githubusercontent.com/u/10828099?v=4",
+      "profile": "https://github.com/ssnowball",
+      "contributions": [
+        "infra",
+        "test",
+        "code"
+      ]
     }
   ]
 }
