@@ -88,7 +88,7 @@ rskafka = "0.5"
 # Apache Avro container-file reader/writer. Pure Rust. Pairs with
 # Kafka topics that publish Avro-encoded payloads, and reads the
 # .avro / .ocf files that exporters drop on object storage.
-apache-avro = "0.17"
+apache-avro = "0.21"
 # NATS / JetStream. Pure-Rust client by the NATS team.
 async-nats = "0.37"
 # XML reader/writer. Used by src.xml (walks a row path, emits each
@@ -174,7 +174,7 @@ rand = "0.8"
 # Re-imported as a dev-dep so the integration tests can call its
 # Writer to build a small .avro file inline before reading it back
 # through src.avro. Same version as the lib dep above.
-apache-avro = "0.17"
+apache-avro = "0.21"
 # Re-imported so src.clipboard tests can write a known payload to the
 # system clipboard before running the pipeline. Same backend as the
 # lib dep -> writer and reader agree on the OS clipboard format.
