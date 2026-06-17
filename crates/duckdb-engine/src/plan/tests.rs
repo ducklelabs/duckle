@@ -2015,6 +2015,7 @@
             "snk.sqlite",
             &serde_json::json!({"tableName": "t", "mode": "appnd"}),
             "v",
+            &[],
         )
         .unwrap_err();
         assert!(
@@ -2027,6 +2028,7 @@
             "snk.sqlite",
             &serde_json::json!({"tableName": "t", "mode": "overwrite"}),
             "v",
+            &[],
         )
         .unwrap();
         assert!(ok.contains("DROP TABLE IF EXISTS"), "overwrite stays a recreate, got: {}", ok);
@@ -2042,6 +2044,7 @@
             "snk.motherduck",
             &serde_json::json!({"database": "my_db", "tableName": "process_ledger", "mode": "append"}),
             "v",
+            &[],
         )
         .unwrap();
         assert!(
@@ -2053,6 +2056,57 @@
     }
 
     #[test]
+    fn merge_mode_emits_partial_column_merge() {
+        // Issue #39: merge updates only non-key columns the source carries and
+        // inserts new rows; the key column is never in the UPDATE SET.
+        let sql = build_sink_sql(
+            "snk.duckdb",
+            &serde_json::json!({"tableName": "t", "mode": "merge", "conflictColumns": ["k"]}),
+            "v",
+            &["k".to_string(), "a".to_string(), "b".to_string()],
+        )
+        .unwrap();
+        assert!(sql.contains("MERGE INTO"), "got: {}", sql);
+        assert!(sql.contains("ON (tgt.\"k\" = src.\"k\")"), "got: {}", sql);
+        // The UPDATE SET lists exactly the non-key columns (the key is matched
+        // on, never updated).
+        assert!(
+            sql.contains("WHEN MATCHED THEN UPDATE SET \"a\" = src.\"a\", \"b\" = src.\"b\" WHEN NOT MATCHED"),
+            "UPDATE SET must list only the non-key columns, got: {}",
+            sql
+        );
+        assert!(
+            sql.contains("WHEN NOT MATCHED THEN INSERT (\"k\", \"a\", \"b\") VALUES (src.\"k\", src.\"a\", src.\"b\")"),
+            "INSERT must list all source columns, got: {}",
+            sql
+        );
+    }
+
+    #[test]
+    fn merge_mode_rejected_for_non_duckdb_target() {
+        let err = build_sink_sql(
+            "snk.postgres",
+            &serde_json::json!({"tableName": "t", "mode": "merge", "conflictColumns": ["k"]}),
+            "v",
+            &["k".to_string(), "a".to_string()],
+        )
+        .unwrap_err();
+        assert!(err.to_string().contains("merge"), "got: {:?}", err);
+    }
+
+    #[test]
+    fn merge_mode_needs_input_columns() {
+        let err = build_sink_sql(
+            "snk.duckdb",
+            &serde_json::json!({"tableName": "t", "mode": "merge", "conflictColumns": ["k"]}),
+            "v",
+            &[],
+        )
+        .unwrap_err();
+        assert!(err.to_string().contains("input columns"), "got: {:?}", err);
+    }
+
+    #[test]
     fn db_sink_upsert_rejects_empty_conflict_columns() {
         // audit pass-3: conflictColumns=[""] used to pass the length-based
         // guard and emit a zero-length quoted identifier. The empty entry is
@@ -2061,6 +2115,7 @@
             "snk.sqlite",
             &serde_json::json!({"tableName": "t", "mode": "upsert", "conflictColumns": ["", "  "]}),
             "v",
+            &[],
         )
         .unwrap_err();
         assert!(

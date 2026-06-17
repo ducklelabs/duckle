@@ -25423,9 +25423,13 @@
                   {
                     "label": "Upsert (delete-by-key + re-insert)",
                     "value": "upsert"
+                  },
+                  {
+                    "label": "Merge (update only provided columns)",
+                    "value": "merge"
                   }
                 ],
-                "description": "Upsert deletes rows matching the conflict columns, then re-inserts (issue #19)."
+                "description": "Upsert deletes rows matching the conflict columns, then re-inserts (issue #19). Merge updates only the columns the source provides, leaving other target columns untouched (issue #39)."
               },
               {
                 "key": "conflictColumns",
@@ -26458,9 +26462,13 @@
                   {
                     "label": "Upsert (MERGE on key)",
                     "value": "upsert"
+                  },
+                  {
+                    "label": "Merge (update only provided columns)",
+                    "value": "merge"
                   }
                 ],
-                "description": "Upsert runs a MERGE: update rows that match the conflict columns, insert the rest."
+                "description": "Upsert replaces whole rows (delete-by-key + re-insert). Merge updates only the columns the source provides and inserts new rows, leaving other target columns untouched (issue #39)."
               },
               {
                 "key": "conflictColumns",
@@ -26585,9 +26593,13 @@
                   {
                     "label": "Upsert (MERGE on key)",
                     "value": "upsert"
+                  },
+                  {
+                    "label": "Merge (update only provided columns)",
+                    "value": "merge"
                   }
                 ],
-                "description": "Upsert runs a MERGE: update rows that match the conflict columns, insert the rest."
+                "description": "Upsert replaces whole rows (delete-by-key + re-insert). Merge updates only the columns the source provides and inserts new rows, leaving other target columns untouched (issue #39)."
               },
               {
                 "key": "conflictColumns",
@@ -26951,9 +26963,13 @@
                   {
                     "label": "Upsert (delete-by-key + re-insert)",
                     "value": "upsert"
+                  },
+                  {
+                    "label": "Merge (update only provided columns)",
+                    "value": "merge"
                   }
                 ],
-                "description": "Upsert deletes rows matching the conflict columns, then re-inserts (issue #19)."
+                "description": "Upsert deletes rows matching the conflict columns, then re-inserts (issue #19). Merge updates only the columns the source provides, leaving other target columns untouched (issue #39)."
               },
               {
                 "key": "conflictColumns",

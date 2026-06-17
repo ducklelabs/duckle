@@ -3393,10 +3393,125 @@ pub(crate) fn build_relational_source(component_id: &str, props: &JsonValue) -> 
 /// MariaDB). Only `overwrite` (DROP + CREATE) is wired today; append /
 /// upsert / truncate / error-if-exists error loudly rather than
 /// pretending to apply. Writes inside the ATTACHed `duckle_dst` DB.
+/// DuckDB-native targets whose attached connection executes DuckDB's
+/// `MERGE INTO` (the "merge" write mode, issue #39). The Postgres / MySQL /
+/// Redshift / BigQuery families are excluded: they run through DuckDB's
+/// scanner extensions, which do not push a MERGE, so they keep the
+/// DELETE + INSERT "upsert" mode.
+pub(crate) fn supports_merge(component_id: &str) -> bool {
+    matches!(
+        component_id,
+        "snk.duckdb" | "snk.sqlite" | "snk.motherduck" | "snk.ducklake" | "snk.quack"
+    )
+}
+
+/// Build a DuckDB `MERGE INTO` for the "merge" write mode: a partial-column
+/// upsert that UPDATEs only the columns the source actually carries (leaving
+/// every other target column untouched) and INSERTs new rows by the source's
+/// columns. Unlike "upsert" (DELETE-by-key + re-INSERT, which nulls absent
+/// columns), this preserves columns the source does not provide - the use case
+/// in issue #39. `target` is the already-qualified+quoted target table;
+/// `from_quoted` is the quoted source view; `cols` is the source column list
+/// (from the sink's input schema).
+fn build_merge_stmt(
+    component_id: &str,
+    target: &str,
+    from_quoted: &str,
+    props: &JsonValue,
+    cols: &[String],
+) -> Result<String, EngineError> {
+    let keys = columns_list(props, "conflictColumns");
+    if keys.is_empty() {
+        return Err(EngineError::Config(format!(
+            "{}: merge needs at least one conflict (key) column",
+            component_id
+        )));
+    }
+    if cols.is_empty() {
+        return Err(EngineError::Config(format!(
+            "{}: merge needs to know the input columns - connect the source so its schema is available, or use the 'upsert' mode",
+            component_id
+        )));
+    }
+    let del_col = string_prop(props, "deleteColumn").filter(|s| !s.is_empty());
+    let del_val = string_prop(props, "deleteValue").unwrap_or_else(|| "delete".into());
+    // Data columns = source columns minus the optional delete-flag control column.
+    let data_cols: Vec<&str> = cols
+        .iter()
+        .map(|c| c.as_str())
+        .filter(|c| del_col.as_deref() != Some(c))
+        .collect();
+    for k in &keys {
+        if !data_cols.iter().any(|c| *c == k.as_str()) {
+            return Err(EngineError::Config(format!(
+                "{}: merge key column '{}' is not among the input columns",
+                component_id, k
+            )));
+        }
+    }
+    let on = keys
+        .iter()
+        .map(|k| format!("tgt.{k} = src.{k}", k = quote_ident(k)))
+        .collect::<Vec<_>>()
+        .join(" AND ");
+    let set_clause = data_cols
+        .iter()
+        .filter(|c| !keys.iter().any(|k| k.as_str() == **c))
+        .map(|c| format!("{c} = src.{c}", c = quote_ident(c)))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let insert_cols = data_cols
+        .iter()
+        .map(|c| quote_ident(c))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let insert_vals = data_cols
+        .iter()
+        .map(|c| format!("src.{}", quote_ident(c)))
+        .collect::<Vec<_>>()
+        .join(", ");
+    // Optional CDC delete propagation, mirroring the upsert mode: a matched row
+    // flagged for deletion is removed; a flagged unmatched row is not inserted.
+    let (delete_clause, not_matched_filter) = match &del_col {
+        Some(c) => (
+            format!(
+                "WHEN MATCHED AND src.{c} IS NOT DISTINCT FROM '{v}' THEN DELETE ",
+                c = quote_ident(c),
+                v = sql_escape(&del_val)
+            ),
+            format!(
+                " AND src.{c} IS DISTINCT FROM '{v}'",
+                c = quote_ident(c),
+                v = sql_escape(&del_val)
+            ),
+        ),
+        None => (String::new(), String::new()),
+    };
+    // Omit the UPDATE clause when the source has only key columns (nothing to set).
+    let update_clause = if set_clause.is_empty() {
+        String::new()
+    } else {
+        format!("WHEN MATCHED THEN UPDATE SET {set} ", set = set_clause)
+    };
+    Ok(format!(
+        "MERGE INTO {target} AS tgt USING {from} AS src ON ({on}) \
+         {delete_clause}{update_clause}WHEN NOT MATCHED{nmf} THEN INSERT ({ic}) VALUES ({iv})",
+        target = target,
+        from = from_quoted,
+        on = on,
+        delete_clause = delete_clause,
+        update_clause = update_clause,
+        nmf = not_matched_filter,
+        ic = insert_cols,
+        iv = insert_vals,
+    ))
+}
+
 pub(crate) fn build_relational_sink(
     component_id: &str,
     props: &JsonValue,
     from_view: &str,
+    cols: &[String],
 ) -> Result<String, EngineError> {
     let table = string_prop(props, "tableName")
         .filter(|s| !s.is_empty())
@@ -3472,8 +3587,33 @@ pub(crate) fn build_relational_sink(
                 insert_filter = insert_filter,
             ))
         }
+        // Merge: partial-column upsert via DuckDB MERGE INTO (issue #39).
+        // Updates only the columns the source provides, leaving other target
+        // columns untouched; inserts new rows by the source's columns. Only the
+        // DuckDB-native targets execute MERGE; the rest keep DELETE+INSERT upsert.
+        "merge" => {
+            if !supports_merge(component_id) {
+                return Err(EngineError::Config(format!(
+                    "{}: 'merge' is only supported for DuckDB-native targets (duckdb, sqlite, motherduck, ducklake, quack); use 'upsert' here",
+                    component_id
+                )));
+            }
+            let del_col = string_prop(props, "deleteColumn").filter(|s| !s.is_empty());
+            let sel = match &del_col {
+                Some(c) => format!("* EXCLUDE ({})", quote_ident(c)),
+                None => "*".to_string(),
+            };
+            let create = format!(
+                "CREATE TABLE IF NOT EXISTS {q} AS SELECT {sel} FROM {from} LIMIT 0; ",
+                q = qual,
+                sel = sel,
+                from = quote_ident(from_view)
+            );
+            let merge = build_merge_stmt(component_id, &qual, &quote_ident(from_view), props, cols)?;
+            Ok(format!("{}{}", create, merge))
+        }
         other => Err(EngineError::Config(format!(
-            "{}: write mode '{}' isn't implemented yet (use 'overwrite', 'append', 'truncate', or 'upsert')",
+            "{}: write mode '{}' isn't implemented yet (use 'overwrite', 'append', 'truncate', 'upsert', or 'merge')",
             component_id, other
         ))),
     }
@@ -3691,6 +3831,7 @@ pub(crate) fn build_db_sink(
     component_id: &str,
     props: &JsonValue,
     from_view: &str,
+    cols: &[String],
 ) -> Result<String, EngineError> {
     let table = string_prop(props, "tableName")
         .filter(|s| !s.is_empty())
@@ -3748,6 +3889,30 @@ pub(crate) fn build_db_sink(
             insert_filter = insert_filter,
         ));
     }
+    if mode == "merge" {
+        // Partial-column upsert via DuckDB MERGE INTO (issue #39): UPDATE only
+        // the columns the source carries, INSERT new rows by the source's
+        // columns. Preserves target columns the source does not provide.
+        let del_col = string_prop(props, "deleteColumn").filter(|s| !s.is_empty());
+        let sel = match &del_col {
+            Some(c) => format!("* EXCLUDE ({})", quote_ident(c)),
+            None => "*".to_string(),
+        };
+        let create = format!(
+            "CREATE TABLE IF NOT EXISTS duckle_dst.{t} AS SELECT {sel} FROM {up} LIMIT 0; ",
+            t = t,
+            sel = sel,
+            up = up,
+        );
+        let merge = build_merge_stmt(
+            component_id,
+            &format!("duckle_dst.{}", t),
+            &up,
+            props,
+            cols,
+        )?;
+        return Ok(format!("{}{}", create, merge));
+    }
     if mode == "append" {
         return Ok(format!(
             "CREATE TABLE IF NOT EXISTS duckle_dst.{t} AS SELECT * FROM {up} LIMIT 0; \
@@ -3779,7 +3944,7 @@ pub(crate) fn build_db_sink(
     // "Append", "append ") would otherwise silently wipe the target table.
     // Mirrors build_relational_sink's contract.
     Err(EngineError::Config(format!(
-        "{}: write mode '{}' isn't supported (use overwrite, append, truncate, or upsert)",
+        "{}: write mode '{}' isn't supported (use overwrite, append, truncate, upsert, or merge)",
         component_id, mode
     )))
 }
@@ -5354,6 +5519,7 @@ pub(crate) fn build_sink_sql(
     component_id: &str,
     props: &JsonValue,
     from_view: &str,
+    cols: &[String],
 ) -> Result<String, EngineError> {
     match component_id {
         "snk.csv" => Ok(build_csv_sink(props, from_view)),
@@ -5367,10 +5533,10 @@ pub(crate) fn build_sink_sql(
         "snk.parquet" => Ok(build_parquet_sink(props, from_view)),
         "snk.json" | "snk.jsonl" => Ok(build_json_sink(props, from_view)),
         "snk.s3" | "snk.gcs" | "snk.azureblob" => build_cloud_sink(props, from_view),
-        "snk.sqlite" | "snk.duckdb" => build_db_sink(component_id, props, from_view),
+        "snk.sqlite" | "snk.duckdb" => build_db_sink(component_id, props, from_view, cols),
         "snk.postgres" | "snk.cockroach" | "snk.mysql" | "snk.mariadb"
         | "snk.motherduck" | "snk.ducklake" | "snk.pgvector"
-        | "snk.redshift" | "snk.bigquery" | "snk.quack" => build_relational_sink(component_id, props, from_view),
+        | "snk.redshift" | "snk.bigquery" | "snk.quack" => build_relational_sink(component_id, props, from_view, cols),
         "snk.excel" => Ok(build_excel_sink(props, from_view)),
         "snk.spatial" => Ok(build_spatial_sink(props, from_view)),
         "snk.iceberg" => Ok(build_iceberg_sink(props, from_view)),

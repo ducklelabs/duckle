@@ -1427,8 +1427,16 @@ fn build_stage(
             });
             (String::new(), StageKind::Sink, Some(from_view.to_string()))
         } else {
+            // The sink's input column names (from the propagated schema) feed
+            // the "merge" write mode's MERGE INTO column lists (issue #39).
+            let sink_cols: Vec<String> = node
+                .data
+                .schema
+                .as_deref()
+                .map(|s| s.iter().map(|c| c.name.clone()).collect())
+                .unwrap_or_default();
             (
-                format!("{}{}", attach, build_sink_sql(component_id, &props, from_view)?),
+                format!("{}{}", attach, build_sink_sql(component_id, &props, from_view, &sink_cols)?),
                 StageKind::Sink,
                 Some(from_view.to_string()),
             )

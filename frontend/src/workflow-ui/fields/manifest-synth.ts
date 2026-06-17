@@ -88,7 +88,7 @@ const writeModeField = (): Field => ({
 
 // Write-mode + conflict-columns for driver DB sinks that support MERGE upsert
 // (SQL Server, Oracle, Snowflake). Upsert MERGEs on the conflict columns.
-const upsertModeFields = (): Field[] => [
+const upsertModeFields = (supportsMerge = false): Field[] => [
     {
         key: 'mode',
         label: 'Write mode',
@@ -98,8 +98,14 @@ const upsertModeFields = (): Field[] => [
             { label: 'Overwrite (create / append)', value: 'overwrite' },
             { label: 'Append (insert)', value: 'append' },
             { label: 'Upsert (MERGE on key)', value: 'upsert' },
+            // Merge is only offered for DuckDB-native targets (issue #39).
+            ...(supportsMerge
+                ? [{ label: 'Merge (update only provided columns)', value: 'merge' }]
+                : []),
         ],
-        description: 'Upsert runs a MERGE: update rows that match the conflict columns, insert the rest.',
+        description: supportsMerge
+            ? 'Upsert replaces whole rows (delete-by-key + re-insert). Merge updates only the columns the source provides and inserts new rows, leaving other target columns untouched (issue #39).'
+            : 'Upsert runs a MERGE: update rows that match the conflict columns, insert the rest.',
     },
     {
         key: 'conflictColumns',
@@ -964,8 +970,9 @@ function synthLakehouseSink(comp: ComponentDef): ComponentManifest {
                             { label: 'Append (insert)', value: 'append' },
                             { label: 'Truncate + insert', value: 'truncate' },
                             { label: 'Upsert (delete-by-key + re-insert)', value: 'upsert' },
+                            { label: 'Merge (update only provided columns)', value: 'merge' },
                         ],
-                        description: 'Upsert deletes rows matching the conflict columns, then re-inserts (issue #19).',
+                        description: 'Upsert deletes rows matching the conflict columns, then re-inserts (issue #19). Merge updates only the columns the source provides, leaving other target columns untouched (issue #39).',
                     },
                     {
                         key: 'conflictColumns',
@@ -1106,7 +1113,7 @@ function synthDbSink(comp: ComponentDef): ComponentManifest {
                 label: 'Destination',
                 fields: [
                     { key: 'tableName', label: 'Table', kind: 'text', required: true, placeholder: 'orders' },
-                    ...upsertModeFields(),
+                    ...upsertModeFields(true),
                 ],
             },
         ], 'upstream');
@@ -1521,8 +1528,9 @@ function synthWarehouseSink(comp: ComponentDef): ComponentManifest {
                             { label: 'Append (insert)', value: 'append' },
                             { label: 'Truncate + insert', value: 'truncate' },
                             { label: 'Upsert (delete-by-key + re-insert)', value: 'upsert' },
+                            { label: 'Merge (update only provided columns)', value: 'merge' },
                         ],
-                        description: 'Upsert deletes rows matching the conflict columns, then re-inserts (issue #19).',
+                        description: 'Upsert deletes rows matching the conflict columns, then re-inserts (issue #19). Merge updates only the columns the source provides, leaving other target columns untouched (issue #39).',
                     },
                     {
                         key: 'conflictColumns',
