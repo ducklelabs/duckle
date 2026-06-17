@@ -35,7 +35,7 @@
   "devDependencies": {
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
-    "@vitejs/plugin-react": "^4.3.4",
+    "@vitejs/plugin-react": "^6.0.2",
     "si-legacy": "npm:simple-icons@^9.21.0",
     "simple-icons": "^16.23.0",
     "typescript": "^5.7.2",
