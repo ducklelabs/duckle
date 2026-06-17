@@ -23,6 +23,17 @@
         "infra",
         "test"
       ]
+    },
+    {
+      "login": "micha9ski",
+      "name": "micha9ski",
+      "avatar_url": "https://avatars.githubusercontent.com/u/200447708?v=4",
+      "profile": "https://github.com/micha9ski",
+      "contributions": [
+        "infra",
+        "test",
+        "code"
+      ]
     }
   ]
 }
