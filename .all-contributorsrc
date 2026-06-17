@@ -23,6 +23,17 @@
         "infra",
         "test"
       ]
+    },
+    {
+      "login": "add944",
+      "name": "add944",
+      "avatar_url": "https://avatars.githubusercontent.com/u/288381564?v=4",
+      "profile": "https://github.com/add944",
+      "contributions": [
+        "infra",
+        "test",
+        "code"
+      ]
     }
   ]
 }
