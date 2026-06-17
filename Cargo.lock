@@ -2168,7 +2168,7 @@ dependencies = [
  "russh",
  "russh-sftp",
  "rustls 0.23.40",
- "rustls-connector 0.21.11",
+ "rustls-connector 0.23.6",
  "rustls-native-certs 0.7.3",
  "rustls-pemfile 2.2.0",
  "scylla",
@@ -6832,11 +6832,12 @@ dependencies = [
 
 [[package]]
 name = "rustls-connector"
-version = "0.21.11"
+version = "0.23.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "10eb7ce243317e6b6a342ef6bff8c2e0d46d78120a9aeb2ee39693a569615c96"
+checksum = "b7664e32b0ffbec386bdf1d7cbca51a89551a90d3278f135186cd6cb3cfa889c"
 dependencies = [
  "futures-rustls",
+ "log",
  "rustls 0.23.40",
  "rustls-pki-types",
  "rustls-webpki 0.103.13",

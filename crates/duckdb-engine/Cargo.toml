@@ -139,7 +139,7 @@ regex = "1"
 # accompanying mail-parser decodes RFC 822 envelopes + MIME bodies.
 imap = { version = "=3.0.0-alpha.15", default-features = false, features = ["rustls-tls"] }
 mail-parser = "0.11"
-rustls-connector = { version = "0.21", default-features = false, features = ["rustls--ring"] }
+rustls-connector = { version = "0.23", default-features = false, features = ["rustls--ring"] }
 # SMTP client for snk.email. Pure Rust with rustls-tls. Symmetric
 # to src.email (the IMAP reader). Builder + smtp-transport features;
 # default native-tls disabled so we don't drag OpenSSL on Linux.
