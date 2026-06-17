@@ -17,7 +17,7 @@
 <img alt="duckdb" src="https://img.shields.io/badge/DuckDB-FFF000?logo=duckdb&logoColor=black"/>
 <img alt="stars" src="https://img.shields.io/github/stars/ducklelabs/duckle?style=social"/>
 <!-- ALL-CONTRIBUTORS-BADGE:START - Do not remove or modify this section -->
-<a href="#contributors"><img alt="all contributors" src="https://img.shields.io/github/all-contributors/ducklelabs/duckle?color=ff6900"/></a>
+[![All Contributors](https://img.shields.io/github/all-contributors/ducklelabs/duckle?color=ff6900&style=flat-square)](#contributors)
 <!-- ALL-CONTRIBUTORS-BADGE:END -->
 </p>
 
@@ -1153,6 +1153,14 @@ Thanks goes to these wonderful people who contribute to Duckle ([emoji key](http
 <!-- ALL-CONTRIBUTORS-LIST:START - Do not remove or modify this section -->
 <!-- prettier-ignore-start -->
 <!-- markdownlint-disable -->
+<table>
+  <tbody>
+    <tr>
+      <td align="center" valign="top" width="14.28%"><a href="https://github.com/mitslabo"><img src="https://avatars.githubusercontent.com/u/176633224?v=4?s=100" width="100px;" alt="mits"/><br /><sub><b>mits</b></sub></a><br /><a href="#infra-mitslabo" title="Infrastructure (Hosting, Build-Tools, etc)">🚇</a> <a href="https://github.com/ducklelabs/duckle/commits?author=mitslabo" title="Tests">⚠️</a></td>
+    </tr>
+  </tbody>
+</table>
+
 <!-- markdownlint-restore -->
 <!-- prettier-ignore-end -->
 
