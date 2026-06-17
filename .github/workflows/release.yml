@@ -51,7 +51,7 @@ jobs:
       - name: Build the static Linux duckle-runner (musl, in Docker)
         run: bash scripts/build-runner-linux.sh
       - name: Upload as a workflow artifact (not a release asset)
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: duckle-runner-linux-x64
           path: apps/desktop/bin/duckle-runner-linux-x64
