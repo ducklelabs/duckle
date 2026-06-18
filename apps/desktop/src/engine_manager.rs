@@ -10,7 +10,7 @@ use serde::Serialize;
 use std::io::Read;
 use std::path::{Path, PathBuf};
 
-pub const DUCKDB_VERSION: &str = "1.5.3";
+pub const DUCKDB_VERSION: &str = "1.5.4";
 pub const SLOTHDB_VERSION: &str = "0.2.7";
 /// Pinned llama.cpp build. Bump periodically; the GGUF wire format
 /// is stable so newer server binaries keep working with older models.
@@ -94,6 +94,24 @@ fn binary_path(app_data: &Path, s: &EngineSpec) -> PathBuf {
     engine_dir(app_data, s).join(binary_file_name(s))
 }
 
+/// A small file recording which version of an engine's binary is installed,
+/// written on install. Without it, status() can only check that *a* binary
+/// exists, so a version bump (e.g. DuckDB 1.5.3 -> 1.5.4) would keep the stale
+/// binary and never re-download. Reading the stamp lets status() detect the
+/// mismatch and re-run the one-click install over the old binary.
+fn version_stamp_path(app_data: &Path, s: &EngineSpec) -> PathBuf {
+    engine_dir(app_data, s).join(".installed-version")
+}
+
+/// The version recorded on disk for an engine, if any (None for a stamp-less
+/// pre-existing install or a missing engine).
+fn installed_version(app_data: &Path, s: &EngineSpec) -> Option<String> {
+    std::fs::read_to_string(version_stamp_path(app_data, s))
+        .ok()
+        .map(|v| v.trim().to_string())
+        .filter(|v| !v.is_empty())
+}
+
 /// Public helper kept for the engine() resolver in lib.rs.
 pub fn duckdb_path(app_data: &Path) -> PathBuf {
     binary_path(app_data, &DUCKDB)
@@ -119,7 +137,7 @@ fn asset_for(s: &EngineSpec) -> Option<String> {
                 ("windows", "x86_64") => "duckdb_cli-windows-amd64.zip",
                 ("windows", "aarch64") => "duckdb_cli-windows-arm64.zip",
                 ("linux", "x86_64") => "duckdb_cli-linux-amd64.zip",
-                ("linux", "aarch64") => "duckdb_cli-linux-aarch64.zip",
+                ("linux", "aarch64") => "duckdb_cli-linux-arm64.zip",
                 ("macos", _) => "duckdb_cli-osx-universal.zip",
                 _ => return None,
             }
@@ -163,7 +181,7 @@ fn duckdb_asset(os: &str, arch: &str) -> Option<&'static str> {
         ("windows", "x86_64") => "duckdb_cli-windows-amd64.zip",
         ("windows", "aarch64") => "duckdb_cli-windows-arm64.zip",
         ("linux", "x86_64") => "duckdb_cli-linux-amd64.zip",
-        ("linux", "aarch64") => "duckdb_cli-linux-aarch64.zip",
+        ("linux", "aarch64") => "duckdb_cli-linux-arm64.zip",
         ("macos", _) => "duckdb_cli-osx-universal.zip",
         _ => return None,
     })
@@ -350,15 +368,22 @@ pub fn status(app_data: &Path) -> Vec<EngineStatus> {
         .iter()
         .map(|s| {
             let path = binary_path(app_data, s);
-            let installed = path.exists();
+            let exists = path.exists();
+            let on_disk = installed_version(app_data, s);
+            // "installed" requires the binary to exist AND match the pinned
+            // version, so bumping a version re-triggers the install flow for
+            // existing users (a stamp-less old install reads as outdated).
+            let installed = exists && on_disk.as_deref() == Some(s.version);
             EngineStatus {
                 id: s.id.to_string(),
                 name: s.name.to_string(),
                 description: s.description.to_string(),
                 required: s.required,
                 installed,
-                version: installed.then(|| s.version.to_string()),
-                path: installed.then(|| path.to_string_lossy().to_string()),
+                // Report the real on-disk version when a binary is present
+                // (so the UI shows the outdated version, not the pinned one).
+                version: if exists { on_disk } else { None },
+                path: exists.then(|| path.to_string_lossy().to_string()),
                 available: asset_for(s).is_some(),
             }
         })
@@ -565,6 +590,10 @@ fn install_spec<F: FnMut(InstallProgress)>(
         return Err(format!("Installed {} binary is empty", s.name));
     }
     let _ = duckdb_command(&target).arg("--version").output();
+
+    // Stamp the installed version so status() detects a future version bump
+    // and re-installs instead of keeping a stale binary.
+    let _ = std::fs::write(version_stamp_path(app_data, s), s.version);
 
     // Pre-fetch the extensions Duckle uses so the first connector hit
     // doesn't pause to download an extension. Only meaningful for the
