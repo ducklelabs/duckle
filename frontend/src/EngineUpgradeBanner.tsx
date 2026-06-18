@@ -2,7 +2,6 @@ import { useEffect, useState } from 'react';
 import {
     engineInstall,
     engineStatus,
-    isTauri,
     type EngineStatus,
     type InstallProgress,
 } from './tauri-bridge';
@@ -25,7 +24,8 @@ export function EngineUpgradeBanner() {
     const [done, setDone] = useState(false);
 
     useEffect(() => {
-        if (!isTauri()) return;
+        // engineStatus() returns [] in the browser build, so no extra guard is
+        // needed - the banner simply never shows there.
         let cancelled = false;
         void engineStatus().then(list => {
             if (cancelled) return;
