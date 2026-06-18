@@ -1864,8 +1864,24 @@
             ]
           },
           {
-            "label": "Table",
+            "label": "Read",
             "fields": [
+              {
+                "key": "mode",
+                "label": "Read mode",
+                "kind": "select",
+                "defaultValue": "table",
+                "options": [
+                  {
+                    "label": "Whole table",
+                    "value": "table"
+                  },
+                  {
+                    "label": "Custom SQL",
+                    "value": "sql"
+                  }
+                ]
+              },
               {
                 "key": "schemaName",
                 "label": "Schema",
@@ -1876,8 +1892,16 @@
                 "key": "tableName",
                 "label": "Table",
                 "kind": "text",
-                "required": true,
-                "placeholder": "orders"
+                "placeholder": "orders",
+                "description": "Used when Read mode is Whole table."
+              },
+              {
+                "key": "sql",
+                "label": "SQL query",
+                "kind": "expression",
+                "rows": 5,
+                "placeholder": "SELECT * FROM duckle_src.main.orders WHERE status = $1",
+                "description": "Used when Read mode is Custom SQL. Reference the attached source as duckle_src."
               }
             ]
           }
@@ -4298,6 +4322,22 @@
                 "description": "Optional. If empty, MOTHERDUCK_TOKEN from the environment is used."
               },
               {
+                "key": "mode",
+                "label": "Read mode",
+                "kind": "select",
+                "defaultValue": "table",
+                "options": [
+                  {
+                    "label": "Whole table",
+                    "value": "table"
+                  },
+                  {
+                    "label": "Custom SQL",
+                    "value": "sql"
+                  }
+                ]
+              },
+              {
                 "key": "schemaName",
                 "label": "Schema",
                 "kind": "text",
@@ -4307,8 +4347,16 @@
                 "key": "tableName",
                 "label": "Table",
                 "kind": "text",
-                "required": true,
-                "placeholder": "orders"
+                "placeholder": "orders",
+                "description": "Used when Read mode is Whole table."
+              },
+              {
+                "key": "sql",
+                "label": "SQL query",
+                "kind": "expression",
+                "rows": 5,
+                "placeholder": "SELECT * FROM duckle_src.main.orders WHERE status = $1",
+                "description": "Used when Read mode is Custom SQL. Reference the attached source as duckle_src."
               }
             ]
           }
@@ -4390,6 +4438,22 @@
             "label": "Query",
             "fields": [
               {
+                "key": "mode",
+                "label": "Read mode",
+                "kind": "select",
+                "defaultValue": "table",
+                "options": [
+                  {
+                    "label": "Whole table",
+                    "value": "table"
+                  },
+                  {
+                    "label": "Custom SQL",
+                    "value": "sql"
+                  }
+                ]
+              },
+              {
                 "key": "schemaName",
                 "label": "Schema",
                 "kind": "text",
@@ -4399,8 +4463,16 @@
                 "key": "tableName",
                 "label": "Table",
                 "kind": "text",
-                "required": true,
-                "placeholder": "orders"
+                "placeholder": "orders",
+                "description": "Used when Read mode is Whole table."
+              },
+              {
+                "key": "sql",
+                "label": "SQL query",
+                "kind": "expression",
+                "rows": 5,
+                "placeholder": "SELECT * FROM duckle_src.main.orders WHERE status = $1",
+                "description": "Used when Read mode is Custom SQL. Reference the attached source as duckle_src."
               }
             ]
           }

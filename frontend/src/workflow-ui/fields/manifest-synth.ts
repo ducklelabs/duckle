@@ -265,6 +265,40 @@ const dbReadFields = (): Field[] => [
     },
 ];
 
+// Read-mode fields shared by the ATTACH-backed duck sources (ducklake,
+// motherduck, quack): read a whole table OR run a custom SQL query against the
+// attached catalog. The engine's build_relational_source already honors
+// mode=sql; this exposes the choice in the UI so all duck sources match
+// src.duckdb's flexibility (issue #77).
+const duckReadFields = (): Field[] => [
+    {
+        key: 'mode',
+        label: 'Read mode',
+        kind: 'select',
+        defaultValue: 'table',
+        options: [
+            { label: 'Whole table', value: 'table' },
+            { label: 'Custom SQL', value: 'sql' },
+        ],
+    },
+    { key: 'schemaName', label: 'Schema', kind: 'text', defaultValue: 'main' },
+    {
+        key: 'tableName',
+        label: 'Table',
+        kind: 'text',
+        placeholder: 'orders',
+        description: 'Used when Read mode is Whole table.',
+    },
+    {
+        key: 'sql',
+        label: 'SQL query',
+        kind: 'expression',
+        rows: 5,
+        placeholder: 'SELECT * FROM duckle_src.main.orders WHERE status = $1',
+        description: 'Used when Read mode is Custom SQL. Reference the attached source as duckle_src.',
+    },
+];
+
 const dbWriteFields = (): Field[] => [
     { key: 'schemaName', label: 'Schema', kind: 'text', placeholder: 'public' },
     { key: 'tableName', label: 'Table', kind: 'text', required: true, placeholder: 'orders' },
@@ -918,11 +952,8 @@ function synthLakehouseSource(comp: ComponentDef): ComponentManifest {
                 ],
             },
             {
-                label: 'Table',
-                fields: [
-                    { key: 'schemaName', label: 'Schema', kind: 'text', defaultValue: 'main' },
-                    { key: 'tableName', label: 'Table', kind: 'text', required: true, placeholder: 'orders' },
-                ],
+                label: 'Read',
+                fields: duckReadFields(),
             },
         ]);
     }
@@ -1314,8 +1345,7 @@ function synthWarehouseSource(comp: ComponentDef): ComponentManifest {
                         kind: 'text',
                         description: 'Optional. If empty, MOTHERDUCK_TOKEN from the environment is used.',
                     },
-                    { key: 'schemaName', label: 'Schema', kind: 'text', defaultValue: 'main' },
-                    { key: 'tableName', label: 'Table', kind: 'text', required: true, placeholder: 'orders' },
+                    ...duckReadFields(),
                 ],
             },
         ]);
@@ -1336,10 +1366,7 @@ function synthWarehouseSource(comp: ComponentDef): ComponentManifest {
             },
             {
                 label: 'Query',
-                fields: [
-                    { key: 'schemaName', label: 'Schema', kind: 'text', defaultValue: 'main' },
-                    { key: 'tableName', label: 'Table', kind: 'text', required: true, placeholder: 'orders' },
-                ],
+                fields: duckReadFields(),
             },
         ]);
     }
