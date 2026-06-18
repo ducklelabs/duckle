@@ -304,7 +304,7 @@ textarea:focus-visible {
     filter: drop-shadow(0 0 5px var(--accent-glow)) drop-shadow(0 0 2px var(--accent-soft));
 }
 
-/* "Duckle" wordmark with the "by Slothflow" maker signature stacked below it,
+/* "Duckle" wordmark with the "by SlothFlowLabs" maker signature stacked below it,
    in an orange cursive style. */
 .brand-text {
     display: flex;

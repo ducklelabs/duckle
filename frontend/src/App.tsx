@@ -1811,7 +1811,7 @@ export default function App() {
                     <DuckleLogo size={26} className="brand-logo" />
                     <span className="brand-text">
                         <span className="brand-name">Duckle</span>
-                        <span className="brand-by">by Slothflow</span>
+                        <span className="brand-by">by SlothFlowLabs</span>
                     </span>
                 </div>
                 <div className="topbar-sep" aria-hidden="true" />
