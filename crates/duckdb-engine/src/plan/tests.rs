@@ -659,6 +659,24 @@
     }
 
     #[test]
+    fn ducklake_source_time_travel_read() {
+        // Time-Travel Data Diff foundation: a DuckLake source can read a table
+        // as of a past snapshot via AT (VERSION) / AT (TIMESTAMP).
+        use serde_json::json;
+        let v = build_relational_source("src.ducklake", &json!({"tableName":"orders","asOfVersion":3})).unwrap();
+        assert!(v.contains("AT (VERSION => 3)"), "version read: {}", v);
+        let vs = build_relational_source("src.ducklake", &json!({"tableName":"orders","asOfVersion":"5"})).unwrap();
+        assert!(vs.contains("AT (VERSION => 5)"), "string version read: {}", vs);
+        let t = build_relational_source("src.ducklake", &json!({"tableName":"orders","asOfTimestamp":"2026-01-01 00:00:00"})).unwrap();
+        assert!(t.contains("AT (TIMESTAMP => '2026-01-01 00:00:00')"), "timestamp read: {}", t);
+        let n = build_relational_source("src.ducklake", &json!({"tableName":"orders"})).unwrap();
+        assert!(!n.contains(" AT ("), "no asOf must not add a clause: {}", n);
+        // A plain relational source ignores asOf (AT VERSION is not valid there).
+        let pg = build_relational_source("src.postgres", &json!({"tableName":"orders","asOfVersion":3})).unwrap();
+        assert!(!pg.contains(" AT ("), "non-ducklake must ignore asOf: {}", pg);
+    }
+
+    #[test]
     fn materialize_duckdb_temp_routes_to_duckdb_spec_without_path() {
         // materialize=duckdb persists the stage into a temp DuckDB file (no
         // user path).

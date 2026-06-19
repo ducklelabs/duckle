@@ -955,6 +955,13 @@ function synthLakehouseSource(comp: ComponentDef): ComponentManifest {
                 label: 'Read',
                 fields: duckReadFields(),
             },
+            {
+                label: 'Time travel',
+                fields: [
+                    { key: 'asOfVersion', label: 'As of snapshot / version', kind: 'text', placeholder: 'e.g. 12', description: 'Read the table as of this DuckLake snapshot id (time travel). Leave empty for the latest.' },
+                    { key: 'asOfTimestamp', label: 'As of timestamp', kind: 'text', placeholder: 'YYYY-MM-DD HH:MM:SS', description: 'Read the table as of this point in time. Used only when no version is set.' },
+                ],
+            },
         ]);
     }
     // Iceberg + Delta both take a path to the table location: a local

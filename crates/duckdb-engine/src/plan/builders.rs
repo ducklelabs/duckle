@@ -3365,6 +3365,25 @@ pub(crate) fn db_attach(props: &JsonValue, extension: &str, default_port: u64, r
 /// from `duckle_src` qualified by the right depth: Postgres uses
 /// catalog.schema.table (default schema `public`); MySQL uses
 /// catalog.table (the database is selected at ATTACH time).
+/// DuckLake time-travel clause for a whole-table source read, from the node's
+/// `asOfVersion` (snapshot id) or `asOfTimestamp` prop. Returns "" when neither
+/// is set; version wins if both are present. Lets a pipeline read a table as of
+/// a past snapshot - the foundation for the snapshot inspector / data diff.
+fn time_travel_clause(props: &JsonValue) -> String {
+    if let Some(v) = props.get("asOfVersion").and_then(|v| v.as_u64()) {
+        return format!(" AT (VERSION => {})", v);
+    }
+    if let Some(s) = string_prop(props, "asOfVersion").filter(|s| !s.trim().is_empty()) {
+        if let Ok(n) = s.trim().parse::<u64>() {
+            return format!(" AT (VERSION => {})", n);
+        }
+    }
+    if let Some(ts) = string_prop(props, "asOfTimestamp").filter(|s| !s.trim().is_empty()) {
+        return format!(" AT (TIMESTAMP => '{}')", sql_escape(ts.trim()));
+    }
+    String::new()
+}
+
 pub(crate) fn build_relational_source(component_id: &str, props: &JsonValue) -> Result<String, String> {
     let mode = string_prop(props, "mode").unwrap_or_else(|| "table".into());
     if mode == "incremental" {
@@ -3387,9 +3406,18 @@ pub(crate) fn build_relational_source(component_id: &str, props: &JsonValue) -> 
         .filter(|s| !s.is_empty())
         .ok_or_else(|| format!("{}: table name is required", component_id))?;
     let schema = string_prop(props, "schemaName").filter(|s| !s.is_empty());
+    // DuckLake supports point-in-time reads (AT VERSION / AT TIMESTAMP); only
+    // it gets the time-travel clause so a stray prop can't produce invalid SQL
+    // on a plain relational source.
+    let at = if component_id == "src.ducklake" {
+        time_travel_clause(props)
+    } else {
+        String::new()
+    };
     Ok(format!(
-        "SELECT * FROM {}",
-        relational_qualified("duckle_src", component_id, schema.as_deref(), &table)
+        "SELECT * FROM {}{}",
+        relational_qualified("duckle_src", component_id, schema.as_deref(), &table),
+        at
     ))
 }
 
