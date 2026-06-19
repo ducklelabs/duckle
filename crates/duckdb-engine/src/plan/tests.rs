@@ -688,6 +688,21 @@
     }
 
     #[test]
+    fn diffsummary_reduces_change_feed() {
+        // xf.diffsummary: counts insert/delete/update_postimage from a change
+        // feed into one summary row (added/removed/updated/total + text).
+        let mut ni = NodeInputs::default();
+        ni.ports.insert("main".into(), vec!["up".into()]);
+        let sql = build_diffsummary(&ni, &serde_json::json!({})).unwrap();
+        assert!(sql.contains("FILTER (WHERE \"change_type\" = 'insert') AS added"), "got: {}", sql);
+        assert!(sql.contains("(added + removed + updated) AS total_changes"), "got: {}", sql);
+        assert!(sql.contains("FROM \"up\""), "got: {}", sql);
+        // configurable change column
+        let custom = build_diffsummary(&ni, &serde_json::json!({"changeColumn": "op"})).unwrap();
+        assert!(custom.contains("FILTER (WHERE \"op\" = 'delete') AS removed"), "got: {}", custom);
+    }
+
+    #[test]
     fn materialize_duckdb_temp_routes_to_duckdb_spec_without_path() {
         // materialize=duckdb persists the stage into a temp DuckDB file (no
         // user path).

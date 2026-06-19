@@ -106,6 +106,7 @@ pub(crate) fn build_view_sql(
         // Log Rows - pass data through unchanged; its rows surface in the
         // Output / Preview so you can inspect mid-pipeline (like tLogRow).
         "xf.log" => build_passthrough_op(inputs, "SELECT *"),
+        "xf.diffsummary" => build_diffsummary(inputs, props),
         "xf.project" => build_project(inputs, props),
         "xf.distinct" => build_distinct(inputs, props),
         "xf.limit" => build_limit(inputs, props),
@@ -329,6 +330,29 @@ pub(crate) fn build_drop(inputs: &NodeInputs, props: &JsonValue) -> Result<Strin
         "SELECT * EXCLUDE ({}) FROM {}",
         except_list,
         quote_ident(upstream)
+    ))
+}
+
+/// xf.diffsummary: reduce a change feed (a `change_type` column, e.g. from
+/// src.ducklake.diff) to a single summary row - added / removed / updated /
+/// total_changes counts plus a ready-made `summary` text. Feed the row into
+/// xf.ai.llm for an AI narrative, or into a validator to assert expected counts.
+pub(crate) fn build_diffsummary(inputs: &NodeInputs, props: &JsonValue) -> Result<String, String> {
+    let upstream = inputs.main().ok_or_else(|| "missing main input".to_string())?;
+    let col = string_prop(props, "changeColumn")
+        .filter(|s| !s.trim().is_empty())
+        .unwrap_or_else(|| "change_type".into());
+    let c = quote_ident(&col);
+    Ok(format!(
+        "SELECT added, removed, updated, (added + removed + updated) AS total_changes, \
+         added::VARCHAR || ' added, ' || removed::VARCHAR || ' removed, ' || updated::VARCHAR || ' updated' AS summary \
+         FROM (SELECT \
+         COUNT(*) FILTER (WHERE {c} = 'insert') AS added, \
+         COUNT(*) FILTER (WHERE {c} = 'delete') AS removed, \
+         COUNT(*) FILTER (WHERE {c} = 'update_postimage') AS updated \
+         FROM {tbl})",
+        c = c,
+        tbl = quote_ident(upstream)
     ))
 }
 

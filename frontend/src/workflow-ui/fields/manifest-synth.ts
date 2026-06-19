@@ -3407,6 +3407,22 @@ function synthArrayTransform(comp: ComponentDef): ComponentManifest {
 
 function synthCdcTransform(comp: ComponentDef): ComponentManifest {
     const id = comp.id;
+    if (id === 'xf.diffsummary') {
+        return base(comp, [
+            {
+                label: 'Diff summary',
+                fields: [
+                    {
+                        key: 'changeColumn',
+                        label: 'Change-type column',
+                        kind: 'text',
+                        defaultValue: 'change_type',
+                        description: 'The column holding insert / delete / update_postimage values (the DuckLake Data Diff feed uses change_type). Emits added / removed / updated / total_changes + a ready summary text - feed that row into LLM Transform for an AI narrative, or a validator to assert counts.',
+                    },
+                ],
+            },
+        ], 'upstream');
+    }
     if (id === 'xf.incremental') {
         return base(comp, [
             {

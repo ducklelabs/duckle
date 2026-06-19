@@ -410,6 +410,7 @@ export const PALETTE: Category[] = [
                 components: [
                     xf('incremental', 'Incremental Load', 'available', 'Pass only rows whose watermark column (e.g. updated_at, id) is past the last successful run. The new high-water mark is saved to workspace state and advances only when the whole run succeeds - so reruns never skip rows that were not delivered.'),
                     xf('cdc.diff', 'Diff Detect', 'available', 'Tag inserted/updated/deleted rows vs a previous snapshot'),
+                    xf('diffsummary', 'Diff Summary', 'available', 'Reduce a change feed (a change_type column, e.g. from DuckLake Data Diff) to a single summary row: added / removed / updated / total_changes counts plus a ready-made summary text. Feed it into LLM Transform for an AI narrative, or into a validator to assert expected counts in CI.'),
                     xf('cdc.scd1', 'SCD Type 1', 'available', 'Resolved current state: cur + prev rows whose key is not in cur'),
                     xf('cdc.scd2', 'SCD Type 2', 'available', 'Maintain versioned history: close changed rows, insert new versions'),
                     xf('cdc.upsert', 'Merge / Upsert', 'available', 'Emit the upsert payload: new + changed rows from cur'),
