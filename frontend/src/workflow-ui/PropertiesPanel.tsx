@@ -405,7 +405,19 @@ export default function PropertiesPanel({
                             <div className="form-section">
                                 <div className="form-section-label">Materialization</div>
                                 <FieldRenderer
-                                    field={MATERIALIZE_FIELD}
+                                    field={
+                                        // 'View' is meaningless on a terminal sink (it has no
+                                        // downstream consumer and compiles to a COPY/driver
+                                        // write), so hide that option for sink nodes only.
+                                        kind === 'sink'
+                                            ? {
+                                                  ...MATERIALIZE_FIELD,
+                                                  options: (MATERIALIZE_FIELD.options ?? []).filter(
+                                                      o => o.value !== 'view'
+                                                  ),
+                                              }
+                                            : MATERIALIZE_FIELD
+                                    }
                                     value={
                                         props[MATERIALIZE_FIELD.key] !== undefined
                                             ? props[MATERIALIZE_FIELD.key]
