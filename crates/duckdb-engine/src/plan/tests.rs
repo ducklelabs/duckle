@@ -1066,6 +1066,34 @@
     }
 
     #[test]
+    fn cast_per_column_format_uses_strptime() {
+        // #10: each cast entry can carry its own strptime format so multiple
+        // columns with different date formats parse independently.
+        let mut ni = NodeInputs::default();
+        ni.ports.insert("main".into(), vec!["up".into()]);
+        let sql = build_cast(
+            &ni,
+            &serde_json::json!({"casts": [
+                {"column": "d1", "targetType": "date", "format": "%d/%m/%Y"},
+                {"column": "ts", "targetType": "timestamp", "format": "%Y.%m.%d %H:%M:%S"},
+                {"column": "amount", "targetType": "double"}
+            ]}),
+        )
+        .unwrap();
+        assert!(sql.contains("try_strptime(\"d1\", '%d/%m/%Y')::DATE AS \"d1\""), "got: {}", sql);
+        assert!(
+            sql.contains("try_strptime(\"ts\", '%Y.%m.%d %H:%M:%S')::TIMESTAMP AS \"ts\""),
+            "got: {}",
+            sql
+        );
+        assert!(sql.contains("TRY_CAST(\"amount\""), "non-date cast keeps TRY_CAST, got: {}", sql);
+        // A date cast WITHOUT a format still uses TRY_CAST (no regression).
+        let no_fmt =
+            build_cast(&ni, &serde_json::json!({"casts":[{"column":"d","targetType":"date"}]})).unwrap();
+        assert!(no_fmt.contains("TRY_CAST(\"d\" AS DATE)"), "got: {}", no_fmt);
+    }
+
+    #[test]
     fn csv_declared_schema_overrides_autodetect() {
         // Regression for issue #3: when the user sets a column to
         // VARCHAR in the Schema panel (typical fix for dd/mm/yy dates

@@ -2233,6 +2233,23 @@ pub(crate) fn build_addcol(inputs: &NodeInputs, props: &JsonValue) -> Result<Str
     ))
 }
 
+/// Cast a string column to date/timestamp with an explicit strptime format
+/// (xf.cast per-entry `format`, #10). cast_fn "CAST" -> strptime (fail on a bad
+/// value), otherwise try_strptime (NULL on a bad value), mirroring the
+/// TRY_CAST/CAST onError contract. `target_lc` is the lowercased target type.
+fn cast_with_format(cast_fn: &str, column: &str, target_lc: &str, fmt: &str) -> String {
+    let strp = if cast_fn == "CAST" { "strptime" } else { "try_strptime" };
+    let to = if target_lc.starts_with("timestamp") { "TIMESTAMP" } else { "DATE" };
+    format!(
+        "{}({}, '{}')::{} AS {}",
+        strp,
+        quote_ident(column),
+        sql_escape(fmt),
+        to,
+        quote_ident(column)
+    )
+}
+
 pub(crate) fn build_cast(inputs: &NodeInputs, props: &JsonValue) -> Result<String, String> {
     let upstream = inputs.main().ok_or_else(|| "missing main input".to_string())?;
     let casts = props
@@ -2280,29 +2297,51 @@ pub(crate) fn build_cast(inputs: &NodeInputs, props: &JsonValue) -> Result<Strin
                 column
             ));
         }
-        let target_sql = duckle_type_to_duckdb(target);
-        replacements.push(format!(
-            "{}({} AS {}) AS {}",
-            cast_fn,
-            quote_ident(column),
-            target_sql,
-            quote_ident(column)
-        ));
+        // Per-entry `format` parses a string column with its OWN strptime
+        // format (e.g. one column %d/%m/%Y, another %m-%d-%Y) - TRY_CAST only
+        // accepts ISO-ish strings, so without this multi-format date columns
+        // silently null (#10). Only applies to date/timestamp targets.
+        let fmt = c
+            .get("format")
+            .and_then(JsonValue::as_str)
+            .map(str::trim)
+            .filter(|s| !s.is_empty());
+        let target_lc = target.to_ascii_lowercase();
+        if let (Some(fmt), true) = (fmt, target_lc == "date" || target_lc.starts_with("timestamp")) {
+            replacements.push(cast_with_format(cast_fn, column, &target_lc, fmt));
+        } else {
+            replacements.push(format!(
+                "{}({} AS {}) AS {}",
+                cast_fn,
+                quote_ident(column),
+                duckle_type_to_duckdb(target),
+                quote_ident(column)
+            ));
+        }
     }
-    // The Cast form is single-column: { column, targetType }.
+    // The Cast form is single-column: { column, targetType, format }.
     if replacements.is_empty() {
         if let Some(column) = string_prop(props, "column").filter(|s| !s.trim().is_empty()) {
             let column = column.trim();
             let target = string_prop(props, "targetType")
                 .or_else(|| string_prop(props, "type"))
                 .unwrap_or_else(|| "string".into());
-            replacements.push(format!(
-                "{}({} AS {}) AS {}",
-                cast_fn,
-                quote_ident(column),
-                duckle_type_to_duckdb(&target),
-                quote_ident(column)
-            ));
+            let target_lc = target.to_ascii_lowercase();
+            let fmt = string_prop(props, "format").map(|s| s.trim().to_string());
+            let fmt = fmt.as_deref().filter(|s| !s.is_empty());
+            if let (Some(fmt), true) =
+                (fmt, target_lc == "date" || target_lc.starts_with("timestamp"))
+            {
+                replacements.push(cast_with_format(cast_fn, column, &target_lc, fmt));
+            } else {
+                replacements.push(format!(
+                    "{}({} AS {}) AS {}",
+                    cast_fn,
+                    quote_ident(column),
+                    duckle_type_to_duckdb(&target),
+                    quote_ident(column)
+                ));
+            }
         }
     }
     // If the user supplied cast entries but every one was empty / blank,

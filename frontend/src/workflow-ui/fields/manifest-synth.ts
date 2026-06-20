@@ -2448,6 +2448,13 @@ function synthFieldsTransform(comp: ComponentDef): ComponentManifest {
                         ],
                     },
                     {
+                        key: 'format',
+                        label: 'Date/time format (optional)',
+                        kind: 'text',
+                        placeholder: 'e.g. %d/%m/%Y',
+                        description: 'strptime format for parsing a string into a date/timestamp (e.g. %d/%m/%Y or %Y.%m.%d %H:%M:%S). Leave blank for ISO auto-detect; only used for date/timestamp targets.',
+                    },
+                    {
                         key: 'onError',
                         label: 'On conversion error',
                         kind: 'select',
