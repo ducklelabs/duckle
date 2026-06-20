@@ -8285,6 +8285,33 @@ fn column_lineage_resolves_sources_live() {
     assert!(by("a").is_some(), "expected an 'a' output column: {:?}", lin);
 }
 
+/// Whole-pipeline lineage: a projected column traces across stages back to its
+/// root source column. src.csv(a,b,c) -> xf.project(a,b) -> snk.csv.
+#[test]
+fn pipeline_column_lineage_traces_to_source() {
+    let engine = engine_or_skip!();
+    let tmp = tempfile::tempdir().unwrap();
+    let csv = write_file(tmp.path(), "in.csv", "a,b,c\n1,2,3\n");
+    let out = out_path(tmp.path(), "out.csv");
+    let d = doc(
+        json!([
+            node("s", "src.csv", json!({ "path": csv, "hasHeader": true })),
+            node("p", "xf.project", json!({ "columns": ["a", "b"] })),
+            node("k", "snk.csv", json!({ "path": out, "hasHeader": true })),
+        ]),
+        json!([main_edge("e1", "s", "p"), main_edge("e2", "p", "k")]),
+    );
+    let lin = engine.pipeline_column_lineage(&d).expect("pipeline lineage");
+    let p = lin.get("p").expect("lineage for node p");
+    let a = p.iter().find(|(name, _)| name == "a").expect("col a in p");
+    assert_eq!(
+        a.1,
+        vec![duckle_duckdb_engine::lineage::RootColumn { node: "s".into(), column: "a".into() }],
+        "output column a should trace to source s.a; got {:?}",
+        a
+    );
+}
+
 #[test]
 fn code_javascript_undefined_return_errors_not_panics() {
     // Regression: a transform that returns nothing (undefined) used to

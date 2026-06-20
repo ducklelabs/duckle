@@ -337,6 +337,56 @@ impl DuckdbEngine {
         Ok(lineage::lineage_from_serialized_sql(&ast))
     }
 
+    /// Whole-pipeline column lineage: for each stage, trace every output column
+    /// back to the root source columns it came from, by stitching per-stage
+    /// `column_lineage` across the edge graph. Returns node_id ->
+    /// [(output_column, root_sources)]. Sources are roots; sinks / passthrough
+    /// views are transparent. Best-effort: a stage whose SQL can't be serialized
+    /// degrades to a passthrough rather than failing the whole trace.
+    pub fn pipeline_column_lineage(
+        &self,
+        doc: &PipelineDoc,
+    ) -> Result<std::collections::HashMap<String, Vec<(String, Vec<lineage::RootColumn>)>>, EngineError>
+    {
+        use std::collections::HashMap;
+        let compiled = plan::compile(doc)?;
+        // Upstream node ids feeding each node, from the edge graph.
+        let mut upstreams: HashMap<String, Vec<String>> = HashMap::new();
+        for e in &doc.edges {
+            upstreams.entry(e.target.clone()).or_default().push(e.source.clone());
+        }
+        // Per-stage lineage: sources are roots; transforms get column_lineage on
+        // their SELECT body; anything else (COPY sink, etc.) is a passthrough.
+        let mut graph: HashMap<String, lineage::NodeLineage> = HashMap::new();
+        for st in &compiled.stages {
+            let ups = upstreams.get(&st.node_id).cloned().unwrap_or_default();
+            let outputs = if st.component_id.starts_with("src.") {
+                Vec::new()
+            } else if let Some(sel) = lineage::select_body(&st.sql) {
+                self.column_lineage(&sel).unwrap_or_default()
+            } else {
+                Vec::new()
+            };
+            graph.insert(st.node_id.clone(), lineage::NodeLineage { outputs, upstreams: ups });
+        }
+        // Resolve roots for every column of every stage that projects columns.
+        let mut out: HashMap<String, Vec<(String, Vec<lineage::RootColumn>)>> = HashMap::new();
+        for st in &compiled.stages {
+            if let Some(nl) = graph.get(&st.node_id) {
+                if nl.outputs.is_empty() {
+                    continue;
+                }
+                let cols = nl
+                    .outputs
+                    .iter()
+                    .map(|o| (o.name.clone(), lineage::resolve_roots(&st.node_id, &o.name, &graph)))
+                    .collect();
+                out.insert(st.node_id.clone(), cols);
+            }
+        }
+        Ok(out)
+    }
+
     /// Statements that must run before a source query: cloud credentials,
     /// the azure extension, or ATTACH for a DuckDB file.
     fn source_prelude(&self, format: &str, options: &JsonValue) -> String {

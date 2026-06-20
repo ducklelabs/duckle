@@ -174,8 +174,19 @@ fn resolve_inner(
     let oc = nl.outputs.iter().find(|o| o.name == column);
     let oc = match oc {
         Some(o) if !o.sources.is_empty() => o,
-        // No traceable derivation here - stop at this node.
-        _ => return push_root(roots, node, column),
+        // No traceable derivation here. A single-input node with no lineage for
+        // this column is a passthrough (a sink, ctl.* view, or SELECT *) - carry
+        // the same column name into its upstream. Otherwise stop at this node.
+        _ => {
+            if nl.upstreams.len() == 1 {
+                visiting.push(key);
+                resolve_inner(&nl.upstreams[0], column, graph, visiting, roots);
+                visiting.pop();
+            } else {
+                push_root(roots, node, column);
+            }
+            return;
+        }
     };
     visiting.push(key);
     for src in &oc.sources {
@@ -197,6 +208,29 @@ fn pick_upstream(src: &ColumnSource, nl: &NodeLineage) -> Option<String> {
     }
     if nl.upstreams.len() == 1 {
         return Some(nl.upstreams[0].clone());
+    }
+    None
+}
+
+/// Extract the SELECT body from a stage's compiled SQL. json_serialize_sql only
+/// serializes SELECT statements, so strip a `CREATE [OR REPLACE] (VIEW|TABLE)
+/// "name" AS ` wrapper (transform stages have no ATTACH prelude, so the first
+/// ` AS ` is the CTAS separator). Returns None for non-query stages (COPY
+/// sinks, PRAGMA-prefixed stages) - those are treated as passthrough.
+pub fn select_body(sql: &str) -> Option<String> {
+    let t = sql.trim().trim_end_matches(';').trim();
+    let up = t.to_ascii_uppercase();
+    if up.starts_with("SELECT") || up.starts_with("WITH") {
+        return Some(t.to_string());
+    }
+    if up.starts_with("CREATE") {
+        if let Some(idx) = t.find(" AS ") {
+            let body = t[idx + 4..].trim();
+            let bup = body.to_ascii_uppercase();
+            if bup.starts_with("SELECT") || bup.starts_with("WITH") || body.starts_with('(') {
+                return Some(body.to_string());
+            }
+        }
     }
     None
 }
@@ -326,5 +360,20 @@ mod tests {
             resolve_roots("j", "id", &g),
             vec![RootColumn { node: "a".into(), column: "id".into() }]
         );
+    }
+
+    #[test]
+    fn select_body_strips_create_wrapper() {
+        assert_eq!(
+            select_body("CREATE OR REPLACE VIEW \"n\" AS SELECT a FROM t").as_deref(),
+            Some("SELECT a FROM t")
+        );
+        assert_eq!(
+            select_body("CREATE OR REPLACE TABLE \"n\" AS SELECT a FROM t;").as_deref(),
+            Some("SELECT a FROM t")
+        );
+        assert_eq!(select_body("SELECT a FROM t").as_deref(), Some("SELECT a FROM t"));
+        // A COPY sink (or other non-query) has no SELECT body.
+        assert_eq!(select_body("COPY (SELECT * FROM t) TO 'x.csv'"), None);
     }
 }
