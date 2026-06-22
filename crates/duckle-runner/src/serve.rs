@@ -182,6 +182,12 @@ struct WebState {
 pub fn run_web() -> Result<(), String> {
     let args = parse_web_args()?;
     let workspace = args.workspace.canonicalize().unwrap_or_else(|_| args.workspace.clone());
+    // Drop the Windows extended-length prefix (\\?\) so the path the browser
+    // sees and echoes back in /api/fs calls stays a plain C:\... path.
+    let workspace = {
+        let s = workspace.to_string_lossy().to_string();
+        PathBuf::from(s.strip_prefix(r"\\?\").map(|x| x.to_string()).unwrap_or(s))
+    };
     let duckdb = crate::resolve_duckdb(args.duckdb.clone())?;
     let dist = args.dist.canonicalize().map_err(|e| format!("--dist {}: {}", args.dist.display(), e))?;
     std::env::set_var("DUCKLE_DUCKDB_BIN", &duckdb);
@@ -214,15 +220,125 @@ fn handle_web(mut stream: TcpStream, state: &WebState) -> Result<(), String> {
         let cmd = req.path.trim_start_matches("/api/cmd/").to_string();
         return dispatch_cmd(&mut stream, state, &cmd, &req.body);
     }
+    if req.method == "POST" && req.path.starts_with("/api/fs/") {
+        let op = req.path.trim_start_matches("/api/fs/").to_string();
+        return dispatch_fs(&mut stream, state, &op, &req.body);
+    }
     // Static frontend: map the URL path into the dist dir; unknown non-asset
     // paths fall back to index.html (SPA routing).
     serve_static(&mut stream, state, &req.path)
 }
 
-fn dispatch_cmd(stream: &mut TcpStream, state: &WebState, cmd: &str, _body: &[u8]) -> Result<(), String> {
+/// Server-side filesystem bridge for the web editor. The browser cannot touch
+/// the server's disk, so the frontend's workspace file ops (read/write/list)
+/// route here. Every path is confined to the workspace dir (no traversal out).
+fn dispatch_fs(stream: &mut TcpStream, state: &WebState, op: &str, body: &[u8]) -> Result<(), String> {
+    let args: Value = serde_json::from_slice(body).unwrap_or(Value::Null);
+    let path_arg = args.get("path").and_then(|v| v.as_str()).unwrap_or("");
+    let target = match confine_to_workspace(&state.workspace, path_arg) {
+        Ok(p) => p,
+        Err(e) => return respond_err(stream, "400 Bad Request", &e),
+    };
+    match op {
+        "exists" => respond_json(stream, &serde_json::json!({ "exists": target.exists() })),
+        "read" => match std::fs::read_to_string(&target) {
+            Ok(content) => respond_json(stream, &serde_json::json!({ "content": content })),
+            Err(e) => respond_err(stream, "404 Not Found", &e.to_string()),
+        },
+        "write" => {
+            let content = args.get("content").and_then(|v| v.as_str()).unwrap_or("");
+            if let Some(parent) = target.parent() {
+                let _ = std::fs::create_dir_all(parent);
+            }
+            match std::fs::write(&target, content) {
+                Ok(()) => respond_json(stream, &serde_json::json!({ "ok": true })),
+                Err(e) => respond_err(stream, "500 Internal Server Error", &e.to_string()),
+            }
+        }
+        "mkdir" => match std::fs::create_dir_all(&target) {
+            Ok(()) => respond_json(stream, &serde_json::json!({ "ok": true })),
+            Err(e) => respond_err(stream, "500 Internal Server Error", &e.to_string()),
+        },
+        "remove" => {
+            let r = if target.is_dir() { std::fs::remove_dir_all(&target) } else { std::fs::remove_file(&target) };
+            match r {
+                Ok(()) => respond_json(stream, &serde_json::json!({ "ok": true })),
+                Err(e) => respond_err(stream, "500 Internal Server Error", &e.to_string()),
+            }
+        }
+        "readdir" => {
+            let mut entries = Vec::new();
+            if let Ok(rd) = std::fs::read_dir(&target) {
+                for e in rd.flatten() {
+                    let ft = e.file_type();
+                    entries.push(serde_json::json!({
+                        "name": e.file_name().to_string_lossy(),
+                        "isFile": ft.as_ref().map(|t| t.is_file()).unwrap_or(false),
+                        "isDirectory": ft.as_ref().map(|t| t.is_dir()).unwrap_or(false),
+                    }));
+                }
+            }
+            respond_json(stream, &Value::Array(entries))
+        }
+        _ => respond_err(stream, "404 Not Found", &format!("unknown fs op: {}", op)),
+    }
+}
+
+/// Resolve `path` (absolute or relative) and ensure it stays inside the
+/// workspace. Lexical normalization (no symlink follow needed) is enough since
+/// we only ever read/write plain files the editor created.
+fn confine_to_workspace(workspace: &Path, path: &str) -> Result<PathBuf, String> {
+    if path.is_empty() {
+        return Err("path required".into());
+    }
+    let raw = PathBuf::from(path.replace('\\', "/"));
+    let joined = if raw.is_absolute() { raw } else { workspace.join(raw) };
+    // Normalize . and .. lexically.
+    let mut normalized = PathBuf::new();
+    for comp in joined.components() {
+        use std::path::Component::*;
+        match comp {
+            ParentDir => {
+                normalized.pop();
+            }
+            CurDir => {}
+            other => normalized.push(other.as_os_str()),
+        }
+    }
+    // Compare normalized strings: tolerate \ vs /, the \\?\ prefix, and (on
+    // Windows) case so the browser-built path matches the server workspace.
+    let norm = |p: &Path| {
+        p.to_string_lossy()
+            .replace('\\', "/")
+            .trim_start_matches("//?/")
+            .trim_end_matches('/')
+            .to_lowercase()
+    };
+    if !norm(&normalized).starts_with(&norm(workspace)) {
+        return Err("path escapes the workspace".into());
+    }
+    Ok(normalized)
+}
+
+fn dispatch_cmd(stream: &mut TcpStream, state: &WebState, cmd: &str, body: &[u8]) -> Result<(), String> {
     match cmd {
         // Drives the editor's runtime indicator offline -> ready.
         "ping" => respond_json(stream, &Value::String("pong".into())),
+        // Connection secrets: pass the payload through unchanged in the web MVP
+        // (no at-rest encryption yet; use ${ENV:KEY} for secrets). Echoing the
+        // payloadJson keeps the frontend's JSON.parse round-trip lossless -
+        // returning null here would blank out the connection's fields on save.
+        "connection_encrypt_payload" | "connection_decrypt_payload" => {
+            let args: Value = serde_json::from_slice(body).unwrap_or(Value::Null);
+            let payload = args.get("payloadJson").and_then(|v| v.as_str()).unwrap_or("null");
+            respond_json(stream, &Value::String(payload.to_string()))
+        }
+        // Tells the browser editor which server workspace it is editing, so it
+        // can auto-load it (there is no native folder picker on the web).
+        "web_bootstrap" => respond_json(
+            stream,
+            &serde_json::json!({ "workspace": state.workspace.to_string_lossy() }),
+        ),
         // The browser build skips the engine-setup gate, but answer truthfully.
         "engine_status" => respond_json(
             stream,

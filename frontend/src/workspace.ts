@@ -1,4 +1,12 @@
 import { isTauri } from './tauri-dialog';
+import { isWebBackend, webFs } from './web-fs';
+
+// A backend that can read/write the workspace exists in the desktop app (Tauri
+// fs) and in the web edition (HTTP fs via duckle-runner). Browser dev with no
+// server has neither, so file ops stay inert there.
+function hasBackend(): boolean {
+    return isTauri() || isWebBackend();
+}
 
 const WORKSPACE_PATH_KEY = 'duckle:workspace-path';
 
@@ -103,6 +111,11 @@ export async function pickWorkspaceDirectory(): Promise<string | null> {
 type FsLib = typeof import('@tauri-apps/plugin-fs');
 
 async function fs(): Promise<FsLib> {
+    // Desktop -> the native fs plugin; web edition -> the HTTP fs shim. The web
+    // shim implements the subset of the plugin that this module uses.
+    if (!isTauri()) {
+        return webFs as unknown as FsLib;
+    }
     return await import('@tauri-apps/plugin-fs');
 }
 
@@ -187,7 +200,7 @@ async function readDirEntries(path: string): Promise<string[]> {
  * we're running in browser mode.
  */
 export async function loadWorkspace(path: string): Promise<WorkspaceState | null> {
-    if (!isTauri()) return null;
+    if (!hasBackend()) return null;
     try {
         const v2 = await loadV2(path);
         if (v2) return v2;
@@ -311,7 +324,7 @@ export async function saveMetadata(
     path: string,
     metadata: { engine?: string; jobs?: unknown; activeJobId?: string },
 ): Promise<void> {
-    if (!isTauri()) return;
+    if (!hasBackend()) return;
     try {
         await ensureDir(path);
         await writeJson(joinPath(path, METADATA_FILE), {
@@ -331,7 +344,7 @@ export async function saveRepository(
     path: string,
     items: Array<Record<string, unknown>>,
 ): Promise<void> {
-    if (!isTauri()) return;
+    if (!hasBackend()) return;
     try {
         await ensureDir(path);
         const stripped = items.map(i => {
@@ -350,7 +363,7 @@ export async function savePipelineFile(
     pipelineId: string,
     pipeline: unknown,
 ): Promise<boolean> {
-    if (!isTauri()) return true;
+    if (!hasBackend()) return true;
     try {
         const dir = joinPath(path, PIPELINES_DIR);
         await ensureDir(dir);
@@ -368,7 +381,7 @@ export async function saveItemPayload(
     itemId: string,
     payload: unknown,
 ): Promise<boolean> {
-    if (!isTauri()) return true;
+    if (!hasBackend()) return true;
     const dir = PAYLOAD_DIR_BY_TYPE[itemType];
     if (!dir) return true;
     try {
@@ -388,7 +401,7 @@ export async function deletePipelineFile(
     path: string,
     pipelineId: string,
 ): Promise<void> {
-    if (!isTauri()) return;
+    if (!hasBackend()) return;
     try {
         const { exists, remove } = await fs();
         const file = joinPath(path, PIPELINES_DIR, `${pipelineId}.json`);
@@ -403,7 +416,7 @@ export async function deleteItemPayload(
     itemType: string,
     itemId: string,
 ): Promise<void> {
-    if (!isTauri()) return;
+    if (!hasBackend()) return;
     const dir = PAYLOAD_DIR_BY_TYPE[itemType];
     if (!dir) return;
     try {
@@ -420,7 +433,7 @@ export async function deleteItemPayload(
  * migration and as a fallback.
  */
 export async function saveAll(path: string, state: WorkspaceState): Promise<void> {
-    if (!isTauri()) return;
+    if (!hasBackend()) return;
     await ensureDir(path);
     await saveMetadata(path, {
         engine: state.engine,

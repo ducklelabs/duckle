@@ -77,6 +77,7 @@ import {
 } from './workspace';
 import { openExternal } from './tauri-io';
 import { GuidedTour } from './GuidedTour';
+import { isWebBackend } from './web-fs';
 import LeftSidebar from './workflow-ui/LeftSidebar';
 import PropertiesPanel from './workflow-ui/PropertiesPanel';
 import BottomPanel from './workflow-ui/BottomPanel';
@@ -269,9 +270,10 @@ export default function App() {
         const active = accs.find(a => a.id === loadActiveAccountId()) ?? accs[0];
         return active ? active.workspacePath ?? null : getWorkspacePath();
     });
-    // In Tauri: needs workspace picked + hydrated before saves start.
-    // In browser: workspaceReady is always true; localStorage persists.
-    const [workspaceReady, setWorkspaceReady] = useState<boolean>(!isInTauri());
+    // In Tauri AND the web edition: stay un-ready until the workspace has
+    // hydrated, so auto-save can't overwrite the server/disk files with empty
+    // in-memory defaults. Pure browser (no backend) is ready immediately.
+    const [workspaceReady, setWorkspaceReady] = useState<boolean>(!isInTauri() && !isWebBackend());
     // A structural workspace file (duckle.json / repository.json) failed to
     // parse - we stay un-ready so auto-save can't overwrite the good files,
     // and show a banner naming the file. `corruptFiles` holds per-item files
@@ -305,9 +307,24 @@ export default function App() {
     const nodes = activePipeline.nodes;
     const edges = activePipeline.edges;
 
-    // Hydrate from workspace file on Tauri once the path is known.
+    // Web edition: no folder picker - the server tells us which workspace it
+    // serves, so we adopt and load it.
     useEffect(() => {
-        if (!isInTauri() || !workspacePathState) return;
+        if (isInTauri() || !isWebBackend() || workspacePathState) return;
+        let cancelled = false;
+        invoke<{ workspace?: string }>('web_bootstrap')
+            .then(b => {
+                if (!cancelled && b?.workspace) setWorkspacePathState(b.workspace);
+            })
+            .catch(() => {});
+        return () => {
+            cancelled = true;
+        };
+    }, [workspacePathState]);
+
+    // Hydrate from the workspace once the path is known (Tauri fs or web HTTP fs).
+    useEffect(() => {
+        if ((!isInTauri() && !isWebBackend()) || !workspacePathState) return;
         let cancelled = false;
         setWorkspaceLoadError(null);
         setCorruptFiles([]);
@@ -347,7 +364,7 @@ export default function App() {
     const prevRepoRef = useRef<RepoItem[] | null>(null);
 
     useEffect(() => {
-        if (!workspaceReady || !isInTauri() || !workspacePathState) return;
+        if (!workspaceReady || (!isInTauri() && !isWebBackend()) || !workspacePathState) return;
         const ws = workspacePathState;
         const t = setTimeout(() => {
             void saveMetadata(ws, { engine, jobs, activeJobId });
@@ -356,7 +373,7 @@ export default function App() {
     }, [workspaceReady, workspacePathState, engine, jobs, activeJobId]);
 
     useEffect(() => {
-        if (!workspaceReady || !isInTauri() || !workspacePathState) return;
+        if (!workspaceReady || (!isInTauri() && !isWebBackend()) || !workspacePathState) return;
         const ws = workspacePathState;
         const t = setTimeout(() => {
             void (async () => {
@@ -405,7 +422,7 @@ export default function App() {
     }, [workspaceReady, workspacePathState, repo]);
 
     useEffect(() => {
-        if (!workspaceReady || !isInTauri() || !workspacePathState) return;
+        if (!workspaceReady || (!isInTauri() && !isWebBackend()) || !workspacePathState) return;
         const ws = workspacePathState;
         const t = setTimeout(() => {
             void (async () => {
