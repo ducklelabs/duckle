@@ -177,6 +177,9 @@ struct WebState {
     workspace: PathBuf,
     duckdb: PathBuf,
     dist: PathBuf,
+    /// Serialize runs: the shared workspace env + DuckDB process make concurrent
+    /// executions unsafe, so browser run requests queue.
+    run_lock: Mutex<()>,
 }
 
 pub fn run_web() -> Result<(), String> {
@@ -192,7 +195,13 @@ pub fn run_web() -> Result<(), String> {
     let dist = args.dist.canonicalize().map_err(|e| format!("--dist {}: {}", args.dist.display(), e))?;
     std::env::set_var("DUCKLE_DUCKDB_BIN", &duckdb);
     std::env::set_var("DUCKLE_WORKSPACE", &workspace);
-    let state = Arc::new(WebState { workspace: workspace.clone(), duckdb: duckdb.clone(), dist: dist.clone() });
+    std::env::set_var("DUCKLE_LOG_DIR", workspace.join("logs"));
+    let state = Arc::new(WebState {
+        workspace: workspace.clone(),
+        duckdb: duckdb.clone(),
+        dist: dist.clone(),
+        run_lock: Mutex::new(()),
+    });
     let addr = format!("{}:{}", args.host, args.port);
     let listener = TcpListener::bind(&addr).map_err(|e| format!("bind {}: {}", addr, e))?;
     eprintln!("duckle-runner: web editor on http://{}", addr);
@@ -332,6 +341,40 @@ fn dispatch_cmd(stream: &mut TcpStream, state: &WebState, cmd: &str, body: &[u8]
             let args: Value = serde_json::from_slice(body).unwrap_or(Value::Null);
             let payload = args.get("payloadJson").and_then(|v| v.as_str()).unwrap_or("null");
             respond_json(stream, &Value::String(payload.to_string()))
+        }
+        // Execute a pipeline on the server engine and return the RunResult (the
+        // same shape the desktop returns). The frontend reads the final result
+        // from this response; live per-stage events (the Channel) are not
+        // streamed in the MVP. Runs are serialized via run_lock.
+        "run_pipeline" => {
+            let args: Value = serde_json::from_slice(body).unwrap_or(Value::Null);
+            let doc: PipelineDoc = match serde_json::from_value(args.get("pipeline").cloned().unwrap_or(Value::Null)) {
+                Ok(d) => d,
+                Err(e) => return respond_err(stream, "400 Bad Request", &format!("bad pipeline: {}", e)),
+            };
+            let name = args.get("pipelineName").and_then(|v| v.as_str()).unwrap_or("web").to_string();
+            let _guard = state.run_lock.lock().unwrap_or_else(|p| p.into_inner());
+            let engine = DuckdbEngine::new(state.duckdb.clone());
+            let result = engine.execute_pipeline_named(&doc, &name);
+            match serde_json::to_value(&result) {
+                Ok(v) => respond_json(stream, &v),
+                Err(e) => respond_err(stream, "500 Internal Server Error", &e.to_string()),
+            }
+        }
+        // Compile to per-stage SQL for the Plan tab.
+        "compile_pipeline" => {
+            let args: Value = serde_json::from_slice(body).unwrap_or(Value::Null);
+            let doc: PipelineDoc = match serde_json::from_value(args.get("pipeline").cloned().unwrap_or(Value::Null)) {
+                Ok(d) => d,
+                Err(e) => return respond_err(stream, "400 Bad Request", &format!("bad pipeline: {}", e)),
+            };
+            match duckle_duckdb_engine::compile_pipeline_sql(&doc) {
+                Ok(stages) => match serde_json::to_value(&stages) {
+                    Ok(v) => respond_json(stream, &v),
+                    Err(e) => respond_err(stream, "500 Internal Server Error", &e.to_string()),
+                },
+                Err(e) => respond_err(stream, "400 Bad Request", &e.to_string()),
+            }
         }
         // Tells the browser editor which server workspace it is editing, so it
         // can auto-load it (there is no native folder picker on the web).

@@ -1,5 +1,6 @@
 import { Channel, invoke } from '@tauri-apps/api/core';
 import { isTauri } from './tauri-dialog';
+import { isWebBackend } from './web-fs';
 import type { Column } from './pipeline-types';
 import type { Edge, Node } from '@xyflow/react';
 import type { DuckleNodeData } from './pipeline-types';
@@ -89,7 +90,10 @@ export async function runPipeline(
     workspacePath?: string | null,
     pipelineName?: string | null,
 ): Promise<RunResult | null> {
-    if (!isTauri()) return null;
+    // Web edition runs on the server engine over HTTP; the Channel arg is
+    // ignored there (no live per-stage events yet), and the final RunResult
+    // comes back from the invoke return.
+    if (!isTauri() && !isWebBackend()) return null;
     const channel = new Channel<PipelineEvent>();
     if (onEvent) channel.onmessage = onEvent;
     try {
@@ -462,7 +466,7 @@ export async function compilePipelineSql(
     // Plan tab) can surface it; swallowing it here previously made the
     // Plan tab show a generic "appears here once it validates" placeholder
     // even when the pipeline had a clear planner error.
-    if (!isTauri()) return null;
+    if (!isTauri() && !isWebBackend()) return null;
     return await invoke<StageSql[]>('compile_pipeline', {
         pipeline: { nodes, edges },
     });
