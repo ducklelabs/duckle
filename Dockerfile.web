@@ -19,14 +19,24 @@ RUN DUCKLE_WEB=1 npm run build
 # 2) Build the headless runner that serves the editor + runs the engine.
 #    The engine shells out to the DuckDB CLI, so no libduckdb is needed here.
 FROM rust:1-bookworm AS runner
-# Be resilient to flaky crates.io downloads (sparse protocol + retries).
+# Be resilient to flaky/slow crates.io downloads: sparse protocol + retries, and
+# disable curl's "too slow" abort (LOW_SPEED_LIMIT=0) so a slow-but-progressing
+# download completes instead of failing the whole build.
 ENV CARGO_NET_RETRY=10 \
     CARGO_NET_GIT_FETCH_WITH_CLI=true \
     CARGO_REGISTRIES_CRATES_IO_PROTOCOL=sparse \
-    CARGO_HTTP_MULTIPLEXING=false
+    CARGO_HTTP_MULTIPLEXING=false \
+    CARGO_HTTP_LOW_SPEED_LIMIT=0 \
+    CARGO_HTTP_TIMEOUT=600
 WORKDIR /app
 COPY . .
-RUN cargo build --release -p duckle-runner
+# Cache the crate registry + target dir across builds so a stalled download
+# resumes on retry rather than restarting. The binary is copied out of the
+# (ephemeral) target cache mount so the runtime stage can COPY it.
+RUN --mount=type=cache,target=/usr/local/cargo/registry \
+    --mount=type=cache,target=/app/target \
+    cargo build --release -p duckle-runner \
+    && cp /app/target/release/duckle-runner /usr/local/bin/duckle-runner
 
 # 3) Runtime: runner + the built frontend + the DuckDB CLI.
 FROM debian:bookworm-slim
