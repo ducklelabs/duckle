@@ -46,14 +46,25 @@ pub fn list_tools() -> Value {
                 "componentId": { "type": "string", "description": "e.g. src.csv, xf.map, snk.postgres" }
             }, "required": ["componentId"] })),
         tool("create_pipeline",
-            "Validate a pipeline and write it as <name>.json into a chosen directory. Fails (without writing) if the pipeline does not compile, unless validate=false.",
+            "Validate a pipeline and write it. Prefer 'workspace' (writes pipelines/<id>.json and registers it in repository.json so it shows in the GUI immediately); 'directory' writes a loose <name>.json (not GUI-listed). Fails (without writing) if it does not compile, unless validate=false.",
             json!({ "type": "object", "properties": {
-                "directory": { "type": "string", "description": "Target directory (created if missing)." },
-                "name": { "type": "string", "description": "Pipeline name; also the file stem." },
+                "workspace": { "type": "string", "description": "Workspace root. Recommended: writes pipelines/<id>.json + registers in repository.json so the GUI lists it." },
+                "directory": { "type": "string", "description": "Alternative to 'workspace': write a loose <name>.json here (not registered in the GUI)." },
+                "name": { "type": "string", "description": "Pipeline display name." },
+                "id": { "type": "string", "description": "Pipeline id (file stem under workspace). Optional; generated if absent." },
                 "pipeline": { "type": "object", "description": "The pipeline object with at least a 'nodes' array (and usually 'edges')." },
                 "overwrite": { "type": "boolean", "description": "Replace an existing file. Default false." },
                 "validate": { "type": "boolean", "description": "Compile-check before writing. Default true." }
-            }, "required": ["directory","name","pipeline"] })),
+            }, "required": ["name","pipeline"] })),
+        tool("update_pipeline",
+            "Merge a PARTIAL change into an existing pipeline (no need to resend the whole thing). Deep-merges 'patch' into the on-disk pipeline (nodes/edges merged by id, so you can patch one node's property), validates, then writes. Locate it via 'workspace'+'id' or a direct 'path'.",
+            json!({ "type": "object", "properties": {
+                "workspace": { "type": "string", "description": "Workspace root (with 'id' -> pipelines/<id>.json)." },
+                "id": { "type": "string", "description": "Pipeline id under the workspace." },
+                "path": { "type": "string", "description": "Direct path to the pipeline .json (use instead of workspace+id)." },
+                "patch": { "type": "object", "description": "Partial pipeline to merge, e.g. {\"nodes\":[{\"id\":\"k1\",\"data\":{\"properties\":{\"path\":\"out2.csv\"}}}]} or {\"name\":\"New\"}." },
+                "validate": { "type": "boolean", "description": "Compile-check the merged result before writing. Default true." }
+            }, "required": ["patch"] })),
         tool("validate_pipeline",
             "Compile a pipeline to SQL without running it. Returns the per-stage SQL on success, or a structured error.",
             json!({ "type": "object", "properties": {
@@ -130,6 +141,7 @@ pub fn call_tool(params: Value) -> Result<Value, (i64, String)> {
         "list_components" => t_list_components(&args),
         "get_component_schema" => t_get_component_schema(&args),
         "create_pipeline" => t_create_pipeline(&args),
+        "update_pipeline" => t_update_pipeline(&args),
         "validate_pipeline" => t_validate_pipeline(&args),
         "run_pipeline" => t_run_pipeline(&args),
         "list_pipelines" => t_list_pipelines(&args),
@@ -183,8 +195,14 @@ fn t_validate_pipeline(args: &Value) -> Result<Value, String> {
 }
 
 fn t_create_pipeline(args: &Value) -> Result<Value, String> {
-    let dir = arg_str(args, "directory").ok_or("missing 'directory'")?;
     let name = arg_str(args, "name").ok_or("missing 'name'")?;
+    let workspace = arg_str(args, "workspace");
+    let dir = arg_str(args, "directory");
+    if workspace.is_none() && dir.is_none() {
+        return Err(
+            "provide 'workspace' (recommended - registers the pipeline so the GUI lists it) or 'directory'".to_string(),
+        );
+    }
     let pipeline = args
         .get("pipeline")
         .filter(|v| v.is_object())
@@ -200,7 +218,14 @@ fn t_create_pipeline(args: &Value) -> Result<Value, String> {
     obj.entry("edges").or_insert_with(|| json!([]));
     obj.entry("version").or_insert_with(|| json!(1));
     obj.entry("name").or_insert_with(|| json!(name));
-    obj.entry("id").or_insert_with(|| json!(gen_id("p")));
+    // A caller-pinned id (or one already in the pipeline) lets create+overwrite
+    // target a known file; otherwise generate one. The id is also the file stem
+    // under a workspace, matching the GUI's pipelines/<id>.json layout.
+    let id = arg_str(args, "id")
+        .map(String::from)
+        .or_else(|| obj.get("id").and_then(|v| v.as_str()).map(String::from))
+        .unwrap_or_else(|| gen_id("p"));
+    obj.insert("id".to_string(), json!(id));
     let full = Value::Object(obj);
 
     let mut validation = Value::Null;
@@ -211,20 +236,180 @@ fn t_create_pipeline(args: &Value) -> Result<Value, String> {
             Err(e) => return Err(format!("pipeline did not validate (not written): {e}")),
         }
     }
-
-    let fname = format!("{}.json", sanitize_filename(name));
-    let path = std::path::Path::new(dir).join(&fname);
-    if path.exists() && !overwrite {
-        return Err(format!(
-            "{} already exists (pass overwrite=true to replace)",
-            path.display()
-        ));
-    }
-    std::fs::create_dir_all(dir).map_err(|e| format!("mkdir {dir}: {e}"))?;
     let pretty = serde_json::to_string_pretty(&full).map_err(|e| e.to_string())?;
+
+    let (path, registered) = if let Some(ws) = workspace {
+        // v2 workspace layout: pipelines/<id>.json + repository.json entry so the
+        // GUI lists it immediately (the reporter's main friction, #92).
+        let pdir = std::path::Path::new(ws).join("pipelines");
+        std::fs::create_dir_all(&pdir).map_err(|e| format!("mkdir: {e}"))?;
+        let path = pdir.join(format!("{id}.json"));
+        if path.exists() && !overwrite {
+            return Err(format!("{} already exists (pass overwrite=true to replace)", path.display()));
+        }
+        std::fs::write(&path, &pretty).map_err(|e| format!("write {}: {e}", path.display()))?;
+        let registered = register_pipeline_in_repo(ws, &id, name);
+        (path, registered)
+    } else {
+        let dir = dir.unwrap();
+        let fname = format!("{}.json", sanitize_filename(name));
+        let path = std::path::Path::new(dir).join(&fname);
+        if path.exists() && !overwrite {
+            return Err(format!("{} already exists (pass overwrite=true to replace)", path.display()));
+        }
+        std::fs::create_dir_all(dir).map_err(|e| format!("mkdir {dir}: {e}"))?;
+        std::fs::write(&path, &pretty).map_err(|e| format!("write {}: {e}", path.display()))?;
+        (path, false)
+    };
+
+    Ok(json!({ "ok": true, "id": id, "path": path.to_string_lossy(), "registeredInRepository": registered, "validation": validation }))
+}
+
+/// Best-effort: upsert a pipeline entry into <ws>/repository.json so the GUI
+/// lists an MCP-created/updated pipeline. Places it under the "pipelines" folder
+/// when one exists (v2 layout), else at the root. Returns true if written.
+fn register_pipeline_in_repo(ws: &str, id: &str, name: &str) -> bool {
+    let repo_path = std::path::Path::new(ws).join("repository.json");
+    let mut repo: Value = std::fs::read_to_string(&repo_path)
+        .ok()
+        .and_then(|t| serde_json::from_str(&t).ok())
+        .unwrap_or_else(|| json!([]));
+    let arr = match repo.as_array_mut() {
+        Some(a) => a,
+        None => return false,
+    };
+    if let Some(existing) = arr
+        .iter_mut()
+        .find(|e| e.get("id").and_then(|v| v.as_str()) == Some(id))
+    {
+        if let Some(o) = existing.as_object_mut() {
+            o.insert("name".to_string(), json!(name));
+        }
+    } else {
+        let has_folder = arr.iter().any(|e| {
+            e.get("id").and_then(|v| v.as_str()) == Some("pipelines")
+                && e.get("type").and_then(|v| v.as_str()) == Some("folder")
+        });
+        let mut entry = serde_json::Map::new();
+        entry.insert("id".to_string(), json!(id));
+        entry.insert("name".to_string(), json!(name));
+        entry.insert("type".to_string(), json!("pipeline"));
+        if has_folder {
+            entry.insert("parentId".to_string(), json!("pipelines"));
+        }
+        arr.push(Value::Object(entry));
+    }
+    std::fs::write(&repo_path, serde_json::to_string_pretty(&repo).unwrap_or_default()).is_ok()
+}
+
+/// Deep-merge `patch` into `base` for update_pipeline. `nodes`/`edges` arrays are
+/// merged by element `id` (so a caller can patch one node's property without
+/// resending the whole array); other objects deep-merge; scalars/other arrays
+/// replace.
+fn merge_pipeline(base: &mut Value, patch: &Value) {
+    let (b, p) = match (base.as_object_mut(), patch.as_object()) {
+        (Some(b), Some(p)) => (b, p),
+        _ => {
+            *base = patch.clone();
+            return;
+        }
+    };
+    for (k, pv) in p {
+        if (k == "nodes" || k == "edges") && pv.is_array() {
+            merge_by_id(b.entry(k.clone()).or_insert_with(|| json!([])), pv);
+        } else {
+            match b.get_mut(k) {
+                Some(bv) if bv.is_object() && pv.is_object() => deep_merge(bv, pv),
+                _ => {
+                    b.insert(k.clone(), pv.clone());
+                }
+            }
+        }
+    }
+}
+
+fn merge_by_id(base_arr: &mut Value, patch_arr: &Value) {
+    let pitems = match patch_arr.as_array() {
+        Some(a) => a,
+        None => return,
+    };
+    let barr = match base_arr.as_array_mut() {
+        Some(a) => a,
+        None => {
+            *base_arr = patch_arr.clone();
+            return;
+        }
+    };
+    for pi in pitems {
+        let pid = pi.get("id").and_then(|v| v.as_str());
+        if let Some(pid) = pid {
+            if let Some(existing) = barr
+                .iter_mut()
+                .find(|e| e.get("id").and_then(|v| v.as_str()) == Some(pid))
+            {
+                deep_merge(existing, pi);
+                continue;
+            }
+        }
+        barr.push(pi.clone());
+    }
+}
+
+fn deep_merge(base: &mut Value, patch: &Value) {
+    match (base.as_object_mut(), patch.as_object()) {
+        (Some(b), Some(p)) => {
+            for (k, pv) in p {
+                match b.get_mut(k) {
+                    Some(bv) if bv.is_object() && pv.is_object() => deep_merge(bv, pv),
+                    _ => {
+                        b.insert(k.clone(), pv.clone());
+                    }
+                }
+            }
+        }
+        _ => *base = patch.clone(),
+    }
+}
+
+fn t_update_pipeline(args: &Value) -> Result<Value, String> {
+    let patch = args
+        .get("patch")
+        .filter(|v| v.is_object())
+        .ok_or("missing 'patch' object")?;
+    let do_validate = arg_bool(args, "validate", true);
+    let workspace = arg_str(args, "workspace");
+    let id = arg_str(args, "id");
+    let path: std::path::PathBuf = if let Some(p) = arg_str(args, "path") {
+        std::path::PathBuf::from(p)
+    } else if let (Some(ws), Some(id)) = (workspace, id) {
+        std::path::Path::new(ws).join("pipelines").join(format!("{id}.json"))
+    } else {
+        return Err("provide 'path', or 'workspace' + 'id'".to_string());
+    };
+    let text = std::fs::read_to_string(&path).map_err(|e| format!("read {}: {e}", path.display()))?;
+    let mut doc_val: Value =
+        serde_json::from_str(&text).map_err(|e| format!("parse {}: {e}", path.display()))?;
+    merge_pipeline(&mut doc_val, patch);
+
+    let mut validation = Value::Null;
+    if do_validate {
+        let d = to_doc(&doc_val)?;
+        match compile_pipeline_sql(&d) {
+            Ok(stages) => validation = json!({ "ok": true, "stageCount": stages.len() }),
+            Err(e) => return Err(format!("merged pipeline did not validate (not written): {e}")),
+        }
+    }
+    let pretty = serde_json::to_string_pretty(&doc_val).map_err(|e| e.to_string())?;
     std::fs::write(&path, pretty).map_err(|e| format!("write {}: {e}", path.display()))?;
 
-    Ok(json!({ "ok": true, "path": path.to_string_lossy(), "validation": validation }))
+    // Keep the repo name in sync if we know the workspace + id.
+    let mut registered = false;
+    if let (Some(ws), Some(id)) = (workspace.as_ref(), id.as_ref()) {
+        if let Some(name) = doc_val.get("name").and_then(|v| v.as_str()) {
+            registered = register_pipeline_in_repo(ws, id, name);
+        }
+    }
+    Ok(json!({ "ok": true, "path": path.to_string_lossy(), "registeredInRepository": registered, "validation": validation }))
 }
 
 fn t_run_pipeline(args: &Value) -> Result<Value, String> {
