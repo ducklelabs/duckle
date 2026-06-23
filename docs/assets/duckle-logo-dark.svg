@@ -1,8 +1,1 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256" role="img" aria-label="Duckle">
-  <!-- Duckle "D." mark, dark variant: slate disc with the brand-yellow glyph. -->
-  <circle cx="128" cy="128" r="120" fill="#1B1F2A"/>
-  <g fill="#FFD000">
-    <path d="M56 54 A74 74 0 0 1 56 202 Z"/>
-    <circle cx="173" cy="128" r="27"/>
-  </g>
-</svg>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Duckle"><title>Duckle</title><defs><clipPath id="dkb"><circle cx="32" cy="38" r="16"/></clipPath></defs><path fill="#F6BA78" fill-rule="evenodd" d="M16,38 A16,16 0 1,0 48,38 A16,16 0 1,0 16,38 Z M24,38 A7,7 0 1,0 38,38 A7,7 0 1,0 24,38 Z"/><rect x="40" y="10" width="8" height="44" rx="4" fill="#EA7E42"/><rect x="40" y="10" width="8" height="44" rx="4" fill="#D9742F" clip-path="url(#dkb)"/></svg>
