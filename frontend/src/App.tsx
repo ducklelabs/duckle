@@ -26,6 +26,7 @@ import { resolveOutputSchema } from './schema-resolve';
 import {
     cancelPipeline,
     compilePipelineSql,
+    runtimeHealth,
     runPipeline,
     runPipelinePartial,
     scheduleSetWorkspace,
@@ -661,9 +662,9 @@ export default function App() {
 
     useEffect(() => {
         let cancelled = false;
-        invoke<string>('ping')
-            .then(reply => {
-                if (!cancelled) setRuntime(reply === 'pong' ? 'ready' : 'offline');
+        runtimeHealth()
+            .then(health => {
+                if (!cancelled) setRuntime(health.ok ? 'ready' : 'offline');
             })
             .catch(() => {
                 if (!cancelled) setRuntime('offline');

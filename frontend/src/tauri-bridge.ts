@@ -26,6 +26,14 @@ function httpBaseUrl(): string {
     );
 }
 
+export type RuntimeHealth = {
+    ok: boolean;
+    mode: RuntimeBackend;
+    workspace?: string;
+    duckdb?: string;
+    error?: string;
+};
+
 async function httpJson<T>(
     path: string,
     init?: RequestInit,
@@ -47,6 +55,35 @@ async function httpJson<T>(
         throw new Error(message);
     }
     return data as T;
+}
+
+export async function runtimeHealth(): Promise<RuntimeHealth> {
+    const backend = runtimeBackend();
+    if (backend === 'mock') return { ok: false, mode: 'mock' };
+    if (backend === 'http') {
+        try {
+            const health = await httpJson<{
+                ok: boolean;
+                mode?: string;
+                workspace?: string;
+                duckdb?: string;
+            }>('/api/studio/health');
+            return {
+                ok: health.ok,
+                mode: 'http',
+                workspace: health.workspace,
+                duckdb: health.duckdb,
+            };
+        } catch (err) {
+            return { ok: false, mode: 'http', error: String(err) };
+        }
+    }
+    try {
+        const reply = await invoke<string>('ping');
+        return { ok: reply === 'pong', mode: 'tauri' };
+    } catch (err) {
+        return { ok: false, mode: 'tauri', error: String(err) };
+    }
 }
 
 type RunStreamLine =
