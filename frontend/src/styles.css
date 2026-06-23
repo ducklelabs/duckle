@@ -5311,6 +5311,45 @@ html[dir='rtl'] .topbar-lang {
     white-space: nowrap;
 }
 
+.bottom-preview-th-main {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+}
+
+.bottom-preview-th-name {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.bottom-preview-copy {
+    flex: 0 0 auto;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 20px;
+    height: 20px;
+    padding: 0;
+    border: 1px solid transparent;
+    border-radius: 6px;
+    background: transparent;
+    color: var(--text-4);
+    cursor: pointer;
+}
+
+.bottom-preview-copy:hover {
+    color: var(--text-1);
+    background: var(--bg-3);
+    border-color: var(--border);
+}
+
+.bottom-preview-copy:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 1px;
+}
+
 .bottom-preview-coltype {
     display: block;
     color: var(--text-4);

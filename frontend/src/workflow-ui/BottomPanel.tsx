@@ -2,9 +2,11 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
     AlertCircle,
+    Check,
     CheckCircle2,
     ChevronDown,
     ChevronUp,
+    Clipboard,
     PlayCircle,
     Terminal,
     X,
@@ -12,6 +14,7 @@ import {
 import type { RunResult } from '../tauri-bridge';
 import type { ValidationResult } from '../validation';
 import { friendlyError } from '../errors';
+import { copyText } from '../tauri-io';
 
 type TabId = 'problems' | 'output' | 'console';
 
@@ -365,6 +368,37 @@ function PreviewTable({
     label?: string;
 }) {
     const { t } = useTranslation();
+    const [copiedColumn, setCopiedColumn] = useState<string | null>(null);
+    const copiedTimerRef = useRef<number | null>(null);
+
+    useEffect(() => {
+        return () => {
+            if (copiedTimerRef.current !== null) {
+                window.clearTimeout(copiedTimerRef.current);
+            }
+        };
+    }, []);
+
+    const copyColumn = useCallback(
+        async (columnName: string) => {
+            const lines = [
+                columnName,
+                ...preview.rows.map(row => formatCell(row[columnName])),
+            ];
+            if (await copyText(lines.join('\n'))) {
+                setCopiedColumn(columnName);
+                if (copiedTimerRef.current !== null) {
+                    window.clearTimeout(copiedTimerRef.current);
+                }
+                copiedTimerRef.current = window.setTimeout(() => {
+                    setCopiedColumn(null);
+                    copiedTimerRef.current = null;
+                }, 1200);
+            }
+        },
+        [preview.rows],
+    );
+
     return (
         <div className="bottom-preview">
             <div className="bottom-preview-head">
@@ -376,7 +410,22 @@ function PreviewTable({
                         <tr>
                             {preview.columns.map(c => (
                                 <th key={c.name}>
-                                    {c.name}
+                                    <div className="bottom-preview-th-main">
+                                        <span className="bottom-preview-th-name">{c.name}</span>
+                                        <button
+                                            type="button"
+                                            className="bottom-preview-copy"
+                                            onClick={() => void copyColumn(c.name)}
+                                            title={`Copy ${c.name}`}
+                                            aria-label={`Copy ${c.name}`}
+                                        >
+                                            {copiedColumn === c.name ? (
+                                                <Check size={12} />
+                                            ) : (
+                                                <Clipboard size={12} />
+                                            )}
+                                        </button>
+                                    </div>
                                     <span className="bottom-preview-coltype">{c.type}</span>
                                 </th>
                             ))}
@@ -385,11 +434,14 @@ function PreviewTable({
                     <tbody>
                         {preview.rows.map((r, i) => (
                             <tr key={i}>
-                                {preview.columns.map(c => (
-                                    <td key={c.name}>
-                                        {formatCell(r[c.name])}
-                                    </td>
-                                ))}
+                                {preview.columns.map(c => {
+                                    const value = formatCell(r[c.name]);
+                                    return (
+                                        <td key={c.name} title={value}>
+                                            {value}
+                                        </td>
+                                    );
+                                })}
                             </tr>
                         ))}
                     </tbody>
