@@ -17,6 +17,7 @@ import { useTranslation } from 'react-i18next';
 import LanguageSelector from './i18n/LanguageSelector';
 import { UpdateBanner } from './UpdateBanner';
 import { EngineUpgradeBanner } from './EngineUpgradeBanner';
+import { ReviewPrompt } from './ReviewPrompt';
 import EditorTabs from './workflow-ui/EditorTabs';
 import EditorHeader, { type Job } from './workflow-ui/EditorHeader';
 import EngineSelector, { type EngineId } from './workflow-ui/EngineSelector';
@@ -1982,6 +1983,7 @@ export default function App() {
 
             <UpdateBanner />
             <EngineUpgradeBanner />
+            <ReviewPrompt />
 
             {workspaceLoadError ? (
                 <div className="update-banner is-error" role="alert">

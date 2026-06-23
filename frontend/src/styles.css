@@ -7803,3 +7803,42 @@ html[dir='rtl'] .topbar-lang {
 .acct-btn-primary { background: var(--btn-primary-bg, var(--accent)); color: var(--btn-primary-fg, #0a0a0a); border-color: transparent; }
 .acct-btn-primary:hover { background: var(--btn-primary-bg-strong, var(--accent)); }
 .acct-btn-primary:disabled { opacity: .5; cursor: not-allowed; }
+
+/* Review prompt (SourceForge) - bottom-right nudge after ~30s of use */
+.review-prompt {
+    position: fixed;
+    right: 18px;
+    bottom: 18px;
+    z-index: 1000;
+    width: 300px;
+    max-width: calc(100vw - 36px);
+    background: var(--bg-elevated);
+    border: 1px solid var(--border-strong);
+    border-radius: 12px;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
+    padding: 14px 16px 13px;
+    color: var(--text-1);
+    animation: review-prompt-in 0.18s ease-out;
+}
+@keyframes review-prompt-in {
+    from { opacity: 0; transform: translateY(8px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+.review-prompt-x {
+    position: absolute; top: 8px; right: 8px;
+    background: none; border: none; color: var(--text-3);
+    font-size: 16px; line-height: 1; cursor: pointer; padding: 2px 5px; border-radius: 6px;
+}
+.review-prompt-x:hover { color: var(--text-1); background: var(--bg-3); }
+.review-prompt-title { font-size: 14px; font-weight: 650; margin-bottom: 4px; padding-right: 16px; }
+.review-prompt-body { font-size: 12.5px; line-height: 1.5; color: var(--text-2); margin-bottom: 12px; }
+.review-prompt-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.review-prompt-cta {
+    background: var(--accent); color: #20242e; border: none; border-radius: 8px;
+    padding: 7px 16px; font-size: 13px; font-weight: 600; cursor: pointer;
+}
+.review-prompt-cta:hover { background: var(--accent-strong); }
+.review-prompt-link {
+    background: none; border: none; color: var(--text-3); font-size: 12px; cursor: pointer; padding: 6px 4px;
+}
+.review-prompt-link:hover { color: var(--text-1); }
