@@ -12,16 +12,16 @@ the repo root:
 from PIL import Image
 
 S = 1024                              # output size
-CREAM = (0xFB, 0xF3, 0xE8, 255)       # warm tile background
+TILE = (0xFB, 0xF3, 0xE8, 255)        # warm cream tile (light, distinct, not a dark ground)
 MARK = "apps/desktop/icons/icon-mark.png"
 OUT = "apps/desktop/icons/icon-source.png"
 
 
 def main():
     tile = Image.new("RGBA", (S, S), (0, 0, 0, 0))
-    # Warm rounded tile (transparent corners -> rounded app icon).
+    # Dark rounded tile (transparent corners -> rounded app icon).
     from PIL import ImageDraw
-    ImageDraw.Draw(tile).rounded_rectangle([0, 0, S - 1, S - 1], radius=int(0.20 * S), fill=CREAM)
+    ImageDraw.Draw(tile).rounded_rectangle([0, 0, S - 1, S - 1], radius=int(0.20 * S), fill=TILE)
 
     mark = Image.open(MARK).convert("RGBA")
     # Fit the mark to ~62% of the tile, preserving its aspect ratio.

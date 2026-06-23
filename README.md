@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="docs/assets/duckle-wordmark-dark.png" alt="Duckle" width="340"/>
+<img src="docs/assets/duckle-wordmark.png" alt="Duckle" width="300"/>
 
 <h3>The local-first data studio with a built-in AI assistant.</h3>
 
