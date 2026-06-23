@@ -1,10 +1,22 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { Edge, Node } from '@xyflow/react';
-import { CheckCircle2, ChevronLeft, ChevronRight, MousePointer2, Workflow } from 'lucide-react';
+import {
+    AlertCircle,
+    Check,
+    CheckCircle2,
+    ChevronLeft,
+    ChevronRight,
+    Clipboard,
+    MousePointer2,
+    RotateCcw,
+    Wand2,
+    Workflow,
+} from 'lucide-react';
 import { resolveUpstreamSchema, resolveUpstreamSampleRows } from '../schema-resolve';
 import { buildContextVars, builtinVars, substituteDeep } from '../run-resolve';
 import type { Column, DuckleNodeData } from '../pipeline-types';
+import { copyText } from '../tauri-io';
 import type {
     ConnectionPayload,
     ContextPayload,
@@ -17,7 +29,7 @@ import { FieldContext, type ActiveContext } from './fields/FieldContext';
 import { getManifest } from './fields/component-manifests';
 import type { Field } from './fields/types';
 
-type TabId = 'basic' | 'schema' | 'preview' | 'advanced' | 'validation';
+type TabId = 'basic' | 'json' | 'schema' | 'preview' | 'advanced' | 'validation';
 
 // Universal Advanced-tab fields. The engine reads retryAttempts /
 // retryBackoffMs / memoryLimitMb directly off the node's properties;
@@ -221,6 +233,7 @@ export default function PropertiesPanel({
 
     const TABS: { id: TabId; label: string }[] = [
         { id: 'basic', label: t('properties.tabBasic') },
+        { id: 'json', label: t('properties.tabJson', { defaultValue: 'Json' }) },
         { id: 'schema', label: t('properties.tabSchema') },
         { id: 'preview', label: t('properties.tabPreview') },
         { id: 'advanced', label: t('properties.tabAdvanced') },
@@ -436,6 +449,16 @@ export default function PropertiesPanel({
                         </div>
                     ) : null}
 
+                    {tab === 'json' ? (
+                        <div className="properties-section">
+                            <JsonConfigTab
+                                nodeId={selected.id}
+                                properties={props}
+                                onApply={next => onUpdate(selected.id, { properties: next })}
+                            />
+                        </div>
+                    ) : null}
+
                     {tab === 'schema' ? (
                         <div className="properties-section">
                             {manifest?.schemaSource === 'upstream' ? (
@@ -533,6 +556,154 @@ export default function PropertiesPanel({
             </FieldContext.Provider>
         </aside>
     );
+}
+
+type JsonConfigTabProps = {
+    nodeId: string;
+    properties: Record<string, unknown>;
+    onApply: (properties: Record<string, unknown>) => void;
+};
+
+function JsonConfigTab({ nodeId, properties, onApply }: JsonConfigTabProps) {
+    const { t } = useTranslation();
+    const sourceJson = useMemo(() => formatJson(properties), [properties]);
+    const [text, setText] = useState(sourceJson);
+    const [error, setError] = useState<string | null>(null);
+    const [dirty, setDirty] = useState(false);
+    const [copied, setCopied] = useState(false);
+
+    useEffect(() => {
+        setText(sourceJson);
+        setError(null);
+        setDirty(false);
+        setCopied(false);
+    }, [nodeId, sourceJson]);
+
+    const parseObject = (): Record<string, unknown> | null => {
+        const trimmed = text.trim();
+        let parsed: unknown;
+        try {
+            parsed = trimmed ? JSON.parse(trimmed) : {};
+        } catch (err) {
+            setError(err instanceof Error ? err.message : String(err));
+            return null;
+        }
+
+        if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+            setError(t('properties.jsonObjectRequired', {
+                defaultValue: 'Config JSON must be an object.',
+            }));
+            return null;
+        }
+
+        setError(null);
+        return parsed as Record<string, unknown>;
+    };
+
+    const handleApply = () => {
+        const parsed = parseObject();
+        if (!parsed) return;
+        onApply(parsed);
+        setText(formatJson(parsed));
+        setDirty(false);
+    };
+
+    const handleFormat = () => {
+        const parsed = parseObject();
+        if (!parsed) return;
+        setText(formatJson(parsed));
+        setDirty(true);
+    };
+
+    const handleReset = () => {
+        setText(sourceJson);
+        setError(null);
+        setDirty(false);
+    };
+
+    const handleCopy = async () => {
+        if (await copyText(text)) {
+            setCopied(true);
+            window.setTimeout(() => setCopied(false), 1200);
+        }
+    };
+
+    return (
+        <div className="json-config">
+            <div className="json-config-header">
+                <div>
+                    <div className="form-section-label">
+                        {t('properties.jsonConfigTitle', { defaultValue: 'Node config JSON' })}
+                    </div>
+                    <div className="json-config-help">
+                        {t('properties.jsonConfigHelp', {
+                            defaultValue:
+                                'Edits data.properties only. Structural node fields, schema, and preview rows stay unchanged.',
+                        })}
+                    </div>
+                </div>
+                <div className="json-config-actions">
+                    <button
+                        type="button"
+                        className="json-config-button"
+                        onClick={handleCopy}
+                        title={t('properties.jsonCopy', { defaultValue: 'Copy JSON' })}
+                        aria-label={t('properties.jsonCopy', { defaultValue: 'Copy JSON' })}
+                    >
+                        {copied ? <Check size={14} /> : <Clipboard size={14} />}
+                    </button>
+                    <button
+                        type="button"
+                        className="json-config-button"
+                        onClick={handleFormat}
+                        title={t('properties.jsonFormat', { defaultValue: 'Format JSON' })}
+                        aria-label={t('properties.jsonFormat', { defaultValue: 'Format JSON' })}
+                    >
+                        <Wand2 size={14} />
+                    </button>
+                    <button
+                        type="button"
+                        className="json-config-button"
+                        onClick={handleReset}
+                        disabled={!dirty && text === sourceJson}
+                        title={t('properties.jsonReset', { defaultValue: 'Reset JSON' })}
+                        aria-label={t('properties.jsonReset', { defaultValue: 'Reset JSON' })}
+                    >
+                        <RotateCcw size={14} />
+                    </button>
+                </div>
+            </div>
+            <textarea
+                className={'field-input field-textarea field-mono json-config-editor' + (error ? ' json-config-editor-error' : '')}
+                value={text}
+                onChange={e => {
+                    setText(e.target.value);
+                    setDirty(true);
+                    if (error) setError(null);
+                }}
+                spellCheck={false}
+                aria-invalid={error ? 'true' : 'false'}
+            />
+            {error ? (
+                <div className="json-config-error" role="alert">
+                    <AlertCircle size={14} aria-hidden="true" />
+                    <span>{error}</span>
+                </div>
+            ) : null}
+            <button
+                type="button"
+                className="json-config-apply"
+                onClick={handleApply}
+                disabled={!dirty}
+            >
+                {t('properties.jsonApply', { defaultValue: 'Apply JSON' })}
+            </button>
+        </div>
+    );
+}
+
+function formatJson(value: Record<string, unknown>): string {
+    return JSON.stringify(value ?? {}, null, 2);
 }
 
 type PreviewProps = {

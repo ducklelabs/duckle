@@ -2134,6 +2134,107 @@ textarea:focus-visible {
     border-radius: var(--radius);
 }
 
+.json-config {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.json-config-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+}
+
+.json-config-help {
+    margin-top: 4px;
+    color: var(--text-3);
+    font-size: 11px;
+    line-height: 1.45;
+}
+
+.json-config-actions {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-shrink: 0;
+}
+
+.json-config-button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 26px;
+    height: 26px;
+    background: var(--bg-2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    color: var(--text-2);
+    cursor: pointer;
+    transition: background 80ms ease, border-color 80ms ease, color 80ms ease;
+}
+
+.json-config-button:hover:not(:disabled) {
+    background: var(--bg-3);
+    border-color: var(--border-strong);
+    color: var(--text-1);
+}
+
+.json-config-button:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+}
+
+.json-config-editor {
+    min-height: 260px;
+    line-height: 1.5;
+    resize: vertical;
+    white-space: pre;
+    overflow: auto;
+}
+
+.json-config-editor-error {
+    border-color: var(--danger);
+}
+
+.json-config-error {
+    display: flex;
+    align-items: flex-start;
+    gap: 7px;
+    color: var(--danger);
+    font-size: 11px;
+    line-height: 1.45;
+}
+
+.json-config-error svg {
+    flex-shrink: 0;
+    margin-top: 1px;
+}
+
+.json-config-apply {
+    align-self: flex-start;
+    background: var(--accent);
+    border: none;
+    border-radius: var(--radius-sm);
+    color: var(--bg-0);
+    padding: 7px 12px;
+    font-size: 11px;
+    font-weight: 700;
+    font-family: inherit;
+    cursor: pointer;
+    transition: background 80ms ease, opacity 80ms ease;
+}
+
+.json-config-apply:hover:not(:disabled) {
+    background: var(--kind-source);
+}
+
+.json-config-apply:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+}
+
 .properties-placeholder-title {
     font-size: 13px;
     font-weight: 600;
