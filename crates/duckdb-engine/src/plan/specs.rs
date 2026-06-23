@@ -360,6 +360,14 @@ pub struct AvroSourceSpec {
     pub path: String,
 }
 
+/// src.qvd (#88): Qlik QVD reader via the clean-room `crate::qvd` decoder. The
+/// QVD header carries its own schema, so no config beyond the path is needed.
+#[derive(Debug, Clone)]
+pub struct QvdSourceSpec {
+    pub node_id: String,
+    pub path: String,
+}
+
 /// snk.nats: publish each upstream row as one NATS message to the
 /// configured subject. value = JSON-stringified row. Optional
 /// per-message subject suffix from a row column (e.g. tenant key).

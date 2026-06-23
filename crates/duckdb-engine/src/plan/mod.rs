@@ -139,6 +139,7 @@ pub enum RuntimeSpec {
     KafkaSink(KafkaSinkSpec),
     KafkaSource(KafkaSourceSpec),
     AvroSource(AvroSourceSpec),
+    QvdSource(QvdSourceSpec),
     NatsSink(NatsSinkSpec),
     NatsSource(NatsSourceSpec),
     PubsubSink(PubSubSinkSpec),
@@ -732,6 +733,7 @@ fn build_stage(
     let mut kafka_sink: Option<KafkaSinkSpec> = None;
     let mut kafka_source: Option<KafkaSourceSpec> = None;
     let mut avro_source: Option<AvroSourceSpec> = None;
+    let mut qvd_source: Option<QvdSourceSpec> = None;
     let mut nats_sink: Option<NatsSinkSpec> = None;
     let mut nats_source: Option<NatsSourceSpec> = None;
     let mut pubsub_sink: Option<PubSubSinkSpec> = None;
@@ -2420,6 +2422,17 @@ fn build_stage(
             path,
         });
         (String::new(), StageKind::View, None)
+    } else if component_id == "src.qvd" {
+        // Qlik QVD reader (#88) via the clean-room crate::qvd decoder. The QVD
+        // header carries its own schema, so path is the only required prop.
+        let path = string_prop(&props, "path")
+            .filter(|s| !s.is_empty())
+            .ok_or_else(|| EngineError::Config(format!("{}: path required", component_id)))?;
+        qvd_source = Some(QvdSourceSpec {
+            node_id: node.id.clone(),
+            path,
+        });
+        (String::new(), StageKind::View, None)
     } else if matches!(component_id, "src.yaml" | "src.toml") {
         // Single-file YAML / TOML reader. path is the absolute file
         // path; engine parses the doc with the relevant serde crate
@@ -3477,6 +3490,7 @@ fn build_stage(
         .or_else(|| kafka_sink.map(RuntimeSpec::KafkaSink))
         .or_else(|| kafka_source.map(RuntimeSpec::KafkaSource))
         .or_else(|| avro_source.map(RuntimeSpec::AvroSource))
+        .or_else(|| qvd_source.map(RuntimeSpec::QvdSource))
         .or_else(|| nats_sink.map(RuntimeSpec::NatsSink))
         .or_else(|| nats_source.map(RuntimeSpec::NatsSource))
         .or_else(|| pubsub_sink.map(RuntimeSpec::PubsubSink))

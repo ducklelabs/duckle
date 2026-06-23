@@ -28,6 +28,7 @@ pub mod error_category;
 pub mod history;
 pub mod lineage;
 pub mod plan;
+pub mod qvd;
 pub mod tls;
 pub mod watermark;
 mod connectors;
@@ -47,7 +48,8 @@ use plan::{
     KafkaSinkSpec, KafkaSourceSpec, KinesisSourceSpec, MilvusSourceSpec, MongoSinkSpec,
     MongoSourceSpec,
     NatsSinkSpec, NatsSourceSpec, OracleSinkSpec, OracleSourceSpec, PubSubSinkSpec,
-    PubSubSourceSpec, QdrantSourceSpec, RabbitSinkSpec, RabbitSourceSpec, RedisSinkSpec,
+    PubSubSourceSpec, QdrantSourceSpec, QvdSourceSpec, RabbitSinkSpec, RabbitSourceSpec,
+    RedisSinkSpec,
     RedisSourceSpec, RestPagination, RestResponseFormat, RestSourceSpec, RuntimeSpec, ShellSpec,
     SftpSinkSpec, SftpSourceSpec, SnowflakeAuth, SnowflakeSinkSpec, SnowflakeSourceSpec,
     SqlServerSinkSpec,
@@ -1002,6 +1004,7 @@ impl DuckdbEngine {
                     Some(RuntimeSpec::KafkaSink(spec)) => self.run_kafka_sink(&db_path, spec),
                     Some(RuntimeSpec::KafkaSource(spec)) => self.run_kafka_source(&db_path, spec),
                     Some(RuntimeSpec::AvroSource(spec)) => self.run_avro_source(&db_path, spec),
+                    Some(RuntimeSpec::QvdSource(spec)) => self.run_qvd_source(&db_path, spec),
                     Some(RuntimeSpec::NatsSink(spec)) => self.run_nats_sink(&db_path, spec),
                     Some(RuntimeSpec::NatsSource(spec)) => self.run_nats_source(&db_path, spec),
                     Some(RuntimeSpec::PubsubSink(spec)) => self.run_pubsub_sink(&db_path, spec),

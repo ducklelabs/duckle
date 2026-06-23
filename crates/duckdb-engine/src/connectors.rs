@@ -2163,6 +2163,20 @@ impl DuckdbEngine {
         ))
     }
 
+    /// src.qvd (#88): decode a Qlik QVD file with the clean-room crate::qvd
+    /// reader and materialize its records as a table, like src.avro.
+    pub(crate) fn run_qvd_source(
+        &self,
+        db: &Path,
+        spec: &QvdSourceSpec,
+    ) -> Result<String, EngineError> {
+        let rows = crate::qvd::read_file(std::path::Path::new(&spec.path))
+            .map_err(|e| EngineError::Query(format!("qvd: {}", e)))?;
+        let count = rows.len();
+        materialize_jsonobjects_as_table(&self.bin, db, &spec.node_id, &rows)?;
+        Ok(format!("qvd: materialized {} records into {}", count, spec.node_id))
+    }
+
     /// XML row-path source. Walks the document, builds a serde_json
     /// tree per element, and emits every element matching the
     /// trailing components of rowPath. Attributes become "@name"
