@@ -12,7 +12,7 @@ import {
     type OnSelectionChangeParams,
 } from '@xyflow/react';
 import type { ConnectionType } from './canvas/connection-types';
-import { Braces, FolderOpen, GitBranch, LayoutDashboard, Moon, Sparkles, Sun } from 'lucide-react';
+import { Braces, FolderOpen, GitBranch, LayoutDashboard, Moon, RotateCw, Sparkles, Sun } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import LanguageSelector from './i18n/LanguageSelector';
 import { UpdateBanner } from './UpdateBanner';
@@ -279,6 +279,8 @@ export default function App() {
     // and show a banner naming the file. `corruptFiles` holds per-item files
     // (a context/connection/pipeline) that were skipped so the rest could load.
     const [workspaceLoadError, setWorkspaceLoadError] = useState<string | null>(null);
+    // Bumped by "Reload from disk" to re-trigger the load effect for the same path (#92).
+    const [reloadNonce, setReloadNonce] = useState(0);
     const [corruptFiles, setCorruptFiles] = useState<string[]>([]);
     // ---- local multi-account profiles: username + optional avatar, each bound
     // to its own workspace (= data / pipeline context). Stored only on this
@@ -356,7 +358,7 @@ export default function App() {
         return () => {
             cancelled = true;
         };
-    }, [workspacePathState]);
+    }, [workspacePathState, reloadNonce]);
 
     // Granular Tauri saves - each slice goes to its own file so the
     // workspace folder is git-friendly. Browser still uses localStorage.
@@ -569,6 +571,18 @@ export default function App() {
         prevRepoRef.current = null;
         setWorkspacePath(picked);
         setWorkspacePathState(picked);
+    }, [workspacePathState]);
+
+    // #92: re-read the open workspace from disk, replacing in-memory state, so
+    // external edits (MCP, git pull, hand-editing) are picked up - the files are
+    // the source of truth. workspaceReady=false disables autosave so it can't
+    // clobber during the reload; the load effect flips it back true on success.
+    const handleReloadWorkspace = useCallback(() => {
+        if ((!isInTauri() && !isWebBackend()) || !workspacePathState) return;
+        setWorkspaceReady(false);
+        prevPipelineDataRef.current = null;
+        prevRepoRef.current = null;
+        setReloadNonce(n => n + 1);
     }, [workspacePathState]);
 
     // Keep the active account pointed at whatever workspace is open.
@@ -1848,6 +1862,16 @@ export default function App() {
                     >
                         <FolderOpen size={12} />
                         <span className="topbar-workspace-name">{workspaceFolderName}</span>
+                    </button>
+                ) : null}
+                {workspaceFolderName ? (
+                    <button
+                        type="button"
+                        className="topbar-workspace"
+                        onClick={handleReloadWorkspace}
+                        title="Reload workspace from disk (pick up external edits)"
+                    >
+                        <RotateCw size={12} />
                     </button>
                 ) : null}
                 {contexts.length > 0 ? (
