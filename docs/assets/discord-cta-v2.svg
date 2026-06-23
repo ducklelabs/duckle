@@ -2,7 +2,6 @@
   <rect width="340" height="56" rx="12" fill="#5865F2"/>
 
   <!-- Duckle pipeline mark -->
-  <circle cx="28" cy="28" r="15" fill="#0c0e12"/>
   <g transform="translate(13.28,13.28) scale(0.46)">
     <line x1="14" y1="16" x2="32" y2="32" stroke="#EA7E42" stroke-width="3.4" stroke-linecap="round"/>
     <line x1="32" y1="32" x2="50" y2="48" stroke="#EA7E42" stroke-width="3.4" stroke-linecap="round"/>
