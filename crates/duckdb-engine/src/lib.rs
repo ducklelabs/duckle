@@ -13,7 +13,7 @@
 //! Cancellation kills the in-flight child process.
 
 use duckle_metadata::{Column, DataType};
-use duckle_plugin_sdk::{Inspection, InspectError};
+use duckle_plugin_sdk::{InspectError, Inspection};
 use serde::Serialize;
 use serde_json::Value as JsonValue;
 use std::path::{Path, PathBuf};
@@ -23,37 +23,34 @@ use std::sync::Arc;
 use std::time::Instant;
 use thiserror::Error;
 
+mod connectors;
 pub mod context;
 pub mod error_category;
 pub mod history;
 pub mod lineage;
 pub mod plan;
-pub mod tls;
-pub mod watermark;
-mod connectors;
 mod run_log;
+pub mod tls;
 mod util;
-pub(crate) use util::*;
-pub use util::is_secret_prop_key;
+pub mod watermark;
 pub use history::{append_run_record, load_run_history, RunRecord};
-pub use plan::{CompiledPipeline, PipelineDoc, Stage, StageKind};
 use plan::{
     quote_ident, AiChunkSpec, AiClassifySpec, AiDedupeSpec, AiEmbedSpec, AiLlmSpec, AiPiiSpec,
     AvroSinkSpec, AvroSourceSpec, CassandraSinkSpec, CassandraSourceSpec, ClickHouseSinkSpec,
-    ClickHouseSourceSpec, ClipboardSourceSpec, DatabricksSinkSpec, DatabricksSourceSpec,
-    DbtSpec, DynamoDbSourceSpec, ElasticSourceSpec, EmailSinkSpec, EmailSourceSpec,
-    FormatFileSinkSpec,
+    ClickHouseSourceSpec, ClipboardSourceSpec, DatabricksSinkSpec, DatabricksSourceSpec, DbtSpec,
+    DynamoDbSourceSpec, ElasticSourceSpec, EmailSinkSpec, EmailSourceSpec, FormatFileSinkSpec,
     FormatFileSourceSpec, FormatKind, FtpSinkSpec, FtpSourceSpec, GitSourceSpec, JavaScriptSpec,
     KafkaSinkSpec, KafkaSourceSpec, KinesisSourceSpec, MilvusSourceSpec, MongoSinkSpec,
-    MongoSourceSpec,
-    NatsSinkSpec, NatsSourceSpec, OracleSinkSpec, OracleSourceSpec, PubSubSinkSpec,
-    PubSubSourceSpec, QdrantSourceSpec, RabbitSinkSpec, RabbitSourceSpec, RedisSinkSpec,
-    RedisSourceSpec, RestPagination, RestResponseFormat, RestSourceSpec, RuntimeSpec, ShellSpec,
-    SftpSinkSpec, SftpSourceSpec, SnowflakeAuth, SnowflakeSinkSpec, SnowflakeSourceSpec,
-    SqlServerSinkSpec,
-    SqlServerSourceSpec, WasmSpec, WeaviateSourceSpec, WebhookSourceSpec, WebhookSpec, XmlSinkSpec,
-    XmlSourceSpec,
+    MongoSourceSpec, NatsSinkSpec, NatsSourceSpec, OracleSinkSpec, OracleSourceSpec,
+    PubSubSinkSpec, PubSubSourceSpec, QdrantSourceSpec, RabbitSinkSpec, RabbitSourceSpec,
+    RedisSinkSpec, RedisSourceSpec, RestPagination, RestResponseFormat, RestSourceSpec,
+    RuntimeSpec, SftpSinkSpec, SftpSourceSpec, ShellSpec, SnowflakeAuth, SnowflakeSinkSpec,
+    SnowflakeSourceSpec, SqlServerSinkSpec, SqlServerSourceSpec, WasmSpec, WeaviateSourceSpec,
+    WebhookSourceSpec, WebhookSpec, XmlSinkSpec, XmlSourceSpec,
 };
+pub use plan::{CompiledPipeline, PipelineDoc, Stage, StageKind};
+pub use util::is_secret_prop_key;
+pub(crate) use util::*;
 
 #[derive(Debug, Error)]
 pub enum EngineError {
@@ -266,7 +263,10 @@ impl DuckdbEngine {
     /// (DESCRIBE / SELECT produce one array; preludes produce none).
     fn run_rows(&self, db: Option<&Path>, sql: &str) -> Result<Vec<JsonValue>, EngineError> {
         let out = self.run(db, sql, true)?;
-        Ok(parse_json_arrays(&out).into_iter().next().unwrap_or_default())
+        Ok(parse_json_arrays(&out)
+            .into_iter()
+            .next()
+            .unwrap_or_default())
     }
 
     /// Row count of an already-materialized upstream view/table, for the
@@ -346,14 +346,19 @@ impl DuckdbEngine {
     pub fn pipeline_column_lineage(
         &self,
         doc: &PipelineDoc,
-    ) -> Result<std::collections::HashMap<String, Vec<(String, Vec<lineage::RootColumn>)>>, EngineError>
-    {
+    ) -> Result<
+        std::collections::HashMap<String, Vec<(String, Vec<lineage::RootColumn>)>>,
+        EngineError,
+    > {
         use std::collections::HashMap;
         let compiled = plan::compile(doc)?;
         // Upstream node ids feeding each node, from the edge graph.
         let mut upstreams: HashMap<String, Vec<String>> = HashMap::new();
         for e in &doc.edges {
-            upstreams.entry(e.target.clone()).or_default().push(e.source.clone());
+            upstreams
+                .entry(e.target.clone())
+                .or_default()
+                .push(e.source.clone());
         }
         // Per-stage lineage: sources are roots; transforms get column_lineage on
         // their SELECT body; anything else (COPY sink, etc.) is a passthrough.
@@ -367,7 +372,13 @@ impl DuckdbEngine {
             } else {
                 Vec::new()
             };
-            graph.insert(st.node_id.clone(), lineage::NodeLineage { outputs, upstreams: ups });
+            graph.insert(
+                st.node_id.clone(),
+                lineage::NodeLineage {
+                    outputs,
+                    upstreams: ups,
+                },
+            );
         }
         // Resolve roots for every column of every stage that projects columns.
         let mut out: HashMap<String, Vec<(String, Vec<lineage::RootColumn>)>> = HashMap::new();
@@ -379,7 +390,12 @@ impl DuckdbEngine {
                 let cols = nl
                     .outputs
                     .iter()
-                    .map(|o| (o.name.clone(), lineage::resolve_roots(&st.node_id, &o.name, &graph)))
+                    .map(|o| {
+                        (
+                            o.name.clone(),
+                            lineage::resolve_roots(&st.node_id, &o.name, &graph),
+                        )
+                    })
                     .collect();
                 out.insert(st.node_id.clone(), cols);
             }
@@ -660,13 +676,18 @@ impl DuckdbEngine {
                      PRAGMA enable_object_cache=true; \
                      PRAGMA enable_progress_bar=false; ",
                 );
-                let env_mem = std::env::var("DUCKLE_MEMORY_LIMIT").ok().filter(|s| !s.is_empty());
+                let env_mem = std::env::var("DUCKLE_MEMORY_LIMIT")
+                    .ok()
+                    .filter(|s| !s.is_empty());
                 let mem = match stage.memory_limit_mb {
                     Some(mb) => Some(format!("{}MB", mb)),
                     None => env_mem,
                 };
                 if let Some(m) = mem {
-                    prag.push_str(&format!("PRAGMA memory_limit='{}'; ", m.replace('\'', "''")));
+                    prag.push_str(&format!(
+                        "PRAGMA memory_limit='{}'; ",
+                        m.replace('\'', "''")
+                    ));
                 }
                 if let Ok(t) = std::env::var("DUCKLE_THREADS") {
                     if let Ok(n) = t.trim().parse::<u32>() {
@@ -721,7 +742,10 @@ impl DuckdbEngine {
                 }
                 // ctl.iterate: run the sub-pipeline N times, substituting
                 // ${ITER_INDEX} into the pipeline JSON before each call.
-                if let Some(RuntimeSpec::Iterate { path: iter_path, count }) = stage.runtime.as_ref()
+                if let Some(RuntimeSpec::Iterate {
+                    path: iter_path,
+                    count,
+                }) = stage.runtime.as_ref()
                 {
                     let mut iter_err: Option<String> = None;
                     for i in 0..*count {
@@ -742,8 +766,10 @@ impl DuckdbEngine {
                 }
                 // ctl.foreach: read upstream rows, run the sub-pipeline
                 // once per row with ${ITER_ITEM_<FIELD>} substitutions.
-                if let Some(RuntimeSpec::Foreach { path: each_path, concurrency }) =
-                    stage.runtime.as_ref()
+                if let Some(RuntimeSpec::Foreach {
+                    path: each_path,
+                    concurrency,
+                }) = stage.runtime.as_ref()
                 {
                     // Materialize upstream first if it isn't already
                     // (the stage's own pass-through SQL runs *after*
@@ -806,10 +832,7 @@ impl DuckdbEngine {
                                 let engine = self.clone();
                                 let path = each_path.clone();
                                 let subs = subs.clone();
-                                let idx = subs
-                                    .get("ITER_INDEX")
-                                    .cloned()
-                                    .unwrap_or_default();
+                                let idx = subs.get("ITER_INDEX").cloned().unwrap_or_default();
                                 handles.push(std::thread::spawn(move || {
                                     engine
                                         .run_subpipeline_with_subs(&path, &subs)
@@ -848,7 +871,11 @@ impl DuckdbEngine {
                 if let Some(RuntimeSpec::Parallelize(spec)) = stage.runtime.as_ref() {
                     let from = stage.from.clone().unwrap_or_else(|| stage.node_id.clone());
                     let snap = unique_rest_tmp_path(&stage.node_id).with_extension("parquet");
-                    let snap_sql = snap.display().to_string().replace('\\', "/").replace('\'', "''");
+                    let snap_sql = snap
+                        .display()
+                        .to_string()
+                        .replace('\\', "/")
+                        .replace('\'', "''");
                     let copy = format!(
                         "COPY (SELECT * FROM {}) TO '{}' (FORMAT PARQUET)",
                         plan::quote_ident(&from),
@@ -1054,12 +1081,9 @@ impl DuckdbEngine {
                     }
                     // Watermark incremental load: materialize only rows past
                     // the saved mark; queue the new mark for persist-on-success.
-                    Some(RuntimeSpec::Incremental(spec)) => self.run_incremental(
-                        &db_path,
-                        spec,
-                        pipeline_name,
-                        &mut pending_watermarks,
-                    ),
+                    Some(RuntimeSpec::Incremental(spec)) => {
+                        self.run_incremental(&db_path, spec, pipeline_name, &mut pending_watermarks)
+                    }
                     // DuckLake change-data-feed source: materialize table_changes
                     // since the saved snapshot; persist the new snapshot on success.
                     Some(RuntimeSpec::DuckLakeCdc(spec)) => self.run_ducklake_cdc(
@@ -1279,10 +1303,7 @@ impl DuckdbEngine {
             RUN_SEQ.fetch_add(1, Ordering::Relaxed),
         ));
         if let Err(e) = std::fs::create_dir_all(&marker_dir) {
-            return RunResult::failed(
-                total_start,
-                format!("could not create marker dir: {}", e),
-            );
+            return RunResult::failed(total_start, format!("could not create marker dir: {}", e));
         }
         let _marker_guard = TempDirGuard(marker_dir.clone());
 
@@ -1388,10 +1409,7 @@ impl DuckdbEngine {
             // Other view stages CAN be counted - querying them only
             // evaluates the same view body the downstream sink would
             // anyway, so it's free.
-            let count_unsafe = matches!(
-                stage.component_id.as_str(),
-                "ctl.switch" | "xf.assert"
-            );
+            let count_unsafe = matches!(stage.component_id.as_str(), "ctl.switch" | "xf.assert");
             let marker = marker_dir.join(format!("{}.json", i));
             let count_target = match stage.kind {
                 plan::StageKind::Sink => Some(stage.from.as_deref().unwrap_or(&stage.node_id)),
@@ -1485,10 +1503,7 @@ impl DuckdbEngine {
         let mut child = match cmd.spawn() {
             Ok(c) => c,
             Err(e) => {
-                return RunResult::failed(
-                    total_start,
-                    format!("could not start duckdb: {}", e),
-                );
+                return RunResult::failed(total_start, format!("could not start duckdb: {}", e));
             }
         };
 
@@ -1610,8 +1625,9 @@ impl DuckdbEngine {
             if idx < stages.len() {
                 let stage = &stages[idx];
                 let kind = stage_kind_label(&stage.kind);
-                let elapsed =
-                    Instant::now().duration_since(stage_started_at[idx]).as_millis() as u64;
+                let elapsed = Instant::now()
+                    .duration_since(stage_started_at[idx])
+                    .as_millis() as u64;
                 let stderr_str = String::from_utf8_lossy(&cli_stderr).trim().to_string();
                 let msg = if stderr_str.is_empty() {
                     "duckdb exited with error (no diagnostic on stderr)".to_string()
@@ -1694,7 +1710,6 @@ impl DuckdbEngine {
             category,
         }
     }
-
 
     fn count_rows(&self, db: &Path, name: &str) -> Result<u64, EngineError> {
         let sql = format!("SELECT COUNT(*) AS n FROM {};", plan::quote_ident(name));
@@ -1837,9 +1852,7 @@ fn read_marker(path: &Path) -> MarkerState {
     match v.get("_duckle_r") {
         None => MarkerState::Pending,
         Some(JsonValue::Null) => MarkerState::Ready(None),
-        Some(x) => {
-            MarkerState::Ready(x.as_u64().or_else(|| x.as_i64().map(|i| i.max(0) as u64)))
-        }
+        Some(x) => MarkerState::Ready(x.as_u64().or_else(|| x.as_i64().map(|i| i.max(0) as u64))),
     }
 }
 
@@ -2042,7 +2055,10 @@ fn parse_link_next(header: &str) -> Option<String> {
                 continue;
             }
             let value = value.trim().trim_matches('"');
-            if value.split_whitespace().any(|tok| tok.eq_ignore_ascii_case("next")) {
+            if value
+                .split_whitespace()
+                .any(|tok| tok.eq_ignore_ascii_case("next"))
+            {
                 return Some(url.to_string());
             }
         }
@@ -2104,6 +2120,10 @@ pub(crate) struct JsonLinesWriter {
 impl JsonLinesWriter {
     pub(crate) fn open(node_id: &str) -> Result<Self, EngineError> {
         let path = unique_rest_tmp_path(node_id);
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)
+                .map_err(|e| EngineError::Query(format!("rest source: create tmp dir: {}", e)))?;
+        }
         let file = std::fs::File::create(&path)
             .map_err(|e| EngineError::Query(format!("rest source: create tmp file: {}", e)))?;
         Ok(Self {
@@ -2198,7 +2218,12 @@ fn unique_rest_tmp_path(node_id: &str) -> PathBuf {
         .unwrap_or(0);
     let tid = format!("{:?}", std::thread::current().id())
         .replace(|c: char| !c.is_ascii_alphanumeric(), "");
-    std::env::temp_dir().join(format!(
+    let base_dir = std::env::var_os("DUCKLE_WORKSPACE")
+        .filter(|s| !s.is_empty())
+        .map(PathBuf::from)
+        .map(|p| p.join(".stitchly").join("tmp").join("runtime"))
+        .unwrap_or_else(std::env::temp_dir);
+    base_dir.join(format!(
         "duckle-rest-{}-{}-{}-{}.json",
         node_id,
         std::process::id(),
@@ -2411,10 +2436,7 @@ fn dbr_request(
 /// Databricks polling: GET .../statements/<id> until status.state
 /// becomes SUCCEEDED. Bails on FAILED / CANCELED / CLOSED. Cap at
 /// 60 iterations (~30s).
-fn poll_databricks_until_done(
-    poll_url: &str,
-    auth_header: &str,
-) -> Result<JsonValue, EngineError> {
+fn poll_databricks_until_done(poll_url: &str, auth_header: &str) -> Result<JsonValue, EngineError> {
     for _ in 0..60 {
         let resp = dbr_request(poll_url, "GET", auth_header, None)?;
         let state = resp
@@ -2486,20 +2508,19 @@ fn snowflake_jwt_account(account: &str) -> String {
 /// snowflake_jwt_account). Snowflake also wants the X-Snowflake-Authorization-
 /// Token-Type: KEYPAIR_JWT header for JWT requests, set at the
 /// dispatch point.
-fn build_snowflake_auth_header(
-    account: &str,
-    auth: &SnowflakeAuth,
-) -> Result<String, EngineError> {
+fn build_snowflake_auth_header(account: &str, auth: &SnowflakeAuth) -> Result<String, EngineError> {
     match auth {
         SnowflakeAuth::Pat { token } => Ok(format!("Bearer {}", token)),
-        SnowflakeAuth::Jwt { user, private_key_pem } => {
+        SnowflakeAuth::Jwt {
+            user,
+            private_key_pem,
+        } => {
             use base64::Engine as _;
             use rsa::pkcs8::{DecodePrivateKey, EncodePublicKey};
             use rsa::RsaPrivateKey;
             use sha2::{Digest, Sha256};
-            let private_key = RsaPrivateKey::from_pkcs8_pem(private_key_pem).map_err(|e| {
-                EngineError::Config(format!("snowflake jwt: bad PEM: {}", e))
-            })?;
+            let private_key = RsaPrivateKey::from_pkcs8_pem(private_key_pem)
+                .map_err(|e| EngineError::Config(format!("snowflake jwt: bad PEM: {}", e)))?;
             let public_key = private_key.to_public_key();
             let der = public_key
                 .to_public_key_der()
@@ -2651,7 +2672,9 @@ fn cql_value_to_json(v: &scylla::frame::response::result::CqlValue) -> JsonValue
         CqlValue::Date(d) => {
             let days = d.0 as i64 - (1i64 << 31);
             chrono::NaiveDate::from_ymd_opt(1970, 1, 1)
-                .and_then(|e| chrono::Duration::try_days(days).and_then(|dur| e.checked_add_signed(dur)))
+                .and_then(|e| {
+                    chrono::Duration::try_days(days).and_then(|dur| e.checked_add_signed(dur))
+                })
                 .map(|nd| JsonValue::String(nd.format("%Y-%m-%d").to_string()))
                 .unwrap_or_else(|| JsonValue::from(d.0))
         }
@@ -2715,7 +2738,9 @@ fn cql_value_to_json(v: &scylla::frame::response::result::CqlValue) -> JsonValue
             for (name, val) in fields {
                 obj.insert(
                     name.clone(),
-                    val.as_ref().map(cql_value_to_json).unwrap_or(JsonValue::Null),
+                    val.as_ref()
+                        .map(cql_value_to_json)
+                        .unwrap_or(JsonValue::Null),
                 );
             }
             JsonValue::Object(obj)
@@ -2736,7 +2761,10 @@ mod snowflake_jwt_tests {
         // Cloud platform suffix is dropped too.
         assert_eq!(snowflake_jwt_account("xy12345.us-east-1.aws"), "XY12345");
         // PrivateLink (GitHub #22): everything after the first '.' is dropped.
-        assert_eq!(snowflake_jwt_account("xy12345.us-east-1.privatelink"), "XY12345");
+        assert_eq!(
+            snowflake_jwt_account("xy12345.us-east-1.privatelink"),
+            "XY12345"
+        );
         // org-account form (no dot) is kept whole.
         assert_eq!(snowflake_jwt_account("myorg-acct1"), "MYORG-ACCT1");
         // `.global` replication accounts strip at the first '-' instead.
@@ -2793,7 +2821,9 @@ mod cql_value_tests {
     #[test]
     fn numeric_and_binary_types() {
         assert_eq!(
-            cql_value_to_json(&CqlValue::Varint(CqlVarint::from_signed_bytes_be_slice(&[0x04, 0xD2]))),
+            cql_value_to_json(&CqlValue::Varint(CqlVarint::from_signed_bytes_be_slice(&[
+                0x04, 0xD2
+            ]))),
             json!(1234)
         );
         assert_eq!(
@@ -2869,7 +2899,12 @@ fn mssql_numeric_to_string(value: i128, scale: u8) -> String {
     let pow = 10u128.pow(scale as u32);
     let int_part = abs / pow;
     let frac_part = abs % pow;
-    let body = format!("{}.{:0>width$}", int_part, frac_part, width = scale as usize);
+    let body = format!(
+        "{}.{:0>width$}",
+        int_part,
+        frac_part,
+        width = scale as usize
+    );
     if neg {
         format!("-{}", body)
     } else {
@@ -2897,9 +2932,7 @@ fn duckdb_type_to_sqlserver(t: &str) -> String {
         "DOUBLE" | "FLOAT8" => "FLOAT",
         "DATE" => "DATE",
         "TIME" => "TIME",
-        "TIMESTAMP" | "DATETIME" | "TIMESTAMP_NS" | "TIMESTAMP_MS" | "TIMESTAMP_S" => {
-            "DATETIME2"
-        }
+        "TIMESTAMP" | "DATETIME" | "TIMESTAMP_NS" | "TIMESTAMP_MS" | "TIMESTAMP_S" => "DATETIME2",
         "TIMESTAMP WITH TIME ZONE" | "TIMESTAMPTZ" => "DATETIMEOFFSET",
         "UUID" => "UNIQUEIDENTIFIER",
         "BLOB" | "BYTEA" | "BINARY" | "VARBINARY" => "VARBINARY(MAX)",
@@ -2915,7 +2948,9 @@ fn duckdb_type_to_oracle(t: &str) -> String {
     let up = t.trim().to_ascii_uppercase();
     if up.starts_with("DECIMAL") || up.starts_with("NUMERIC") {
         // DECIMAL(p,s) -> NUMBER(p,s).
-        return up.replacen("DECIMAL", "NUMBER", 1).replacen("NUMERIC", "NUMBER", 1);
+        return up
+            .replacen("DECIMAL", "NUMBER", 1)
+            .replacen("NUMERIC", "NUMBER", 1);
     }
     match up.as_str() {
         "BOOLEAN" | "BOOL" => "NUMBER(1)",
@@ -2948,10 +2983,8 @@ fn duckdb_type_to_snowflake(t: &str) -> String {
     }
     match up.as_str() {
         "BOOLEAN" | "BOOL" => "BOOLEAN",
-        "TINYINT" | "UTINYINT" | "SMALLINT" | "USMALLINT" | "INT2" | "INTEGER" | "INT"
-        | "INT4" | "UINTEGER" | "BIGINT" | "INT8" | "UBIGINT" | "HUGEINT" | "UHUGEINT" => {
-            "BIGINT"
-        }
+        "TINYINT" | "UTINYINT" | "SMALLINT" | "USMALLINT" | "INT2" | "INTEGER" | "INT" | "INT4"
+        | "UINTEGER" | "BIGINT" | "INT8" | "UBIGINT" | "HUGEINT" | "UHUGEINT" => "BIGINT",
         "REAL" | "FLOAT" | "FLOAT4" | "DOUBLE" | "FLOAT8" => "DOUBLE",
         "DATE" => "DATE",
         "TIME" => "TIME",
@@ -2971,7 +3004,10 @@ fn describe_columns(engine: &DuckdbEngine, db: &Path, view: &str) -> Vec<(String
         .iter()
         .filter_map(|d| {
             let n = d.get("column_name").and_then(|v| v.as_str())?;
-            let t = d.get("column_type").and_then(|v| v.as_str()).unwrap_or("VARCHAR");
+            let t = d
+                .get("column_type")
+                .and_then(|v| v.as_str())
+                .unwrap_or("VARCHAR");
             Some((n.to_string(), t.to_string()))
         })
         .collect()
@@ -3042,10 +3078,7 @@ fn sql_literal(v: &JsonValue, target_type: Option<&str>, dialect: Dialect) -> St
                         );
                     }
                     if norm.starts_with("TIMESTAMP") || norm == "DATETIME" {
-                        return format!(
-                            "TO_TIMESTAMP({}, 'YYYY-MM-DD HH24:MI:SS.FF6')",
-                            quote(s)
-                        );
+                        return format!("TO_TIMESTAMP({}, 'YYYY-MM-DD HH24:MI:SS.FF6')", quote(s));
                     }
                 }
             }
@@ -3089,9 +3122,11 @@ fn oracle_insert_all_rows_per_stmt(num_cols: usize, batch_size: usize) -> usize 
 /// True for a local filesystem path (not a cloud / http URI).
 fn is_local_path(p: &str) -> bool {
     let lower = p.to_ascii_lowercase();
-    !["s3://", "gs://", "gcs://", "az://", "azure://", "http://", "https://"]
-        .iter()
-        .any(|scheme| lower.starts_with(scheme))
+    ![
+        "s3://", "gs://", "gcs://", "az://", "azure://", "http://", "https://",
+    ]
+    .iter()
+    .any(|scheme| lower.starts_with(scheme))
 }
 
 /// Parse the (possibly multiple) top-level JSON arrays the DuckDB CLI
@@ -3147,8 +3182,13 @@ fn map_duckdb_type(t: &str) -> DataType {
         "DECIMAL" | "NUMERIC" => DataType::Decimal,
         "DATE" => DataType::Date,
         "TIME" => DataType::Time,
-        "TIMESTAMP" | "TIMESTAMP_S" | "TIMESTAMP_MS" | "TIMESTAMP_NS" | "TIMESTAMP_US"
-        | "TIMESTAMPTZ" | "TIMESTAMP WITH TIME ZONE" => DataType::Timestamp,
+        "TIMESTAMP"
+        | "TIMESTAMP_S"
+        | "TIMESTAMP_MS"
+        | "TIMESTAMP_NS"
+        | "TIMESTAMP_US"
+        | "TIMESTAMPTZ"
+        | "TIMESTAMP WITH TIME ZONE" => DataType::Timestamp,
         "JSON" | "MAP" | "STRUCT" | "LIST" | "ARRAY" => DataType::Json,
         "BLOB" | "VARBINARY" => DataType::Binary,
         _ => DataType::String,
@@ -3240,7 +3280,11 @@ fn build_native_upsert_sql(
             // from the raw name (DuckDB's `target` uses double quotes, which
             // MySQL rejects unless ANSI_QUOTES is set).
             let target_native = match &spec.raw_schema {
-                Some(s) => format!("`{}`.`{}`", s.replace('`', "``"), spec.raw_table.replace('`', "``")),
+                Some(s) => format!(
+                    "`{}`.`{}`",
+                    s.replace('`', "``"),
+                    spec.raw_table.replace('`', "``")
+                ),
                 None => format!("`{}`", spec.raw_table.replace('`', "``")),
             };
             let target_native = target_native.as_str();
@@ -3523,7 +3567,12 @@ pub fn compile_pipeline_sql(doc: &PipelineDoc) -> Result<Vec<StageSql>, EngineEr
     // credentials so the script runs unchanged against the source (issue
     // #9). The value is then live and the output must be handled with care.
     let include_secrets = std::env::var("DUCKLE_EXPORT_INCLUDE_SECRETS")
-        .map(|v| matches!(v.trim().to_ascii_lowercase().as_str(), "1" | "true" | "yes" | "on"))
+        .map(|v| {
+            matches!(
+                v.trim().to_ascii_lowercase().as_str(),
+                "1" | "true" | "yes" | "on"
+            )
+        })
         .unwrap_or(false);
     compile_pipeline_sql_opts(doc, include_secrets)
 }
@@ -3574,7 +3623,11 @@ pub fn compile_pipeline_sql_opts(
                         | RuntimeSpec::InstallFallback(_)
                 )
             ) {
-                format!("{}\n{}", procedural_note(&s), redact_secret_values(&s.sql, &secrets))
+                format!(
+                    "{}\n{}",
+                    procedural_note(&s),
+                    redact_secret_values(&s.sql, &secrets)
+                )
             } else {
                 redact_secret_values(&s.sql, &secrets)
             };
@@ -3607,14 +3660,26 @@ mod tests {
         let run_a = base.for_new_run();
         let run_b = base.for_new_run();
         run_a.request_cancel();
-        assert!(run_a.check_cancelled().is_err(), "run A should be cancelled");
-        assert!(run_b.check_cancelled().is_ok(), "run B must be independent of run A");
-        assert!(base.check_cancelled().is_ok(), "the base engine is unaffected");
+        assert!(
+            run_a.check_cancelled().is_err(),
+            "run A should be cancelled"
+        );
+        assert!(
+            run_b.check_cancelled().is_ok(),
+            "run B must be independent of run A"
+        );
+        assert!(
+            base.check_cancelled().is_ok(),
+            "the base engine is unaffected"
+        );
         // A plain clone (how sub-pipelines / parallelize branches get an engine)
         // shares the SAME run's flag, so a cancel propagates to children.
         let child = run_b.clone();
         run_b.request_cancel();
-        assert!(child.check_cancelled().is_err(), "a clone shares the run's flag");
+        assert!(
+            child.check_cancelled().is_err(),
+            "a clone shares the run's flag"
+        );
     }
 
     #[test]
@@ -3622,9 +3687,15 @@ mod tests {
         // Issue #9: secret values are replaced with a named placeholder so
         // the exported SQL stays valid; the name comes from the prop key.
         assert_eq!(secret_placeholder("password"), "${DUCKLE_PASSWORD}");
-        assert_eq!(secret_placeholder("client_secret"), "${DUCKLE_CLIENT_SECRET}");
+        assert_eq!(
+            secret_placeholder("client_secret"),
+            "${DUCKLE_CLIENT_SECRET}"
+        );
         assert_eq!(secret_placeholder("apiKey"), "${DUCKLE_API_KEY}");
-        assert_eq!(secret_placeholder("connectionString"), "${DUCKLE_CONNECTION_STRING}");
+        assert_eq!(
+            secret_placeholder("connectionString"),
+            "${DUCKLE_CONNECTION_STRING}"
+        );
     }
 
     #[test]
@@ -3642,23 +3713,38 @@ mod tests {
         // RFC 8288 allows several space-separated rel values; the old
         // substring check missed "next" when it was not exactly rel="next".
         let h = "<https://api.example.com/p2>; rel=\"prefetch next\"";
-        assert_eq!(parse_link_next(h).as_deref(), Some("https://api.example.com/p2"));
+        assert_eq!(
+            parse_link_next(h).as_deref(),
+            Some("https://api.example.com/p2")
+        );
         let h2 = "<https://api.example.com/p2>; rel=\"next prev\"";
-        assert_eq!(parse_link_next(h2).as_deref(), Some("https://api.example.com/p2"));
+        assert_eq!(
+            parse_link_next(h2).as_deref(),
+            Some("https://api.example.com/p2")
+        );
     }
 
     #[test]
     fn link_next_whitespace_around_equals() {
         let h = "<https://api.example.com/p2>; rel = next";
-        assert_eq!(parse_link_next(h).as_deref(), Some("https://api.example.com/p2"));
+        assert_eq!(
+            parse_link_next(h).as_deref(),
+            Some("https://api.example.com/p2")
+        );
     }
 
     #[test]
     fn link_next_ignores_lookalikes_and_missing() {
         // A different rel must not match.
-        assert_eq!(parse_link_next("<https://x/p2>; rel=\"prev\"").as_deref(), None);
+        assert_eq!(
+            parse_link_next("<https://x/p2>; rel=\"prev\"").as_deref(),
+            None
+        );
         // "nextpage" is a distinct token and must not match "next".
-        assert_eq!(parse_link_next("<https://x/p2>; rel=\"nextpage\"").as_deref(), None);
+        assert_eq!(
+            parse_link_next("<https://x/p2>; rel=\"nextpage\"").as_deref(),
+            None
+        );
         // No params at all -> no next, and must not panic.
         assert_eq!(parse_link_next("<https://x/p2>").as_deref(), None);
         assert_eq!(parse_link_next("").as_deref(), None);
@@ -3698,15 +3784,24 @@ mod tests {
             p
         };
         // Missing file -> Pending (caller keeps polling).
-        assert_eq!(marker_state(read_marker(&dir.path().join("nope.json"))), None);
+        assert_eq!(
+            marker_state(read_marker(&dir.path().join("nope.json"))),
+            None
+        );
         // Empty file -> Pending. This is the bug: DuckDB's COPY creates
         // the marker empty while a slow COUNT runs; consuming it here
         // produced "0 rows written despite RUN SUCCEEDED".
         assert_eq!(marker_state(read_marker(&write("empty.json", ""))), None);
         // Partially written JSON -> Pending.
-        assert_eq!(marker_state(read_marker(&write("partial.json", "{\"_duckle_"))), None);
+        assert_eq!(
+            marker_state(read_marker(&write("partial.json", "{\"_duckle_"))),
+            None
+        );
         // Object without the key -> Pending.
-        assert_eq!(marker_state(read_marker(&write("nokey.json", "{\"x\":1}"))), None);
+        assert_eq!(
+            marker_state(read_marker(&write("nokey.json", "{\"x\":1}"))),
+            None
+        );
         // Complete count -> Ready(Some(n)), including large counts.
         assert_eq!(
             marker_state(read_marker(&write("full.json", "{\"_duckle_r\":2000000}"))),
@@ -3721,9 +3816,9 @@ mod tests {
 
     fn redact_all(text: &str) -> String {
         let patterns = pii_patterns(&[]);
-        patterns
-            .iter()
-            .fold(text.to_string(), |acc, (re, lbl)| re.replace_all(&acc, *lbl).into_owned())
+        patterns.iter().fold(text.to_string(), |acc, (re, lbl)| {
+            re.replace_all(&acc, *lbl).into_owned()
+        })
     }
 
     #[test]
@@ -3743,10 +3838,7 @@ mod tests {
         assert_eq!(unwrap_dynamodb_attrs(&row), json!({"x": null}));
         // List (L) with nested types
         let row = json!({"tags": {"L": [{"S": "a"}, {"S": "b"}, {"N": "3"}]}});
-        assert_eq!(
-            unwrap_dynamodb_attrs(&row),
-            json!({"tags": ["a", "b", 3]})
-        );
+        assert_eq!(unwrap_dynamodb_attrs(&row), json!({"tags": ["a", "b", 3]}));
         // Map (M)
         let row = json!({"addr": {"M": {"city": {"S": "Tokyo"}, "zip": {"N": "100"}}}});
         assert_eq!(
@@ -3755,10 +3847,7 @@ mod tests {
         );
         // Numeric strings that aren't valid numbers fall back to string
         let row = json!({"weird": {"N": "not-a-num"}});
-        assert_eq!(
-            unwrap_dynamodb_attrs(&row),
-            json!({"weird": "not-a-num"})
-        );
+        assert_eq!(unwrap_dynamodb_attrs(&row), json!({"weird": "not-a-num"}));
         // Float
         let row = json!({"pi": {"N": "3.14159"}});
         let out = unwrap_dynamodb_attrs(&row);
@@ -3806,8 +3895,12 @@ mod tests {
         // Same inputs -> same signature (determinism)
         assert_eq!(sig1.authorization, sig2.authorization);
         // Authorization should contain the standard fields
-        assert!(sig1.authorization.starts_with("AWS4-HMAC-SHA256 Credential="));
-        assert!(sig1.authorization.contains("AKIAIOSFODNN7EXAMPLE/20250525/us-east-1/dynamodb/aws4_request"));
+        assert!(sig1
+            .authorization
+            .starts_with("AWS4-HMAC-SHA256 Credential="));
+        assert!(sig1
+            .authorization
+            .contains("AKIAIOSFODNN7EXAMPLE/20250525/us-east-1/dynamodb/aws4_request"));
         assert!(sig1.authorization.contains("SignedHeaders="));
         assert!(sig1.authorization.contains("Signature="));
         // Session token should appear in SignedHeaders if supplied
@@ -3868,10 +3961,7 @@ mod tests {
             "Hi alice, your  is here"
         );
         // unclosed brace stays literal so user notices
-        assert_eq!(
-            render_prompt_template("hi {name", &row),
-            "hi {name"
-        );
+        assert_eq!(render_prompt_template("hi {name", &row), "hi {name");
         // no placeholders = passthrough
         assert_eq!(
             render_prompt_template("just plain text", &row),
@@ -3887,10 +3977,7 @@ mod tests {
             "contact [REDACTED-EMAIL] please"
         );
         // SSN
-        assert_eq!(
-            redact_all("SSN: 123-45-6789"),
-            "SSN: [REDACTED-SSN]"
-        );
+        assert_eq!(redact_all("SSN: 123-45-6789"), "SSN: [REDACTED-SSN]");
         // phone, parenthesized
         assert_eq!(
             redact_all("call (415) 555-0100 today"),
@@ -3916,11 +4003,20 @@ mod tests {
         // runs pass through untouched (favor false-negatives).
         // 10-digit runs (below the credit_card pattern's 13-19 range) used
         // to be eaten by phone; they now pass through.
-        assert_eq!(redact_all("order id 1234567890 shipped"), "order id 1234567890 shipped");
+        assert_eq!(
+            redact_all("order id 1234567890 shipped"),
+            "order id 1234567890 shipped"
+        );
         assert_eq!(redact_all("account 0001234567"), "account 0001234567");
         // Real, separator-formatted phones are still redacted.
-        assert_eq!(redact_all("ring 415-555-0100 now"), "ring [REDACTED-PHONE] now");
-        assert_eq!(redact_all("intl +1 415 555 0100 ok"), "intl [REDACTED-PHONE] ok");
+        assert_eq!(
+            redact_all("ring 415-555-0100 now"),
+            "ring [REDACTED-PHONE] now"
+        );
+        assert_eq!(
+            redact_all("intl +1 415 555 0100 ok"),
+            "intl [REDACTED-PHONE] ok"
+        );
     }
 
     #[test]
@@ -3980,7 +4076,10 @@ mod sql_literal_tests {
         assert_eq!(sql_literal(&json!(42), None, d), "42");
         assert_eq!(sql_literal(&json!("hi"), None, d), "'hi'");
         assert_eq!(sql_literal(&json!([1, 2]), None, d), "PARSE_JSON('[1,2]')");
-        assert_eq!(sql_literal(&json!({"k":1}), None, d), "PARSE_JSON('{\"k\":1}')");
+        assert_eq!(
+            sql_literal(&json!({"k":1}), None, d),
+            "PARSE_JSON('{\"k\":1}')"
+        );
     }
 
     #[test]
@@ -3991,10 +4090,19 @@ mod sql_literal_tests {
         // 'C:path'). Double them. Oracle / SQL Server / Cassandra take
         // backslash literally, so they must NOT be doubled there.
         let v = json!("C:\\path\\file");
-        assert_eq!(sql_literal(&v, None, Dialect::JsonNative), "'C:\\\\path\\\\file'");
+        assert_eq!(
+            sql_literal(&v, None, Dialect::JsonNative),
+            "'C:\\\\path\\\\file'"
+        );
         assert_eq!(sql_literal(&v, None, Dialect::Oracle), "'C:\\path\\file'");
-        assert_eq!(sql_literal(&v, None, Dialect::SqlServer), "'C:\\path\\file'");
-        assert_eq!(sql_literal(&v, None, Dialect::Cassandra), "'C:\\path\\file'");
+        assert_eq!(
+            sql_literal(&v, None, Dialect::SqlServer),
+            "'C:\\path\\file'"
+        );
+        assert_eq!(
+            sql_literal(&v, None, Dialect::Cassandra),
+            "'C:\\path\\file'"
+        );
         // A JSON value with a backslash inside a string also gets it
         // doubled in the PARSE_JSON payload for JsonNative.
         let arr = json!(["a\\b"]);
@@ -4012,7 +4120,10 @@ mod sql_literal_tests {
         assert_eq!(sql_literal(&json!(false), None, Dialect::SqlServer), "0");
         // CQL has real boolean literals (lowercase).
         assert_eq!(sql_literal(&json!(true), None, Dialect::Cassandra), "true");
-        assert_eq!(sql_literal(&json!(false), None, Dialect::Cassandra), "false");
+        assert_eq!(
+            sql_literal(&json!(false), None, Dialect::Cassandra),
+            "false"
+        );
     }
 
     #[test]
@@ -4037,12 +4148,20 @@ mod sql_literal_tests {
         );
         // Microsecond form takes the same .FF6 mask (verified on Oracle 21c).
         assert_eq!(
-            sql_literal(&json!("2024-12-31 14:30:00.123456"), Some("TIMESTAMP_NS"), d),
+            sql_literal(
+                &json!("2024-12-31 14:30:00.123456"),
+                Some("TIMESTAMP_NS"),
+                d
+            ),
             "TO_TIMESTAMP('2024-12-31 14:30:00.123456', 'YYYY-MM-DD HH24:MI:SS.FF6')"
         );
         // TIMESTAMP WITH TIME ZONE carries an offset suffix -> TO_TIMESTAMP_TZ.
         assert_eq!(
-            sql_literal(&json!("2024-12-31 09:00:00+00"), Some("TIMESTAMP WITH TIME ZONE"), d),
+            sql_literal(
+                &json!("2024-12-31 09:00:00+00"),
+                Some("TIMESTAMP WITH TIME ZONE"),
+                d
+            ),
             "TO_TIMESTAMP_TZ('2024-12-31 09:00:00+00', 'YYYY-MM-DD HH24:MI:SS.FF6 TZR')"
         );
     }
@@ -4066,7 +4185,10 @@ mod sql_literal_tests {
         // SQL Server implicitly casts ISO date/timestamp strings (live-OK),
         // so it must NOT get TO_DATE wrapping - only bool + JSON change.
         let d = Dialect::SqlServer;
-        assert_eq!(sql_literal(&json!("2024-12-31"), Some("DATE"), d), "'2024-12-31'");
+        assert_eq!(
+            sql_literal(&json!("2024-12-31"), Some("DATE"), d),
+            "'2024-12-31'"
+        );
         assert_eq!(
             sql_literal(&json!("2024-12-31 14:30:00"), Some("DATETIME2"), d),
             "'2024-12-31 14:30:00'"
@@ -4076,7 +4198,12 @@ mod sql_literal_tests {
     #[test]
     fn quote_escaping_preserved() {
         // Single quotes double in every quoted form, across dialects.
-        for d in [Dialect::Oracle, Dialect::SqlServer, Dialect::Cassandra, Dialect::JsonNative] {
+        for d in [
+            Dialect::Oracle,
+            Dialect::SqlServer,
+            Dialect::Cassandra,
+            Dialect::JsonNative,
+        ] {
             assert_eq!(sql_literal(&json!("O'Brien"), None, d), "'O''Brien'");
         }
     }

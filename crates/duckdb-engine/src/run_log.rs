@@ -65,7 +65,11 @@ impl RunLog {
                     .open(dir.join(LOG_FILE))
                     .ok()
             });
-        RunLog { file, run_id, nodes }
+        RunLog {
+            file,
+            run_id,
+            nodes,
+        }
     }
 
     /// Whether this logger is actually writing (env configured).
@@ -102,7 +106,11 @@ impl RunLog {
                 set("level", json!("info"));
                 set("total_stages", json!(total_stages));
             }
-            PipelineEvent::StageStarted { node_id, label, kind } => {
+            PipelineEvent::StageStarted {
+                node_id,
+                label,
+                kind,
+            } => {
                 set("event", json!("stage_started"));
                 set("level", json!("info"));
                 set("node_id", json!(node_id));
@@ -111,10 +119,18 @@ impl RunLog {
                 self.enrich(&mut m, node_id);
             }
             PipelineEvent::StageFinished {
-                node_id, kind, status, rows, duration_ms, error,
+                node_id,
+                kind,
+                status,
+                rows,
+                duration_ms,
+                error,
             } => {
                 set("event", json!("stage_finished"));
-                set("level", json!(if status == "error" { "error" } else { "info" }));
+                set(
+                    "level",
+                    json!(if status == "error" { "error" } else { "info" }),
+                );
                 set("node_id", json!(node_id));
                 set("kind", json!(kind));
                 set("status", json!(status));
@@ -133,16 +149,26 @@ impl RunLog {
                 set("event", json!("cancelled"));
                 set("level", json!("warn"));
             }
-            PipelineEvent::Log { node_id, level, message } => {
+            PipelineEvent::Log {
+                node_id,
+                level,
+                message,
+            } => {
                 set("event", json!("log"));
                 set("level", json!(level));
                 set("node_id", json!(node_id));
                 set("message", json!(message));
                 self.enrich(&mut m, node_id);
             }
-            PipelineEvent::Finished { status, duration_ms } => {
+            PipelineEvent::Finished {
+                status,
+                duration_ms,
+            } => {
                 set("event", json!("run_finished"));
-                set("level", json!(if status == "error" { "error" } else { "info" }));
+                set(
+                    "level",
+                    json!(if status == "error" { "error" } else { "info" }),
+                );
                 set("status", json!(status));
                 set("duration_ms", json!(duration_ms));
             }

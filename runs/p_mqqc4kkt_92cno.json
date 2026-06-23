@@ -1,0 +1,40 @@
+[
+  {
+    "at": "2026-06-23T07:58:32.137706645+00:00",
+    "status": "error",
+    "duration_ms": 2,
+    "rows": 0,
+    "node_count": 0,
+    "trigger": "manual",
+    "error": "config: code.shell: command required",
+    "category": "other"
+  },
+  {
+    "at": "2026-06-23T08:02:54.142087626+00:00",
+    "status": "error",
+    "duration_ms": 2,
+    "rows": 0,
+    "node_count": 0,
+    "trigger": "manual",
+    "error": "config: code.shell: command required",
+    "category": "other"
+  },
+  {
+    "at": "2026-06-23T08:04:17.401372840+00:00",
+    "status": "error",
+    "duration_ms": 4349,
+    "rows": 0,
+    "node_count": 1,
+    "trigger": "manual",
+    "error": "sync_repo: query: rest source materialize failed: IO Error: No files found that match the pattern \"/tmp/duckle-rest-n_mqqc58fu_cjp74-257094-163602957-ThreadId6.json\"\n",
+    "category": "network"
+  },
+  {
+    "at": "2026-06-23T08:16:11.382191455+00:00",
+    "status": "cancelled",
+    "duration_ms": 689155,
+    "rows": 0,
+    "node_count": 0,
+    "trigger": "manual"
+  }
+]

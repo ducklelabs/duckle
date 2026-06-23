@@ -11,10 +11,23 @@ use crate::*;
 pub fn is_secret_prop_key(key: &str) -> bool {
     let k = key.to_ascii_lowercase();
     [
-        "password", "passwd", "secret", "token", "apikey", "api_key",
-        "privatekey", "private_key", "accesskey", "access_key", "pat",
-        "clientsecret", "client_secret", "connectionstring", "connection_string",
-        "sas", "credential",
+        "password",
+        "passwd",
+        "secret",
+        "token",
+        "apikey",
+        "api_key",
+        "privatekey",
+        "private_key",
+        "accesskey",
+        "access_key",
+        "pat",
+        "clientsecret",
+        "client_secret",
+        "connectionstring",
+        "connection_string",
+        "sas",
+        "credential",
     ]
     .iter()
     .any(|needle| k.contains(needle))
@@ -116,7 +129,10 @@ pub(crate) fn procedural_note(s: &plan::Stage) -> String {
     let cid = s.component_id.as_str();
     let body = if let Some(RuntimeSpec::RunJob { path, vars }) = s.runtime.as_ref() {
         if vars.is_empty() {
-            format!("control step: runs sub-pipeline '{}' as a side effect", path)
+            format!(
+                "control step: runs sub-pipeline '{}' as a side effect",
+                path
+            )
         } else {
             format!(
                 "control step: runs job '{}' with {} context var(s)",
@@ -136,7 +152,10 @@ pub(crate) fn procedural_note(s: &plan::Stage) -> String {
                 path, concurrency
             )
         } else {
-            format!("control step: runs sub-pipeline '{}' once per upstream row (ctl.foreach)", path)
+            format!(
+                "control step: runs sub-pipeline '{}' once per upstream row (ctl.foreach)",
+                path
+            )
         }
     } else if let Some(RuntimeSpec::Parallelize(spec)) = s.runtime.as_ref() {
         format!(
@@ -172,10 +191,7 @@ pub(crate) fn procedural_note(s: &plan::Stage) -> String {
             cid
         )
     } else {
-        format!(
-            "'{}' runs in the Duckle runtime (no DuckDB SQL)",
-            cid
-        )
+        format!("'{}' runs in the Duckle runtime (no DuckDB SQL)", cid)
     };
     format!("/* {} */", body)
 }
@@ -311,10 +327,9 @@ pub(crate) fn walk_xml_to_rows(
                 );
             }
             Event::Text(e) => {
-                let text = String::from_utf8_lossy(
-                    e.unescape().unwrap_or_default().as_ref().as_bytes(),
-                )
-                .to_string();
+                let text =
+                    String::from_utf8_lossy(e.unescape().unwrap_or_default().as_ref().as_bytes())
+                        .to_string();
                 if let Some(last) = stack.last_mut() {
                     last.2.push_str(&text);
                 }
@@ -377,12 +392,13 @@ pub(crate) fn json_to_avro_value(v: &JsonValue) -> apache_avro::types::Value {
 /// Strings/booleans map to their type; objects, arrays and all-null columns
 /// fall back to string (objects/arrays are JSON-stringified on write).
 pub(crate) fn infer_avro_nullable_field(rows: &[JsonValue], name: &str) -> JsonValue {
-    let first_non_null = rows.iter().filter_map(|r| r.as_object()).find_map(|o| {
-        match o.get(name) {
-            Some(v) if !v.is_null() => Some(v),
-            _ => None,
-        }
-    });
+    let first_non_null =
+        rows.iter()
+            .filter_map(|r| r.as_object())
+            .find_map(|o| match o.get(name) {
+                Some(v) if !v.is_null() => Some(v),
+                _ => None,
+            });
     let mut branches: Vec<&str> = vec!["null"];
     match first_non_null {
         Some(JsonValue::Bool(_)) => branches.push("boolean"),
@@ -393,7 +409,12 @@ pub(crate) fn infer_avro_nullable_field(rows: &[JsonValue], name: &str) -> JsonV
         // strings, objects, arrays (JSON-stringified) and all-null columns
         _ => branches.push("string"),
     }
-    JsonValue::Array(branches.into_iter().map(|s| JsonValue::String(s.into())).collect())
+    JsonValue::Array(
+        branches
+            .into_iter()
+            .map(|s| JsonValue::String(s.into()))
+            .collect(),
+    )
 }
 
 /// Parse `git log -z --pretty=format:%H%x09%h%x09%an%x09%ae%x09%ad%x09%s`
@@ -868,10 +889,8 @@ pub(crate) fn pii_patterns(types: &[String]) -> Vec<(regex::Regex, &'static str)
         // separator requirement inside the pattern is what rejects bare
         // digit runs; the trailing \b keeps it from eating glued suffixes.
         out.push((
-            regex::Regex::new(
-                r"(?:\+?\d{1,3}[ -])?(?:\(\d{3}\)[ -]?|\d{3}[ -])\d{3}[ -]\d{4}\b",
-            )
-            .unwrap(),
+            regex::Regex::new(r"(?:\+?\d{1,3}[ -])?(?:\(\d{3}\)[ -]?|\d{3}[ -])\d{3}[ -]\d{4}\b")
+                .unwrap(),
             "[REDACTED-PHONE]",
         ));
     }
@@ -920,7 +939,11 @@ mod tests {
         let cancel = Arc::new(AtomicBool::new(false));
         let rows = walk_xml_to_rows(xml, "root/row", &cancel).unwrap();
         assert_eq!(rows.len(), 2);
-        assert_eq!(rows[0]["payload"], json!("{\"a\":1}"), "CDATA content must be captured");
+        assert_eq!(
+            rows[0]["payload"],
+            json!("{\"a\":1}"),
+            "CDATA content must be captured"
+        );
         assert_eq!(rows[0]["id"], json!("1"));
         assert_eq!(rows[1]["payload"], json!("plain"), "plain text still works");
     }
@@ -935,13 +958,19 @@ mod tests {
             infer_avro_nullable_field(&rows, "a"),
             json!(["null", "long", "double"])
         );
-        assert_eq!(infer_avro_nullable_field(&rows, "b"), json!(["null", "string"]));
+        assert_eq!(
+            infer_avro_nullable_field(&rows, "b"),
+            json!(["null", "string"])
+        );
     }
 
     #[test]
     fn avro_all_null_column_defaults_to_nullable_string() {
         let rows = vec![json!({ "c": null }), json!({ "c": null })];
-        assert_eq!(infer_avro_nullable_field(&rows, "c"), json!(["null", "string"]));
+        assert_eq!(
+            infer_avro_nullable_field(&rows, "c"),
+            json!(["null", "string"])
+        );
     }
 
     #[test]
@@ -952,6 +981,9 @@ mod tests {
             json!(["null", "boolean"])
         );
         // Objects/arrays are JSON-stringified on write, so they map to string.
-        assert_eq!(infer_avro_nullable_field(&rows, "obj"), json!(["null", "string"]));
+        assert_eq!(
+            infer_avro_nullable_field(&rows, "obj"),
+            json!(["null", "string"])
+        );
     }
 }

@@ -184,10 +184,7 @@ fn csv_filter_parquet_end_to_end() {
     assert_eq!(count(&format!("read_parquet('{}')", out)), 2);
 
     // And both rows really are 'paid'.
-    let bad = count(&format!(
-        "read_parquet('{}') WHERE status != 'paid'",
-        out
-    ));
+    let bad = count(&format!("read_parquet('{}') WHERE status != 'paid'", out));
     assert_eq!(bad, 0, "every output row must be paid");
 }
 
@@ -219,19 +216,25 @@ fn csv_distinct_parquet_reports_rows() {
     // 3 distinct Index values -> sink writes 3 rows, and that count must
     // surface on the node status (not None / 0).
     let sink = result.nodes.get("k1").expect("sink status present");
-    assert_eq!(sink.rows, Some(3), "sink should report 3 rows, got {:?}", sink.rows);
+    assert_eq!(
+        sink.rows,
+        Some(3),
+        "sink should report 3 rows, got {:?}",
+        sink.rows
+    );
     let src = result.nodes.get("s1").expect("source status present");
-    assert_eq!(src.rows, Some(4), "source should report 4 rows, got {:?}", src.rows);
+    assert_eq!(
+        src.rows,
+        Some(4),
+        "source should report 4 rows, got {:?}",
+        src.rows
+    );
 }
 
 #[test]
 fn csv_to_csv_roundtrip_preserves_rows() {
     let tmp = tempfile::tempdir().unwrap();
-    let csv = write_file(
-        tmp.path(),
-        "in.csv",
-        "id,name\n1,alice\n2,bob\n3,carol\n",
-    );
+    let csv = write_file(tmp.path(), "in.csv", "id,name\n1,alice\n2,bob\n3,carol\n");
     let out = out_path(tmp.path(), "out.csv");
 
     let engine = engine_or_skip!();
@@ -277,7 +280,10 @@ fn per_stage_wide_preview_does_not_deadlock() {
     csv.push('\n');
     for _ in 0..rows {
         csv.push_str(
-            &(0..cols).map(|_| cell.as_str()).collect::<Vec<_>>().join(","),
+            &(0..cols)
+                .map(|_| cell.as_str())
+                .collect::<Vec<_>>()
+                .join(","),
         );
         csv.push('\n');
     }
@@ -287,15 +293,27 @@ fn per_stage_wide_preview_does_not_deadlock() {
     let engine = engine_or_skip!();
     let d = doc(
         json!([
-            node("s1", "src.csv", json!({ "path": in_path, "hasHeader": true })),
+            node(
+                "s1",
+                "src.csv",
+                json!({ "path": in_path, "hasHeader": true })
+            ),
             // memoryLimitMb forces the per-stage path (where the buggy
             // runner lived); the value itself is irrelevant to the test.
-            node("k1", "snk.csv", json!({ "path": out, "hasHeader": true, "memoryLimitMb": 512 })),
+            node(
+                "k1",
+                "snk.csv",
+                json!({ "path": out, "hasHeader": true, "memoryLimitMb": 512 })
+            ),
         ]),
         json!([main_edge("e1", "s1", "k1")]),
     );
     let result = engine.execute_pipeline(&d);
-    assert_eq!(result.status, "ok", "wide per-stage run failed/hung: {:?}", result.error);
+    assert_eq!(
+        result.status, "ok",
+        "wide per-stage run failed/hung: {:?}",
+        result.error
+    );
     assert!(Path::new(&out).exists());
     assert_eq!(count(&format!("read_csv_auto('{}')", out)), rows as i64);
 }
@@ -384,29 +402,54 @@ fn addcol_with_name_but_no_expression_errors_not_silent_noop() {
     let empty = doc(
         json!([
             node("s1", "src.csv", json!({ "path": csv, "hasHeader": true })),
-            node("a1", "xf.addcol", json!({ "name": "dt_col", "type": "string", "expression": "" })),
+            node(
+                "a1",
+                "xf.addcol",
+                json!({ "name": "dt_col", "type": "string", "expression": "" })
+            ),
         ]),
         json!([main_edge("e1", "s1", "a1")]),
     );
     let r = engine.execute_pipeline(&empty);
-    assert_eq!(r.status, "error", "empty expression must not succeed silently");
+    assert_eq!(
+        r.status, "error",
+        "empty expression must not succeed silently"
+    );
     let err = r.error.unwrap_or_default();
-    assert!(err.contains("dt_col") && err.contains("expression"),
-        "error should name the column and the missing expression: {}", err);
+    assert!(
+        err.contains("dt_col") && err.contains("expression"),
+        "error should name the column and the missing expression: {}",
+        err
+    );
 
     // A valid expression still works and the new column is present.
     let good = doc(
         json!([
             node("s1", "src.csv", json!({ "path": csv, "hasHeader": true })),
-            node("a1", "xf.addcol", json!({ "name": "dt_col", "type": "string", "expression": "post_id + 1" })),
+            node(
+                "a1",
+                "xf.addcol",
+                json!({ "name": "dt_col", "type": "string", "expression": "post_id + 1" })
+            ),
         ]),
         json!([main_edge("e1", "s1", "a1")]),
     );
     let r2 = engine.execute_pipeline(&good);
-    assert_eq!(r2.status, "ok", "valid expression should run: {:?}", r2.error);
-    let p = r2.preview.iter().find(|p| p.node_id == "a1").expect("addcol preview");
-    assert!(p.columns.iter().any(|c| c.name == "dt_col"),
-        "the new column must be present: {:?}", p.columns);
+    assert_eq!(
+        r2.status, "ok",
+        "valid expression should run: {:?}",
+        r2.error
+    );
+    let p = r2
+        .preview
+        .iter()
+        .find(|p| p.node_id == "a1")
+        .expect("addcol preview");
+    assert!(
+        p.columns.iter().any(|c| c.name == "dt_col"),
+        "the new column must be present: {:?}",
+        p.columns
+    );
 }
 
 #[test]
@@ -599,7 +642,11 @@ fn string_case_transforms_in_place() {
     let d = doc(
         json!([
             node("s1", "src.csv", json!({ "path": csv, "hasHeader": true })),
-            node("c1", "xf.case", json!({ "column": "name", "pattern": "upper" })),
+            node(
+                "c1",
+                "xf.case",
+                json!({ "column": "name", "pattern": "upper" })
+            ),
             node("k1", "snk.csv", json!({ "path": out, "hasHeader": true })),
         ]),
         json!([main_edge("e1", "s1", "c1"), main_edge("e2", "c1", "k1")]),
@@ -657,7 +704,10 @@ fn unimplemented_component_fails_loudly_not_silently() {
         json!([main_edge("e1", "s1", "x1")]),
     );
     let result = engine.execute_pipeline(&d);
-    assert_eq!(result.status, "error", "unimplemented op should fail, not pass through");
+    assert_eq!(
+        result.status, "error",
+        "unimplemented op should fail, not pass through"
+    );
 }
 
 #[test]
@@ -681,7 +731,10 @@ fn date_diff_computes_days() {
     );
     let result = engine.execute_pipeline(&d);
     assert_eq!(result.status, "ok", "run failed: {:?}", result.error);
-    let days = scalar_string(&format!("SELECT CAST(days AS VARCHAR) FROM read_csv_auto('{}')", out));
+    let days = scalar_string(&format!(
+        "SELECT CAST(days AS VARCHAR) FROM read_csv_auto('{}')",
+        out
+    ));
     assert_eq!(days, "10");
 }
 
@@ -752,16 +805,24 @@ fn array_collect_groups_into_lists() {
 #[test]
 fn groupby_form_keys_actually_group() {
     let tmp = tempfile::tempdir().unwrap();
-    let csv = write_file(tmp.path(), "in.csv", "region,amount\nwest,10\nwest,20\neast,5\n");
+    let csv = write_file(
+        tmp.path(),
+        "in.csv",
+        "region,amount\nwest,10\nwest,20\neast,5\n",
+    );
     let out = out_path(tmp.path(), "out.csv");
     let engine = engine_or_skip!();
     let d = doc(
         json!([
             node("s1", "src.csv", json!({ "path": csv, "hasHeader": true })),
-            node("g1", "xf.groupby", json!({
-                "groupKeys": ["region"],
-                "aggregations": [{ "column": "amount", "func": "sum", "output": "total" }]
-            })),
+            node(
+                "g1",
+                "xf.groupby",
+                json!({
+                    "groupKeys": ["region"],
+                    "aggregations": [{ "column": "amount", "func": "sum", "output": "total" }]
+                })
+            ),
             node("k1", "snk.csv", json!({ "path": out, "hasHeader": true })),
         ]),
         json!([main_edge("e1", "s1", "g1"), main_edge("e2", "g1", "k1")]),
@@ -770,7 +831,9 @@ fn groupby_form_keys_actually_group() {
     assert_eq!(result.status, "ok", "run failed: {:?}", result.error);
     assert_eq!(count(&format!("read_csv_auto('{}')", out)), 2);
     let west = scalar_string(&format!(
-        "SELECT CAST(total AS VARCHAR) FROM read_csv_auto('{}') WHERE region='west'", out));
+        "SELECT CAST(total AS VARCHAR) FROM read_csv_auto('{}') WHERE region='west'",
+        out
+    ));
     assert_eq!(west, "30");
 }
 
@@ -783,7 +846,11 @@ fn sort_form_keys_actually_sort() {
     let d = doc(
         json!([
             node("s1", "src.csv", json!({ "path": csv, "hasHeader": true })),
-            node("o1", "xf.sort", json!({ "sortColumn": "n", "direction": "asc" })),
+            node(
+                "o1",
+                "xf.sort",
+                json!({ "sortColumn": "n", "direction": "asc" })
+            ),
             node("k1", "snk.csv", json!({ "path": out, "hasHeader": true })),
         ]),
         json!([main_edge("e1", "s1", "o1"), main_edge("e2", "o1", "k1")]),
@@ -792,7 +859,9 @@ fn sort_form_keys_actually_sort() {
     assert_eq!(result.status, "ok", "run failed: {:?}", result.error);
     // First row after ascending sort is 1 (read back preserving order).
     let first = scalar_string(&format!(
-        "SELECT CAST(n AS VARCHAR) FROM read_csv_auto('{}') LIMIT 1", out));
+        "SELECT CAST(n AS VARCHAR) FROM read_csv_auto('{}') LIMIT 1",
+        out
+    ));
     assert_eq!(first, "1");
 }
 
@@ -824,16 +893,23 @@ fn map_expressions_form_computes() {
     let d = doc(
         json!([
             node("s1", "src.csv", json!({ "path": csv, "hasHeader": true })),
-            node("m1", "xf.map", json!({
-                "expressions": [{ "key": "doubled", "value": "amount * 2" }]
-            })),
+            node(
+                "m1",
+                "xf.map",
+                json!({
+                    "expressions": [{ "key": "doubled", "value": "amount * 2" }]
+                })
+            ),
             node("k1", "snk.csv", json!({ "path": out, "hasHeader": true })),
         ]),
         json!([main_edge("e1", "s1", "m1"), main_edge("e2", "m1", "k1")]),
     );
     let result = engine.execute_pipeline(&d);
     assert_eq!(result.status, "ok", "run failed: {:?}", result.error);
-    let v = scalar_string(&format!("SELECT CAST(doubled AS VARCHAR) FROM read_csv_auto('{}')", out));
+    let v = scalar_string(&format!(
+        "SELECT CAST(doubled AS VARCHAR) FROM read_csv_auto('{}')",
+        out
+    ));
     assert_eq!(v, "200");
 }
 
@@ -849,15 +925,23 @@ fn map_lookup_reference_fails_loud() {
     let d = doc(
         json!([
             node("s1", "src.csv", json!({ "path": csv, "hasHeader": true })),
-            node("m1", "xf.map", json!({
-                "expressions": [{ "key": "x", "value": "lookup_1.amount * 2" }]
-            })),
+            node(
+                "m1",
+                "xf.map",
+                json!({
+                    "expressions": [{ "key": "x", "value": "lookup_1.amount * 2" }]
+                })
+            ),
             node("k1", "snk.csv", json!({ "path": out, "hasHeader": true })),
         ]),
         json!([main_edge("e1", "s1", "m1"), main_edge("e2", "m1", "k1")]),
     );
     let result = engine.execute_pipeline(&d);
-    assert_eq!(result.status, "error", "lookup ref in Map should fail, got {:?}", result.status);
+    assert_eq!(
+        result.status, "error",
+        "lookup ref in Map should fail, got {:?}",
+        result.status
+    );
     assert!(
         result.error.unwrap_or_default().contains("lookup"),
         "error should mention the lookup input"
@@ -885,8 +969,15 @@ fn distinct_on_subset_keeps_deterministic_row() {
     assert_eq!(result.status, "ok", "run failed: {:?}", result.error);
     assert_eq!(count(&format!("read_csv_auto('{}')", out)), 1);
     // The single surviving row for g='a' must be the deterministic min v=2.
-    let v = scalar_string(&format!("SELECT CAST(v AS VARCHAR) FROM read_csv_auto('{}')", out));
-    assert_eq!(v, "2", "DISTINCT ON should keep the deterministic min row, got v={}", v);
+    let v = scalar_string(&format!(
+        "SELECT CAST(v AS VARCHAR) FROM read_csv_auto('{}')",
+        out
+    ));
+    assert_eq!(
+        v, "2",
+        "DISTINCT ON should keep the deterministic min row, got v={}",
+        v
+    );
 }
 
 #[test]
@@ -899,16 +990,18 @@ fn compiled_sql_redacts_secrets() {
     // structurally valid and shareable.
     use duckle_duckdb_engine::compile_pipeline_sql_opts;
     let d = doc(
-        json!([
-            node("s", "src.postgres", json!({
+        json!([node(
+            "s",
+            "src.postgres",
+            json!({
                 "host": "db.example.com",
                 "port": 5432,
                 "database": "app",
                 "user": "admin",
                 "password": "sup3rs3cr3tpw",
                 "tableName": "orders"
-            })),
-        ]),
+            })
+        ),]),
         json!([]),
     );
     // Default (include_secrets = false): value replaced by ${DUCKLE_PASSWORD}.
@@ -932,7 +1025,11 @@ fn compiled_sql_redacts_secrets() {
     // Opt-in (include_secrets = true): real value emitted so the exported
     // script runs unchanged; no placeholder.
     let raw = compile_pipeline_sql_opts(&d, true).expect("compile_pipeline_sql_opts raw");
-    let raw_sql = raw.iter().map(|s| s.sql.clone()).collect::<Vec<_>>().join("\n");
+    let raw_sql = raw
+        .iter()
+        .map(|s| s.sql.clone())
+        .collect::<Vec<_>>()
+        .join("\n");
     assert!(
         raw_sql.contains("sup3rs3cr3tpw"),
         "include_secrets should emit the real value: {}",
@@ -958,20 +1055,27 @@ fn run_errors_redact_secrets() {
     let pw = "sup3rs3cr3tpw";
     let d = doc(
         json!([
-            node("s", "src.postgres", json!({
-                "host": "db.example.invalid",
-                "port": 5432,
-                "database": "app",
-                "user": "admin",
-                "password": pw,
-                "tableName": "orders"
-            })),
+            node(
+                "s",
+                "src.postgres",
+                json!({
+                    "host": "db.example.invalid",
+                    "port": 5432,
+                    "database": "app",
+                    "user": "admin",
+                    "password": pw,
+                    "tableName": "orders"
+                })
+            ),
             node("k", "snk.csv", json!({ "path": out, "hasHeader": true })),
         ]),
         json!([main_edge("e1", "s", "k")]),
     );
     let result = engine.execute_pipeline(&d);
-    assert_eq!(result.status, "error", "bogus postgres host must fail the run");
+    assert_eq!(
+        result.status, "error",
+        "bogus postgres host must fail the run"
+    );
     let err = result.error.clone().unwrap_or_default();
     assert!(
         !err.contains(pw),
@@ -1001,13 +1105,25 @@ fn export_includes_control_flow_steps() {
     let d = doc(
         json!([
             node("s", "src.csv", json!({ "path": csv, "hasHeader": true })),
-            node("rj", "ctl.runjob", json!({ "pipelineRef": "child_job.duckle.json" })),
-            node("k", "snk.csv", json!({ "path": out_path(tmp.path(), "out.csv"), "hasHeader": true })),
+            node(
+                "rj",
+                "ctl.runjob",
+                json!({ "pipelineRef": "child_job.duckle.json" })
+            ),
+            node(
+                "k",
+                "snk.csv",
+                json!({ "path": out_path(tmp.path(), "out.csv"), "hasHeader": true })
+            ),
         ]),
         json!([main_edge("e1", "s", "rj"), main_edge("e2", "rj", "k")]),
     );
     let stages = compile_pipeline_sql_opts(&d, false).expect("compile");
-    let all = stages.iter().map(|s| s.sql.clone()).collect::<Vec<_>>().join("\n");
+    let all = stages
+        .iter()
+        .map(|s| s.sql.clone())
+        .collect::<Vec<_>>()
+        .join("\n");
     assert!(
         all.contains("child_job.duckle.json"),
         "export must document the ctl.runjob sub-pipeline ref: {}",
@@ -1027,16 +1143,18 @@ fn compiled_sql_maps_username_to_attach_user() {
     // This is pure compilation; no live database is needed.
     use duckle_duckdb_engine::compile_pipeline_sql_opts;
     let d = doc(
-        json!([
-            node("s", "src.postgres", json!({
+        json!([node(
+            "s",
+            "src.postgres",
+            json!({
                 "host": "db.example.com",
                 "port": 5432,
                 "database": "app",
                 "username": "admin",
                 "password": "sup3rs3cr3tpw",
                 "tableName": "orders"
-            })),
-        ]),
+            })
+        ),]),
         json!([]),
     );
 
@@ -1063,12 +1181,19 @@ fn sink_error_mode_refuses_to_overwrite() {
     let d = doc(
         json!([
             node("s1", "src.csv", json!({ "path": csv, "hasHeader": true })),
-            node("k1", "snk.csv", json!({ "path": out, "hasHeader": true, "mode": "error" })),
+            node(
+                "k1",
+                "snk.csv",
+                json!({ "path": out, "hasHeader": true, "mode": "error" })
+            ),
         ]),
         json!([main_edge("e1", "s1", "k1")]),
     );
     let result = engine.execute_pipeline(&d);
-    assert_eq!(result.status, "error", "should refuse to overwrite existing file");
+    assert_eq!(
+        result.status, "error",
+        "should refuse to overwrite existing file"
+    );
 }
 
 #[test]
@@ -1080,14 +1205,21 @@ fn addcol_form_adds_computed_column() {
     let d = doc(
         json!([
             node("s1", "src.csv", json!({ "path": csv, "hasHeader": true })),
-            node("a1", "xf.addcol", json!({ "name": "tax", "expression": "amount + 5" })),
+            node(
+                "a1",
+                "xf.addcol",
+                json!({ "name": "tax", "expression": "amount + 5" })
+            ),
             node("k1", "snk.csv", json!({ "path": out, "hasHeader": true })),
         ]),
         json!([main_edge("e1", "s1", "a1"), main_edge("e2", "a1", "k1")]),
     );
     let result = engine.execute_pipeline(&d);
     assert_eq!(result.status, "ok", "run failed: {:?}", result.error);
-    let tax = scalar_string(&format!("SELECT CAST(tax AS VARCHAR) FROM read_csv_auto('{}')", out));
+    let tax = scalar_string(&format!(
+        "SELECT CAST(tax AS VARCHAR) FROM read_csv_auto('{}')",
+        out
+    ));
     assert_eq!(tax, "105", "got tax={}", tax);
 }
 
@@ -1100,7 +1232,11 @@ fn rename_mapping_form_renames() {
     let d = doc(
         json!([
             node("s1", "src.csv", json!({ "path": csv, "hasHeader": true })),
-            node("r1", "xf.rename", json!({ "mapping": [{ "key": "a", "value": "x" }] })),
+            node(
+                "r1",
+                "xf.rename",
+                json!({ "mapping": [{ "key": "a", "value": "x" }] })
+            ),
             node("k1", "snk.csv", json!({ "path": out, "hasHeader": true })),
         ]),
         json!([main_edge("e1", "s1", "r1"), main_edge("e2", "r1", "k1")]),
@@ -1108,7 +1244,10 @@ fn rename_mapping_form_renames() {
     let result = engine.execute_pipeline(&d);
     assert_eq!(result.status, "ok", "run failed: {:?}", result.error);
     // Column 'a' is now 'x'; reading 'x' must work and equal 1.
-    let x = scalar_string(&format!("SELECT CAST(x AS VARCHAR) FROM read_csv_auto('{}')", out));
+    let x = scalar_string(&format!(
+        "SELECT CAST(x AS VARCHAR) FROM read_csv_auto('{}')",
+        out
+    ));
     assert_eq!(x, "1", "got x={}", x);
 }
 
@@ -1121,7 +1260,11 @@ fn cast_single_column_form_changes_type() {
     let d = doc(
         json!([
             node("s1", "src.csv", json!({ "path": csv, "hasHeader": true })),
-            node("c1", "xf.cast", json!({ "column": "v", "targetType": "int32" })),
+            node(
+                "c1",
+                "xf.cast",
+                json!({ "column": "v", "targetType": "int32" })
+            ),
             node("k1", "snk.csv", json!({ "path": out, "hasHeader": true })),
         ]),
         json!([main_edge("e1", "s1", "c1"), main_edge("e2", "c1", "k1")]),
@@ -1129,7 +1272,10 @@ fn cast_single_column_form_changes_type() {
     let result = engine.execute_pipeline(&d);
     assert_eq!(result.status, "ok", "run failed: {:?}", result.error);
     // 10.9 cast to int -> 11; if the cast were ignored it'd stay 10.9.
-    let v = scalar_string(&format!("SELECT CAST(v AS VARCHAR) FROM read_csv_auto('{}')", out));
+    let v = scalar_string(&format!(
+        "SELECT CAST(v AS VARCHAR) FROM read_csv_auto('{}')",
+        out
+    ));
     assert_eq!(v, "11", "got v={}", v);
 }
 
@@ -1142,7 +1288,11 @@ fn duckdb_sink_writes_table() {
     let d = doc(
         json!([
             node("s1", "src.csv", json!({ "path": csv, "hasHeader": true })),
-            node("k1", "snk.duckdb", json!({ "database": dbfile, "tableName": "people" })),
+            node(
+                "k1",
+                "snk.duckdb",
+                json!({ "database": dbfile, "tableName": "people" })
+            ),
         ]),
         json!([main_edge("e1", "s1", "k1")]),
     );
@@ -1164,7 +1314,11 @@ fn sqlite_sink_writes_table() {
     let d = doc(
         json!([
             node("s1", "src.csv", json!({ "path": csv, "hasHeader": true })),
-            node("k1", "snk.sqlite", json!({ "database": dbfile, "tableName": "people" })),
+            node(
+                "k1",
+                "snk.sqlite",
+                json!({ "database": dbfile, "tableName": "people" })
+            ),
         ]),
         json!([main_edge("e1", "s1", "k1")]),
     );
@@ -1189,7 +1343,11 @@ fn duckdb_source_reads_table() {
     let out = out_path(tmp.path(), "out.csv");
     let d = doc(
         json!([
-            node("s1", "src.duckdb", json!({ "database": srcdb, "tableName": "orders" })),
+            node(
+                "s1",
+                "src.duckdb",
+                json!({ "database": srcdb, "tableName": "orders" })
+            ),
             node("k1", "snk.csv", json!({ "path": out, "hasHeader": true })),
         ]),
         json!([main_edge("e1", "s1", "k1")]),
@@ -1217,9 +1375,21 @@ fn two_duckdb_sources_same_database() {
     let out = out_path(tmp.path(), "out.csv");
     let d = doc(
         json!([
-            node("c", "src.duckdb", json!({ "database": srcdb, "tableName": "customers" })),
-            node("o", "src.duckdb", json!({ "database": srcdb, "tableName": "orders" })),
-            node("j", "xf.join.inner", json!({ "leftKey": "id", "rightKey": "id" })),
+            node(
+                "c",
+                "src.duckdb",
+                json!({ "database": srcdb, "tableName": "customers" })
+            ),
+            node(
+                "o",
+                "src.duckdb",
+                json!({ "database": srcdb, "tableName": "orders" })
+            ),
+            node(
+                "j",
+                "xf.join.inner",
+                json!({ "leftKey": "id", "rightKey": "id" })
+            ),
             node("k1", "snk.csv", json!({ "path": out, "hasHeader": true })),
         ]),
         json!([
@@ -1243,9 +1413,13 @@ fn window_aggregate_keeps_rows() {
     let d = doc(
         json!([
             node("s1", "src.csv", json!({ "path": csv, "hasHeader": true })),
-            node("w1", "xf.aggwin", json!({
-                "function": "sum", "column": "amt", "partitionBy": ["g"], "outputName": "g_total"
-            })),
+            node(
+                "w1",
+                "xf.aggwin",
+                json!({
+                    "function": "sum", "column": "amt", "partitionBy": ["g"], "outputName": "g_total"
+                })
+            ),
             node("k1", "snk.csv", json!({ "path": out, "hasHeader": true })),
         ]),
         json!([main_edge("e1", "s1", "w1"), main_edge("e2", "w1", "k1")]),
@@ -1270,9 +1444,13 @@ fn unpivot_wide_to_long() {
     let d = doc(
         json!([
             node("s1", "src.csv", json!({ "path": csv, "hasHeader": true })),
-            node("u1", "xf.unpivot", json!({
-                "columns": ["q1", "q2"], "nameColumn": "quarter", "valueColumn": "amount"
-            })),
+            node(
+                "u1",
+                "xf.unpivot",
+                json!({
+                    "columns": ["q1", "q2"], "nameColumn": "quarter", "valueColumn": "amount"
+                })
+            ),
             node("k1", "snk.csv", json!({ "path": out, "hasHeader": true })),
         ]),
         json!([main_edge("e1", "s1", "u1"), main_edge("e2", "u1", "k1")]),
@@ -1300,9 +1478,13 @@ fn unpivot_keeps_null_values() {
     let d = doc(
         json!([
             node("s1", "src.csv", json!({ "path": csv, "hasHeader": true })),
-            node("u1", "xf.unpivot", json!({
-                "columns": ["q1", "q2"], "nameColumn": "quarter", "valueColumn": "amount"
-            })),
+            node(
+                "u1",
+                "xf.unpivot",
+                json!({
+                    "columns": ["q1", "q2"], "nameColumn": "quarter", "valueColumn": "amount"
+                })
+            ),
             node("k1", "snk.csv", json!({ "path": out, "hasHeader": true })),
         ]),
         json!([main_edge("e1", "s1", "u1"), main_edge("e2", "u1", "k1")]),
@@ -1326,9 +1508,13 @@ fn window_last_value_spans_partition() {
     let d = doc(
         json!([
             node("s1", "src.csv", json!({ "path": csv, "hasHeader": true })),
-            node("w1", "xf.last", json!({
-                "targetColumn": "amt", "partitionBy": ["g"], "orderBy": ["ord"], "outputName": "last_amt"
-            })),
+            node(
+                "w1",
+                "xf.last",
+                json!({
+                    "targetColumn": "amt", "partitionBy": ["g"], "orderBy": ["ord"], "outputName": "last_amt"
+                })
+            ),
             node("k1", "snk.csv", json!({ "path": out, "hasHeader": true })),
         ]),
         json!([main_edge("e1", "s1", "w1"), main_edge("e2", "w1", "k1")]),
@@ -1340,7 +1526,11 @@ fn window_last_value_spans_partition() {
         "SELECT string_agg(DISTINCT CAST(last_amt AS VARCHAR), ',') FROM read_csv_auto('{}')",
         out
     ));
-    assert_eq!(vals, "30", "last_amt should be 30 for all rows, got {}", vals);
+    assert_eq!(
+        vals, "30",
+        "last_amt should be 30 for all rows, got {}",
+        vals
+    );
 }
 
 #[test]
@@ -1355,16 +1545,35 @@ fn base64_roundtrips_non_ascii() {
     let d = doc(
         json!([
             node("s", "src.csv", json!({ "path": csv, "hasHeader": true })),
-            node("e", "xf.text.base64", json!({ "column": "word", "mode": "encode", "outputColumn": "b" })),
-            node("d", "xf.text.base64", json!({ "column": "b", "mode": "decode", "outputColumn": "back" })),
+            node(
+                "e",
+                "xf.text.base64",
+                json!({ "column": "word", "mode": "encode", "outputColumn": "b" })
+            ),
+            node(
+                "d",
+                "xf.text.base64",
+                json!({ "column": "b", "mode": "decode", "outputColumn": "back" })
+            ),
             node("k", "snk.csv", json!({ "path": out, "hasHeader": true })),
         ]),
-        json!([main_edge("e1", "s", "e"), main_edge("e2", "e", "d"), main_edge("e3", "d", "k")]),
+        json!([
+            main_edge("e1", "s", "e"),
+            main_edge("e2", "e", "d"),
+            main_edge("e3", "d", "k")
+        ]),
     );
     let result = engine.execute_pipeline(&d);
     assert_eq!(result.status, "ok", "run failed: {:?}", result.error);
-    let back = scalar_string(&format!("SELECT back FROM read_csv_auto('{}') LIMIT 1", out));
-    assert_eq!(back, "café", "non-ASCII base64 round-trip corrupted: {}", back);
+    let back = scalar_string(&format!(
+        "SELECT back FROM read_csv_auto('{}') LIMIT 1",
+        out
+    ));
+    assert_eq!(
+        back, "café",
+        "non-ASCII base64 round-trip corrupted: {}",
+        back
+    );
 }
 
 #[test]
@@ -1378,9 +1587,13 @@ fn cdc_diff_detect_tags_changes() {
         json!([
             node("c1", "src.csv", json!({ "path": cur, "hasHeader": true })),
             node("p1", "src.csv", json!({ "path": prev, "hasHeader": true })),
-            node("d1", "xf.cdc.diff", json!({
-                "naturalKey": ["id"], "compareColumns": ["v"], "rejectUnchanged": true
-            })),
+            node(
+                "d1",
+                "xf.cdc.diff",
+                json!({
+                    "naturalKey": ["id"], "compareColumns": ["v"], "rejectUnchanged": true
+                })
+            ),
             node("k1", "snk.csv", json!({ "path": out, "hasHeader": true })),
         ]),
         json!([
@@ -1482,9 +1695,13 @@ fn standardize_trims_and_uppercases() {
     let d = doc(
         json!([
             node("s1", "src.csv", json!({ "path": csv, "hasHeader": true })),
-            node("c1", "qa.standardize", json!({
-                "columns": ["name"], "case": "upper", "trim": true, "collapseWhitespace": true
-            })),
+            node(
+                "c1",
+                "qa.standardize",
+                json!({
+                    "columns": ["name"], "case": "upper", "trim": true, "collapseWhitespace": true
+                })
+            ),
             node("k1", "snk.csv", json!({ "path": out, "hasHeader": true })),
         ]),
         json!([main_edge("e1", "s1", "c1"), main_edge("e2", "c1", "k1")]),
@@ -1508,9 +1725,13 @@ fn fuzzy_dedupe_collapses_near_duplicates() {
     let d = doc(
         json!([
             node("s1", "src.csv", json!({ "path": csv, "hasHeader": true })),
-            node("u1", "qa.dedupe", json!({
-                "columns": ["name"], "threshold": 0.9, "algorithm": "jaro-winkler"
-            })),
+            node(
+                "u1",
+                "qa.dedupe",
+                json!({
+                    "columns": ["name"], "threshold": 0.9, "algorithm": "jaro-winkler"
+                })
+            ),
             node("k1", "snk.csv", json!({ "path": out, "hasHeader": true })),
         ]),
         json!([main_edge("e1", "s1", "u1"), main_edge("e2", "u1", "k1")]),
@@ -1534,9 +1755,13 @@ fn record_match_finds_similar_pairs() {
     let d = doc(
         json!([
             node("s1", "src.csv", json!({ "path": csv, "hasHeader": true })),
-            node("m1", "qa.match", json!({
-                "columns": ["name"], "threshold": 0.85, "algorithm": "jaro-winkler"
-            })),
+            node(
+                "m1",
+                "qa.match",
+                json!({
+                    "columns": ["name"], "threshold": 0.85, "algorithm": "jaro-winkler"
+                })
+            ),
             node("k1", "snk.csv", json!({ "path": out, "hasHeader": true })),
         ]),
         json!([main_edge("e1", "s1", "m1"), main_edge("e2", "m1", "k1")]),
@@ -1561,9 +1786,13 @@ fn denormalize_groups_into_delimited_cells() {
     let d = doc(
         json!([
             node("s1", "src.csv", json!({ "path": csv, "hasHeader": true })),
-            node("n1", "xf.denorm", json!({
-                "groupBy": ["g"], "aggregateColumns": ["v"], "separator": ", "
-            })),
+            node(
+                "n1",
+                "xf.denorm",
+                json!({
+                    "groupBy": ["g"], "aggregateColumns": ["v"], "separator": ", "
+                })
+            ),
             node("k1", "snk.csv", json!({ "path": out, "hasHeader": true })),
         ]),
         json!([main_edge("e1", "s1", "n1"), main_edge("e2", "n1", "k1")]),
@@ -1588,7 +1817,11 @@ fn normalize_explodes_delimited_column() {
     let d = doc(
         json!([
             node("s1", "src.csv", json!({ "path": csv, "hasHeader": true })),
-            node("n1", "xf.norm", json!({ "column": "tags", "separator": "," })),
+            node(
+                "n1",
+                "xf.norm",
+                json!({ "column": "tags", "separator": "," })
+            ),
             node("k1", "snk.csv", json!({ "path": out, "hasHeader": true })),
         ]),
         json!([main_edge("e1", "s1", "n1"), main_edge("e2", "n1", "k1")]),
@@ -1711,11 +1944,15 @@ fn pg_sink_then_source_roundtrip() {
     let write_doc = doc(
         json!([
             node("s", "src.csv", json!({ "path": csv, "hasHeader": true })),
-            node("w", "snk.postgres", json!({
-                "host": host, "port": port, "database": db,
-                "user": user, "password": pass,
-                "schemaName": "public", "tableName": table, "mode": "overwrite"
-            })),
+            node(
+                "w",
+                "snk.postgres",
+                json!({
+                    "host": host, "port": port, "database": db,
+                    "user": user, "password": pass,
+                    "schemaName": "public", "tableName": table, "mode": "overwrite"
+                })
+            ),
         ]),
         json!([main_edge("e", "s", "w")]),
     );
@@ -1725,11 +1962,15 @@ fn pg_sink_then_source_roundtrip() {
     // Read back from PG via src.postgres into a CSV file.
     let read_doc = doc(
         json!([
-            node("r", "src.postgres", json!({
-                "host": host, "port": port, "database": db,
-                "user": user, "password": pass,
-                "schemaName": "public", "tableName": table, "mode": "table"
-            })),
+            node(
+                "r",
+                "src.postgres",
+                json!({
+                    "host": host, "port": port, "database": db,
+                    "user": user, "password": pass,
+                    "schemaName": "public", "tableName": table, "mode": "table"
+                })
+            ),
             node("k", "snk.csv", json!({ "path": out, "hasHeader": true })),
         ]),
         json!([main_edge("e", "r", "k")]),
@@ -1804,11 +2045,15 @@ fn mysql_sink_then_source_roundtrip() {
     let write_doc = doc(
         json!([
             node("s", "src.csv", json!({ "path": csv, "hasHeader": true })),
-            node("w", "snk.mysql", json!({
-                "host": host, "port": port, "database": db,
-                "user": user, "password": pass,
-                "tableName": table, "mode": "overwrite"
-            })),
+            node(
+                "w",
+                "snk.mysql",
+                json!({
+                    "host": host, "port": port, "database": db,
+                    "user": user, "password": pass,
+                    "tableName": table, "mode": "overwrite"
+                })
+            ),
         ]),
         json!([main_edge("e", "s", "w")]),
     );
@@ -1818,11 +2063,15 @@ fn mysql_sink_then_source_roundtrip() {
     // src.mysql -> csv
     let read_doc = doc(
         json!([
-            node("r", "src.mysql", json!({
-                "host": host, "port": port, "database": db,
-                "user": user, "password": pass,
-                "tableName": table, "mode": "table"
-            })),
+            node(
+                "r",
+                "src.mysql",
+                json!({
+                    "host": host, "port": port, "database": db,
+                    "user": user, "password": pass,
+                    "tableName": table, "mode": "table"
+                })
+            ),
             node("k", "snk.csv", json!({ "path": out, "hasHeader": true })),
         ]),
         json!([main_edge("e", "r", "k")]),
@@ -1841,17 +2090,29 @@ fn mysql_sink_then_source_roundtrip() {
 // upserting (2,BOB)(4,dave) on key `id`, the table must hold exactly
 // (1,alice)(2,BOB)(3,carol)(4,dave). `out` is the CSV the read-back wrote.
 fn assert_upsert_result(out: &str) {
-    assert_eq!(count(&format!("read_csv_auto('{}')", out)), 4, "row count after upsert");
+    assert_eq!(
+        count(&format!("read_csv_auto('{}')", out)),
+        4,
+        "row count after upsert"
+    );
     let updated = scalar_string(&format!(
         "SELECT name FROM read_csv_auto('{}') WHERE id = 2",
         out
     ));
-    assert_eq!(updated, "BOB", "id=2 should be updated to BOB, got {}", updated);
+    assert_eq!(
+        updated, "BOB",
+        "id=2 should be updated to BOB, got {}",
+        updated
+    );
     let inserted = scalar_string(&format!(
         "SELECT name FROM read_csv_auto('{}') WHERE id = 4",
         out
     ));
-    assert_eq!(inserted, "dave", "id=4 should be inserted, got {}", inserted);
+    assert_eq!(
+        inserted, "dave",
+        "id=4 should be inserted, got {}",
+        inserted
+    );
 }
 
 #[test]
@@ -1872,23 +2133,34 @@ fn sqlserver_upsert_merges_and_inserts() {
     let snk = |path: &str, mode: &str| {
         json!([
             node("s", "src.csv", json!({ "path": path, "hasHeader": true })),
-            node("w", "snk.sqlserver", json!({
-                "host": host, "port": port, "database": db, "user": user, "password": pass,
-                "schema": "dbo", "tableName": table, "mode": mode,
-                "conflictColumns": ["id"], "trustCert": true
-            })),
+            node(
+                "w",
+                "snk.sqlserver",
+                json!({
+                    "host": host, "port": port, "database": db, "user": user, "password": pass,
+                    "schema": "dbo", "tableName": table, "mode": mode,
+                    "conflictColumns": ["id"], "trustCert": true
+                })
+            ),
         ])
     };
-    let r1 = engine.execute_pipeline(&doc(snk(&seed, "overwrite"), json!([main_edge("e", "s", "w")])));
+    let r1 = engine.execute_pipeline(&doc(
+        snk(&seed, "overwrite"),
+        json!([main_edge("e", "s", "w")]),
+    ));
     assert_eq!(r1.status, "ok", "seed failed: {:?}", r1.error);
     let r2 = engine.execute_pipeline(&doc(snk(&upd, "upsert"), json!([main_edge("e", "s", "w")])));
     assert_eq!(r2.status, "ok", "upsert failed: {:?}", r2.error);
     let read = doc(
         json!([
-            node("r", "src.sqlserver", json!({
-                "host": host, "port": port, "database": db, "user": user, "password": pass,
-                "schema": "dbo", "tableName": table, "mode": "table", "trustCert": true
-            })),
+            node(
+                "r",
+                "src.sqlserver",
+                json!({
+                    "host": host, "port": port, "database": db, "user": user, "password": pass,
+                    "schema": "dbo", "tableName": table, "mode": "table", "trustCert": true
+                })
+            ),
             node("k", "snk.csv", json!({ "path": out, "hasHeader": true })),
         ]),
         json!([main_edge("e", "r", "k")]),
@@ -1916,22 +2188,33 @@ fn oracle_upsert_merges_and_inserts() {
     let snk = |path: &str, mode: &str| {
         json!([
             node("s", "src.csv", json!({ "path": path, "hasHeader": true })),
-            node("w", "snk.oracle", json!({
-                "connect": connect, "user": user, "password": pass,
-                "tableName": table, "mode": mode, "conflictColumns": ["id"]
-            })),
+            node(
+                "w",
+                "snk.oracle",
+                json!({
+                    "connect": connect, "user": user, "password": pass,
+                    "tableName": table, "mode": mode, "conflictColumns": ["id"]
+                })
+            ),
         ])
     };
-    let r1 = engine.execute_pipeline(&doc(snk(&seed, "overwrite"), json!([main_edge("e", "s", "w")])));
+    let r1 = engine.execute_pipeline(&doc(
+        snk(&seed, "overwrite"),
+        json!([main_edge("e", "s", "w")]),
+    ));
     assert_eq!(r1.status, "ok", "seed failed: {:?}", r1.error);
     let r2 = engine.execute_pipeline(&doc(snk(&upd, "upsert"), json!([main_edge("e", "s", "w")])));
     assert_eq!(r2.status, "ok", "upsert failed: {:?}", r2.error);
     let read = doc(
         json!([
-            node("r", "src.oracle", json!({
-                "connect": connect, "user": user, "password": pass,
-                "query": format!("SELECT \"id\", \"name\" FROM \"{}\"", table)
-            })),
+            node(
+                "r",
+                "src.oracle",
+                json!({
+                    "connect": connect, "user": user, "password": pass,
+                    "query": format!("SELECT \"id\", \"name\" FROM \"{}\"", table)
+                })
+            ),
             node("k", "snk.csv", json!({ "path": out, "hasHeader": true })),
         ]),
         json!([main_edge("e", "r", "k")]),
@@ -1961,23 +2244,34 @@ fn snowflake_upsert_merges_and_inserts() {
     let snk = |path: &str, mode: &str| {
         json!([
             node("s", "src.csv", json!({ "path": path, "hasHeader": true })),
-            node("w", "snk.snowflake", json!({
-                "account": "local", "endpoint": endpoint, "authType": "pat", "pat": "test",
-                "database": "memory", "schema": "main", "tableName": table,
-                "mode": mode, "conflictColumns": ["id"]
-            })),
+            node(
+                "w",
+                "snk.snowflake",
+                json!({
+                    "account": "local", "endpoint": endpoint, "authType": "pat", "pat": "test",
+                    "database": "memory", "schema": "main", "tableName": table,
+                    "mode": mode, "conflictColumns": ["id"]
+                })
+            ),
         ])
     };
-    let r1 = engine.execute_pipeline(&doc(snk(&seed, "overwrite"), json!([main_edge("e", "s", "w")])));
+    let r1 = engine.execute_pipeline(&doc(
+        snk(&seed, "overwrite"),
+        json!([main_edge("e", "s", "w")]),
+    ));
     assert_eq!(r1.status, "ok", "seed failed: {:?}", r1.error);
     let r2 = engine.execute_pipeline(&doc(snk(&upd, "upsert"), json!([main_edge("e", "s", "w")])));
     assert_eq!(r2.status, "ok", "upsert failed: {:?}", r2.error);
     let read = doc(
         json!([
-            node("r", "src.snowflake", json!({
-                "account": "local", "endpoint": endpoint, "authType": "pat", "pat": "test",
-                "query": format!("SELECT \"id\", \"name\" FROM \"memory\".\"main\".\"{}\"", table)
-            })),
+            node(
+                "r",
+                "src.snowflake",
+                json!({
+                    "account": "local", "endpoint": endpoint, "authType": "pat", "pat": "test",
+                    "query": format!("SELECT \"id\", \"name\" FROM \"memory\".\"main\".\"{}\"", table)
+                })
+            ),
             node("k", "snk.csv", json!({ "path": out, "hasHeader": true })),
         ]),
         json!([main_edge("e", "r", "k")]),
@@ -1997,12 +2291,18 @@ fn assert_delete_propagation_result(out: &str) {
         "row count after upsert + delete"
     );
     assert_eq!(
-        scalar_string(&format!("SELECT name FROM read_csv_auto('{}') WHERE id = 2", out)),
+        scalar_string(&format!(
+            "SELECT name FROM read_csv_auto('{}') WHERE id = 2",
+            out
+        )),
         "BOB",
         "id=2 should be updated to BOB"
     );
     assert_eq!(
-        scalar_string(&format!("SELECT name FROM read_csv_auto('{}') WHERE id = 4", out)),
+        scalar_string(&format!(
+            "SELECT name FROM read_csv_auto('{}') WHERE id = 4",
+            out
+        )),
         "dave",
         "id=4 should be inserted"
     );
@@ -2031,9 +2331,13 @@ fn duckdb_upsert_with_delete_propagation() {
     let seed_doc = doc(
         json!([
             node("s", "src.csv", json!({ "path": seed, "hasHeader": true })),
-            node("w", "snk.duckdb", json!({
-                "database": dbfile, "tableName": "people", "mode": "overwrite"
-            })),
+            node(
+                "w",
+                "snk.duckdb",
+                json!({
+                    "database": dbfile, "tableName": "people", "mode": "overwrite"
+                })
+            ),
         ]),
         json!([main_edge("e", "s", "w")]),
     );
@@ -2042,10 +2346,14 @@ fn duckdb_upsert_with_delete_propagation() {
     let upd_doc = doc(
         json!([
             node("s", "src.csv", json!({ "path": upd, "hasHeader": true })),
-            node("w", "snk.duckdb", json!({
-                "database": dbfile, "tableName": "people", "mode": "upsert",
-                "conflictColumns": ["id"], "deleteColumn": "op", "deleteValue": "delete"
-            })),
+            node(
+                "w",
+                "snk.duckdb",
+                json!({
+                    "database": dbfile, "tableName": "people", "mode": "upsert",
+                    "conflictColumns": ["id"], "deleteColumn": "op", "deleteValue": "delete"
+                })
+            ),
         ]),
         json!([main_edge("e", "s", "w")]),
     );
@@ -2054,7 +2362,11 @@ fn duckdb_upsert_with_delete_propagation() {
 
     let read = doc(
         json!([
-            node("r", "src.duckdb", json!({ "database": dbfile, "tableName": "people" })),
+            node(
+                "r",
+                "src.duckdb",
+                json!({ "database": dbfile, "tableName": "people" })
+            ),
             node("k", "snk.csv", json!({ "path": out, "hasHeader": true })),
         ]),
         json!([main_edge("e", "r", "k")]),
@@ -2075,14 +2387,21 @@ fn duckdb_upsert_without_conflict_columns_errors() {
     let d = doc(
         json!([
             node("s", "src.csv", json!({ "path": seed, "hasHeader": true })),
-            node("w", "snk.duckdb", json!({
-                "database": dbfile, "tableName": "people", "mode": "upsert"
-            })),
+            node(
+                "w",
+                "snk.duckdb",
+                json!({
+                    "database": dbfile, "tableName": "people", "mode": "upsert"
+                })
+            ),
         ]),
         json!([main_edge("e", "s", "w")]),
     );
     let r = engine.execute_pipeline(&d);
-    assert_eq!(r.status, "error", "upsert without conflict columns should error");
+    assert_eq!(
+        r.status, "error",
+        "upsert without conflict columns should error"
+    );
     let err = format!("{:?}", r.error).to_lowercase();
     assert!(
         err.contains("conflict column"),
@@ -2113,10 +2432,14 @@ fn sqlserver_upsert_delete_propagation() {
     let r1 = engine.execute_pipeline(&doc(
         json!([
             node("s", "src.csv", json!({ "path": seed, "hasHeader": true })),
-            node("w", "snk.sqlserver", json!({
-                "host": &host, "port": port, "database": &db, "user": &user, "password": &pass,
-                "schema": "dbo", "tableName": &table, "mode": "overwrite", "trustCert": true
-            })),
+            node(
+                "w",
+                "snk.sqlserver",
+                json!({
+                    "host": &host, "port": port, "database": &db, "user": &user, "password": &pass,
+                    "schema": "dbo", "tableName": &table, "mode": "overwrite", "trustCert": true
+                })
+            ),
         ]),
         json!([main_edge("e", "s", "w")]),
     ));
@@ -2124,22 +2447,30 @@ fn sqlserver_upsert_delete_propagation() {
     let r2 = engine.execute_pipeline(&doc(
         json!([
             node("s", "src.csv", json!({ "path": upd, "hasHeader": true })),
-            node("w", "snk.sqlserver", json!({
-                "host": &host, "port": port, "database": &db, "user": &user, "password": &pass,
-                "schema": "dbo", "tableName": &table, "mode": "upsert",
-                "conflictColumns": ["id"], "deleteColumn": "op", "deleteValue": "delete",
-                "trustCert": true
-            })),
+            node(
+                "w",
+                "snk.sqlserver",
+                json!({
+                    "host": &host, "port": port, "database": &db, "user": &user, "password": &pass,
+                    "schema": "dbo", "tableName": &table, "mode": "upsert",
+                    "conflictColumns": ["id"], "deleteColumn": "op", "deleteValue": "delete",
+                    "trustCert": true
+                })
+            ),
         ]),
         json!([main_edge("e", "s", "w")]),
     ));
     assert_eq!(r2.status, "ok", "upsert+delete failed: {:?}", r2.error);
     let read = doc(
         json!([
-            node("r", "src.sqlserver", json!({
-                "host": host, "port": port, "database": db, "user": user, "password": pass,
-                "schema": "dbo", "tableName": table, "mode": "table", "trustCert": true
-            })),
+            node(
+                "r",
+                "src.sqlserver",
+                json!({
+                    "host": host, "port": port, "database": db, "user": user, "password": pass,
+                    "schema": "dbo", "tableName": table, "mode": "table", "trustCert": true
+                })
+            ),
             node("k", "snk.csv", json!({ "path": out, "hasHeader": true })),
         ]),
         json!([main_edge("e", "r", "k")]),
@@ -2167,10 +2498,14 @@ fn mysql_upsert_delete_propagation() {
     let r1 = engine.execute_pipeline(&doc(
         json!([
             node("s", "src.csv", json!({ "path": seed, "hasHeader": true })),
-            node("w", "snk.mysql", json!({
-                "host": &host, "port": port, "database": &db, "user": &user, "password": &pass,
-                "tableName": &table, "mode": "overwrite"
-            })),
+            node(
+                "w",
+                "snk.mysql",
+                json!({
+                    "host": &host, "port": port, "database": &db, "user": &user, "password": &pass,
+                    "tableName": &table, "mode": "overwrite"
+                })
+            ),
         ]),
         json!([main_edge("e", "s", "w")]),
     ));
@@ -2200,11 +2535,15 @@ fn mysql_upsert_delete_propagation() {
     let r2 = engine.execute_pipeline(&doc(
         json!([
             node("s", "src.csv", json!({ "path": upd, "hasHeader": true })),
-            node("w", "snk.mysql", json!({
-                "host": &host, "port": port, "database": &db, "user": &user, "password": &pass,
-                "tableName": &table, "mode": "upsert",
-                "conflictColumns": ["id"], "deleteColumn": "op", "deleteValue": "delete"
-            })),
+            node(
+                "w",
+                "snk.mysql",
+                json!({
+                    "host": &host, "port": port, "database": &db, "user": &user, "password": &pass,
+                    "tableName": &table, "mode": "upsert",
+                    "conflictColumns": ["id"], "deleteColumn": "op", "deleteValue": "delete"
+                })
+            ),
         ]),
         json!([main_edge("e", "s", "w")]),
     ));
@@ -2212,10 +2551,14 @@ fn mysql_upsert_delete_propagation() {
     let out = out_path(tmp.path(), "out.csv");
     let read = doc(
         json!([
-            node("r", "src.mysql", json!({
-                "host": host, "port": port, "database": db, "user": user, "password": pass,
-                "tableName": table, "mode": "table"
-            })),
+            node(
+                "r",
+                "src.mysql",
+                json!({
+                    "host": host, "port": port, "database": db, "user": user, "password": pass,
+                    "tableName": table, "mode": "table"
+                })
+            ),
             node("k", "snk.csv", json!({ "path": out, "hasHeader": true })),
         ]),
         json!([main_edge("e", "r", "k")]),
@@ -2248,10 +2591,14 @@ fn oracle_upsert_delete_propagation() {
     let r1 = engine.execute_pipeline(&doc(
         json!([
             node("s", "src.csv", json!({ "path": seed, "hasHeader": true })),
-            node("w", "snk.oracle", json!({
-                "connect": &connect, "user": &user, "password": &pass,
-                "tableName": &table, "mode": "overwrite"
-            })),
+            node(
+                "w",
+                "snk.oracle",
+                json!({
+                    "connect": &connect, "user": &user, "password": &pass,
+                    "tableName": &table, "mode": "overwrite"
+                })
+            ),
         ]),
         json!([main_edge("e", "s", "w")]),
     ));
@@ -2259,21 +2606,29 @@ fn oracle_upsert_delete_propagation() {
     let r2 = engine.execute_pipeline(&doc(
         json!([
             node("s", "src.csv", json!({ "path": upd, "hasHeader": true })),
-            node("w", "snk.oracle", json!({
-                "connect": &connect, "user": &user, "password": &pass,
-                "tableName": &table, "mode": "upsert",
-                "conflictColumns": ["id"], "deleteColumn": "op", "deleteValue": "delete"
-            })),
+            node(
+                "w",
+                "snk.oracle",
+                json!({
+                    "connect": &connect, "user": &user, "password": &pass,
+                    "tableName": &table, "mode": "upsert",
+                    "conflictColumns": ["id"], "deleteColumn": "op", "deleteValue": "delete"
+                })
+            ),
         ]),
         json!([main_edge("e", "s", "w")]),
     ));
     assert_eq!(r2.status, "ok", "upsert+delete failed: {:?}", r2.error);
     let read = doc(
         json!([
-            node("r", "src.oracle", json!({
-                "connect": connect, "user": user, "password": pass,
-                "query": format!("SELECT \"id\", \"name\" FROM \"{}\"", table)
-            })),
+            node(
+                "r",
+                "src.oracle",
+                json!({
+                    "connect": connect, "user": user, "password": pass,
+                    "query": format!("SELECT \"id\", \"name\" FROM \"{}\"", table)
+                })
+            ),
             node("k", "snk.csv", json!({ "path": out, "hasHeader": true })),
         ]),
         json!([main_edge("e", "r", "k")]),
@@ -2316,16 +2671,26 @@ fn snowflake_upsert_delete_propagation() {
             node("w", "snk.snowflake", props),
         ])
     };
-    let r1 = engine.execute_pipeline(&doc(snk(&seed, "overwrite", false), json!([main_edge("e", "s", "w")])));
+    let r1 = engine.execute_pipeline(&doc(
+        snk(&seed, "overwrite", false),
+        json!([main_edge("e", "s", "w")]),
+    ));
     assert_eq!(r1.status, "ok", "seed failed: {:?}", r1.error);
-    let r2 = engine.execute_pipeline(&doc(snk(&upd, "upsert", true), json!([main_edge("e", "s", "w")])));
+    let r2 = engine.execute_pipeline(&doc(
+        snk(&upd, "upsert", true),
+        json!([main_edge("e", "s", "w")]),
+    ));
     assert_eq!(r2.status, "ok", "upsert+delete failed: {:?}", r2.error);
     let read = doc(
         json!([
-            node("r", "src.snowflake", json!({
-                "account": "local", "endpoint": endpoint, "authType": "pat", "pat": "test",
-                "query": format!("SELECT \"id\", \"name\" FROM \"memory\".\"main\".\"{}\"", table)
-            })),
+            node(
+                "r",
+                "src.snowflake",
+                json!({
+                    "account": "local", "endpoint": endpoint, "authType": "pat", "pat": "test",
+                    "query": format!("SELECT \"id\", \"name\" FROM \"memory\".\"main\".\"{}\"", table)
+                })
+            ),
             node("k", "snk.csv", json!({ "path": out, "hasHeader": true })),
         ]),
         json!([main_edge("e", "r", "k")]),
@@ -2353,19 +2718,30 @@ fn md_source_reads_table() {
     let out = out_path(tmp.path(), "out.csv");
     let d = doc(
         json!([
-            node("r", "src.motherduck", json!({
-                "database": db, "token": token,
-                "schemaName": "main", "tableName": table, "mode": "table"
-            })),
+            node(
+                "r",
+                "src.motherduck",
+                json!({
+                    "database": db, "token": token,
+                    "schemaName": "main", "tableName": table, "mode": "table"
+                })
+            ),
             node("k", "snk.csv", json!({ "path": out, "hasHeader": true })),
         ]),
         json!([main_edge("e", "r", "k")]),
     );
     let result = engine.execute_pipeline(&d);
-    assert_eq!(result.status, "ok", "MotherDuck read failed: {:?}", result.error);
+    assert_eq!(
+        result.status, "ok",
+        "MotherDuck read failed: {:?}",
+        result.error
+    );
     // Don't assert a specific row count - the table is the user's,
     // not ours. Just confirm the read ran end to end.
-    assert!(std::path::Path::new(&out).exists(), "output CSV should exist");
+    assert!(
+        std::path::Path::new(&out).exists(),
+        "output CSV should exist"
+    );
 }
 
 #[test]
@@ -2390,13 +2766,17 @@ fn minio_source_reads_via_endpoint() {
     let out = out_path(tmp.path(), "out.csv");
     let d = doc(
         json!([
-            node("r", "src.minio", json!({
-                "bucket": bucket, "key": "orders.parquet", "region": "us-east-1",
-                "accessKey": access, "secretKey": secret,
-                "endpoint": format!("{}:{}", host, port),
-                "urlStyle": "path", "useSsl": "false",
-                "format": "parquet"
-            })),
+            node(
+                "r",
+                "src.minio",
+                json!({
+                    "bucket": bucket, "key": "orders.parquet", "region": "us-east-1",
+                    "accessKey": access, "secretKey": secret,
+                    "endpoint": format!("{}:{}", host, port),
+                    "urlStyle": "path", "useSsl": "false",
+                    "format": "parquet"
+                })
+            ),
             node("k", "snk.csv", json!({ "path": out, "hasHeader": true })),
         ]),
         json!([main_edge("e", "r", "k")]),
@@ -2420,11 +2800,19 @@ fn schema_validate_rejects_rows_missing_required_columns() {
     let d = doc(
         json!([
             node("s1", "src.csv", json!({ "path": csv, "hasHeader": true })),
-            node("v1", "qa.schemavalidate", json!({
-                "expectedColumns": ["id", "name", "email"]
-            })),
+            node(
+                "v1",
+                "qa.schemavalidate",
+                json!({
+                    "expectedColumns": ["id", "name", "email"]
+                })
+            ),
             node("ok", "snk.csv", json!({ "path": pass, "hasHeader": true })),
-            node("bad", "snk.csv", json!({ "path": reject, "hasHeader": true })),
+            node(
+                "bad",
+                "snk.csv",
+                json!({ "path": reject, "hasHeader": true })
+            ),
         ]),
         json!([
             main_edge("e1", "s1", "v1"),
@@ -2457,11 +2845,15 @@ fn pg_sink_append_grows_table() {
         doc(
             json!([
                 node("s", "src.csv", json!({ "path": csv, "hasHeader": true })),
-                node("w", "snk.postgres", json!({
-                    "host": &host, "port": port, "database": &db,
-                    "user": &user, "password": &pass,
-                    "schemaName": "public", "tableName": &table, "mode": mode
-                })),
+                node(
+                    "w",
+                    "snk.postgres",
+                    json!({
+                        "host": &host, "port": port, "database": &db,
+                        "user": &user, "password": &pass,
+                        "schemaName": "public", "tableName": &table, "mode": mode
+                    })
+                ),
             ]),
             json!([main_edge("e", "s", "w")]),
         )
@@ -2478,11 +2870,15 @@ fn pg_sink_append_grows_table() {
     let out = out_path(tmp.path(), "out.csv");
     let read_doc = doc(
         json!([
-            node("r", "src.postgres", json!({
-                "host": host, "port": port, "database": db,
-                "user": user, "password": pass,
-                "schemaName": "public", "tableName": table, "mode": "table"
-            })),
+            node(
+                "r",
+                "src.postgres",
+                json!({
+                    "host": host, "port": port, "database": db,
+                    "user": user, "password": pass,
+                    "schemaName": "public", "tableName": table, "mode": "table"
+                })
+            ),
             node("k", "snk.csv", json!({ "path": out, "hasHeader": true })),
         ]),
         json!([main_edge("e", "r", "k")]),
@@ -2537,11 +2933,15 @@ fn pg_sink_truncate_replaces_rows() {
         doc(
             json!([
                 node("s", "src.csv", json!({ "path": csv, "hasHeader": true })),
-                node("w", "snk.postgres", json!({
-                    "host": &host, "port": port, "database": &db,
-                    "user": &user, "password": &pass,
-                    "schemaName": "public", "tableName": &table, "mode": mode
-                })),
+                node(
+                    "w",
+                    "snk.postgres",
+                    json!({
+                        "host": &host, "port": port, "database": &db,
+                        "user": &user, "password": &pass,
+                        "schemaName": "public", "tableName": &table, "mode": mode
+                    })
+                ),
             ]),
             json!([main_edge("e", "s", "w")]),
         )
@@ -2557,11 +2957,15 @@ fn pg_sink_truncate_replaces_rows() {
     let out = out_path(tmp.path(), "out.csv");
     let r3 = engine.execute_pipeline(&doc(
         json!([
-            node("r", "src.postgres", json!({
-                "host": host, "port": port, "database": db,
-                "user": user, "password": pass,
-                "schemaName": "public", "tableName": table, "mode": "table"
-            })),
+            node(
+                "r",
+                "src.postgres",
+                json!({
+                    "host": host, "port": port, "database": db,
+                    "user": user, "password": pass,
+                    "schemaName": "public", "tableName": table, "mode": "table"
+                })
+            ),
             node("k", "snk.csv", json!({ "path": out, "hasHeader": true })),
         ]),
         json!([main_edge("e", "r", "k")]),
@@ -2594,11 +2998,15 @@ fn scd2_closes_changed_and_inserts_new_versions() {
         json!([
             node("c", "src.csv", json!({ "path": cur, "hasHeader": true })),
             node("p", "src.parquet", json!({ "path": prev })),
-            node("h", "xf.cdc.scd2", json!({
-                "naturalKey": ["id"], "compareColumns": ["v"],
-                "validFromColumn": "valid_from", "validToColumn": "valid_to",
-                "isCurrentColumn": "is_current"
-            })),
+            node(
+                "h",
+                "xf.cdc.scd2",
+                json!({
+                    "naturalKey": ["id"], "compareColumns": ["v"],
+                    "validFromColumn": "valid_from", "validToColumn": "valid_to",
+                    "isCurrentColumn": "is_current"
+                })
+            ),
             node("k", "snk.parquet", json!({ "path": out })),
         ]),
         json!([
@@ -2612,10 +3020,7 @@ fn scd2_closes_changed_and_inserts_new_versions() {
     // id=1 unchanged (1 row), id=2 closed + new (2 rows), id=3 new (1 row) = 4.
     assert_eq!(count(&format!("read_parquet('{}')", out)), 4);
     // id=2 should now have one closed and one current row.
-    assert_eq!(
-        count(&format!("read_parquet('{}') WHERE id = 2", out)),
-        2
-    );
+    assert_eq!(count(&format!("read_parquet('{}') WHERE id = 2", out)), 2);
     // The closed-and-replaced id=2 row should be the OLD v ('b'), not current.
     let closed = scalar_string(&format!(
         "SELECT v FROM read_parquet('{}') WHERE id = 2 AND NOT is_current",
@@ -2667,9 +3072,13 @@ fn upsert_emits_only_changes_and_inserts() {
         json!([
             node("c", "src.csv", json!({ "path": cur, "hasHeader": true })),
             node("p", "src.csv", json!({ "path": prev, "hasHeader": true })),
-            node("u", "xf.cdc.upsert", json!({
-                "naturalKey": ["id"], "compareColumns": ["v"]
-            })),
+            node(
+                "u",
+                "xf.cdc.upsert",
+                json!({
+                    "naturalKey": ["id"], "compareColumns": ["v"]
+                })
+            ),
             node("k", "snk.csv", json!({ "path": out, "hasHeader": true })),
         ]),
         json!([
@@ -2743,11 +3152,15 @@ fn pg_sink_upsert_updates_and_inserts() {
     let r1 = engine.execute_pipeline(&doc(
         json!([
             node("s", "src.csv", json!({ "path": csv1, "hasHeader": true })),
-            node("w", "snk.postgres", json!({
-                "host": &host, "port": port, "database": &db,
-                "user": &user, "password": &pass,
-                "schemaName": "public", "tableName": &table, "mode": "overwrite"
-            })),
+            node(
+                "w",
+                "snk.postgres",
+                json!({
+                    "host": &host, "port": port, "database": &db,
+                    "user": &user, "password": &pass,
+                    "schemaName": "public", "tableName": &table, "mode": "overwrite"
+                })
+            ),
         ]),
         json!([main_edge("e", "s", "w")]),
     ));
@@ -2778,12 +3191,16 @@ fn pg_sink_upsert_updates_and_inserts() {
     let r2 = engine.execute_pipeline(&doc(
         json!([
             node("s", "src.csv", json!({ "path": csv2, "hasHeader": true })),
-            node("w", "snk.postgres", json!({
-                "host": &host, "port": port, "database": &db,
-                "user": &user, "password": &pass,
-                "schemaName": "public", "tableName": &table, "mode": "upsert",
-                "conflictColumns": ["id"]
-            })),
+            node(
+                "w",
+                "snk.postgres",
+                json!({
+                    "host": &host, "port": port, "database": &db,
+                    "user": &user, "password": &pass,
+                    "schemaName": "public", "tableName": &table, "mode": "upsert",
+                    "conflictColumns": ["id"]
+                })
+            ),
         ]),
         json!([main_edge("e", "s", "w")]),
     ));
@@ -2793,11 +3210,15 @@ fn pg_sink_upsert_updates_and_inserts() {
     let out = out_path(tmp.path(), "out.csv");
     let r3 = engine.execute_pipeline(&doc(
         json!([
-            node("r", "src.postgres", json!({
-                "host": host, "port": port, "database": db,
-                "user": user, "password": pass,
-                "schemaName": "public", "tableName": table, "mode": "table"
-            })),
+            node(
+                "r",
+                "src.postgres",
+                json!({
+                    "host": host, "port": port, "database": db,
+                    "user": user, "password": pass,
+                    "schemaName": "public", "tableName": table, "mode": "table"
+                })
+            ),
             node("k", "snk.csv", json!({ "path": out, "hasHeader": true })),
         ]),
         json!([main_edge("e", "r", "k")]),
@@ -2815,17 +3236,33 @@ fn pg_sink_upsert_updates_and_inserts() {
 fn switch_routes_rows_to_case_outputs() {
     let engine = engine_or_skip!();
     let tmp = tempfile::tempdir().unwrap();
-    let csv = write_file(tmp.path(), "in.csv", "id,amount\n1,50\n2,150\n3,200\n4,30\n");
+    let csv = write_file(
+        tmp.path(),
+        "in.csv",
+        "id,amount\n1,50\n2,150\n3,200\n4,30\n",
+    );
     let out_high = out_path(tmp.path(), "high.csv");
     let out_low = out_path(tmp.path(), "low.csv");
     let d = doc(
         json!([
             node("s", "src.csv", json!({ "path": csv, "hasHeader": true })),
-            node("sw", "ctl.switch", json!({
-                "branches": { "high": "amount > 100", "low": "amount <= 100" }
-            })),
-            node("kh", "snk.csv", json!({ "path": out_high, "hasHeader": true })),
-            node("kl", "snk.csv", json!({ "path": out_low, "hasHeader": true })),
+            node(
+                "sw",
+                "ctl.switch",
+                json!({
+                    "branches": { "high": "amount > 100", "low": "amount <= 100" }
+                })
+            ),
+            node(
+                "kh",
+                "snk.csv",
+                json!({ "path": out_high, "hasHeader": true })
+            ),
+            node(
+                "kl",
+                "snk.csv",
+                json!({ "path": out_low, "hasHeader": true })
+            ),
         ]),
         json!([
             main_edge("e1", "s", "sw"),
@@ -2864,7 +3301,11 @@ fn iceberg_source_reads_fixture() {
         json!([main_edge("e", "r", "k")]),
     );
     let result = engine.execute_pipeline(&d);
-    assert_eq!(result.status, "ok", "iceberg read failed: {:?}", result.error);
+    assert_eq!(
+        result.status, "ok",
+        "iceberg read failed: {:?}",
+        result.error
+    );
     assert!(count(&format!("read_csv_auto('{}')", out)) >= 0);
 }
 
@@ -2910,7 +3351,10 @@ fn tsv_sink_writes_tab_delimited() {
     assert_eq!(result.status, "ok", "tsv write failed: {:?}", result.error);
     // Read back as a tab-delimited CSV and confirm row count + a value.
     assert_eq!(
-        count(&format!("read_csv_auto('{}', delim = '\t', header = true)", out)),
+        count(&format!(
+            "read_csv_auto('{}', delim = '\t', header = true)",
+            out
+        )),
         2
     );
     let raw = std::fs::read_to_string(&out).expect("read out.tsv");
@@ -2939,20 +3383,28 @@ fn vector_search_ranks_by_cosine_similarity() {
     let d = doc(
         json!([
             node("s", "src.parquet", json!({ "path": parquet })),
-            node("v", "xf.ai.vector_search", json!({
-                "vectorColumn": "vec",
-                "targetVector": "[0.9, 0.1, 0.0]",
-                "dimension": 3,
-                "distanceMetric": "cosine",
-                "topK": 2,
-                "outputColumn": "score"
-            })),
+            node(
+                "v",
+                "xf.ai.vector_search",
+                json!({
+                    "vectorColumn": "vec",
+                    "targetVector": "[0.9, 0.1, 0.0]",
+                    "dimension": 3,
+                    "distanceMetric": "cosine",
+                    "topK": 2,
+                    "outputColumn": "score"
+                })
+            ),
             node("k", "snk.csv", json!({ "path": out, "hasHeader": true })),
         ]),
         json!([main_edge("e1", "s", "v"), main_edge("e2", "v", "k")]),
     );
     let result = engine.execute_pipeline(&d);
-    assert_eq!(result.status, "ok", "vector_search failed: {:?}", result.error);
+    assert_eq!(
+        result.status, "ok",
+        "vector_search failed: {:?}",
+        result.error
+    );
     // topK = 2 -> two rows. The closest match (identical vector) is id=3.
     assert_eq!(count(&format!("read_csv_auto('{}')", out)), 2);
     let top = scalar_string(&format!(
@@ -2986,7 +3438,11 @@ fn spatial_source_reads_geojson() {
         json!([main_edge("e", "r", "k")]),
     );
     let result = engine.execute_pipeline(&d);
-    assert_eq!(result.status, "ok", "spatial read failed: {:?}", result.error);
+    assert_eq!(
+        result.status, "ok",
+        "spatial read failed: {:?}",
+        result.error
+    );
     assert_eq!(count(&format!("read_csv_auto('{}')", out)), 2);
     let names = scalar_string(&format!(
         "SELECT string_agg(name, ',' ORDER BY name) FROM read_csv_auto('{}')",
@@ -3008,18 +3464,26 @@ fn text_search_ranks_by_bm25() {
     let d = doc(
         json!([
             node("s", "src.csv", json!({ "path": csv, "hasHeader": true })),
-            node("t", "xf.ai.text_search", json!({
-                "idColumn": "id",
-                "textColumns": ["body"],
-                "query": "duck",
-                "outputColumn": "score"
-            })),
+            node(
+                "t",
+                "xf.ai.text_search",
+                json!({
+                    "idColumn": "id",
+                    "textColumns": ["body"],
+                    "query": "duck",
+                    "outputColumn": "score"
+                })
+            ),
             node("k", "snk.csv", json!({ "path": out, "hasHeader": true })),
         ]),
         json!([main_edge("e1", "s", "t"), main_edge("e2", "t", "k")]),
     );
     let result = engine.execute_pipeline(&d);
-    assert_eq!(result.status, "ok", "text_search failed: {:?}", result.error);
+    assert_eq!(
+        result.status, "ok",
+        "text_search failed: {:?}",
+        result.error
+    );
     // BM25 tokenization means 'duck' matches 'duck duck goose' but not
     // 'duckdb' (different token). So exactly one row.
     assert_eq!(count(&format!("read_csv_auto('{}')", out)), 1);
@@ -3074,12 +3538,20 @@ fn spatial_sink_writes_geojson() {
     let d = doc(
         json!([
             node("s", "src.parquet", json!({ "path": parquet })),
-            node("k", "snk.spatial", json!({ "path": out, "driver": "GeoJSON" })),
+            node(
+                "k",
+                "snk.spatial",
+                json!({ "path": out, "driver": "GeoJSON" })
+            ),
         ]),
         json!([main_edge("e", "s", "k")]),
     );
     let result = engine.execute_pipeline(&d);
-    assert_eq!(result.status, "ok", "spatial write failed: {:?}", result.error);
+    assert_eq!(
+        result.status, "ok",
+        "spatial write failed: {:?}",
+        result.error
+    );
     // Read back via ST_Read and verify both features made it.
     let n = scalar_string(&format!(
         "INSTALL spatial; LOAD spatial; SELECT CAST(count(*) AS VARCHAR) FROM ST_Read('{}')",
@@ -3105,10 +3577,14 @@ fn md_sink_writes_table() {
     let d = doc(
         json!([
             node("s", "src.csv", json!({ "path": csv, "hasHeader": true })),
-            node("w", "snk.motherduck", json!({
-                "database": db, "token": token,
-                "schemaName": "main", "tableName": table, "mode": "overwrite"
-            })),
+            node(
+                "w",
+                "snk.motherduck",
+                json!({
+                    "database": db, "token": token,
+                    "schemaName": "main", "tableName": table, "mode": "overwrite"
+                })
+            ),
         ]),
         json!([main_edge("e", "s", "w")]),
     );
@@ -3169,9 +3645,13 @@ fn ducklake_sink_then_source_roundtrip() {
     let out = out_path(tmp.path(), "out.csv");
     let r2 = engine.execute_pipeline(&doc(
         json!([
-            node("r", "src.ducklake", json!({
-                "path": catalog, "schemaName": "main", "tableName": "orders", "mode": "table"
-            })),
+            node(
+                "r",
+                "src.ducklake",
+                json!({
+                    "path": catalog, "schemaName": "main", "tableName": "orders", "mode": "table"
+                })
+            ),
             node("k", "snk.csv", json!({ "path": out, "hasHeader": true })),
         ]),
         json!([main_edge("e", "r", "k")]),
@@ -3189,9 +3669,13 @@ fn hash_adds_md5_column() {
     let d = doc(
         json!([
             node("s", "src.csv", json!({ "path": csv, "hasHeader": true })),
-            node("h", "xf.hash", json!({
-                "column": "name", "algorithm": "md5", "outputColumn": "name_md5"
-            })),
+            node(
+                "h",
+                "xf.hash",
+                json!({
+                    "column": "name", "algorithm": "md5", "outputColumn": "name_md5"
+                })
+            ),
             node("k", "snk.csv", json!({ "path": out, "hasHeader": true })),
         ]),
         json!([main_edge("e1", "s", "h"), main_edge("e2", "h", "k")]),
@@ -3235,15 +3719,23 @@ fn geo_distance_computes_point_distance() {
     let d = doc(
         json!([
             node("s", "src.parquet", json!({ "path": parquet })),
-            node("g", "xf.geo.distance", json!({
-                "geomColumn": "loc", "targetWkt": "POINT(0 0)", "outputColumn": "dist"
-            })),
+            node(
+                "g",
+                "xf.geo.distance",
+                json!({
+                    "geomColumn": "loc", "targetWkt": "POINT(0 0)", "outputColumn": "dist"
+                })
+            ),
             node("k", "snk.csv", json!({ "path": out, "hasHeader": true })),
         ]),
         json!([main_edge("e1", "s", "g"), main_edge("e2", "g", "k")]),
     );
     let result = engine.execute_pipeline(&d);
-    assert_eq!(result.status, "ok", "geo_distance failed: {:?}", result.error);
+    assert_eq!(
+        result.status, "ok",
+        "geo_distance failed: {:?}",
+        result.error
+    );
     // (3,4) -> (0,0) is 5; (6,8) -> (0,0) is 10.
     let a = scalar_string(&format!(
         "SELECT CAST(round(dist, 2) AS VARCHAR) FROM read_csv_auto('{}') WHERE name = 'a'",
@@ -3275,7 +3767,9 @@ fn snk_webhook_posts_one_request_per_row() {
                 Ok(s) => s,
                 Err(_) => break,
             };
-            stream.set_read_timeout(Some(Duration::from_millis(250))).ok();
+            stream
+                .set_read_timeout(Some(Duration::from_millis(250)))
+                .ok();
             stream.set_nodelay(true).ok();
             // Drain whatever the client wrote - headers and body can
             // arrive in separate TCP reads, so keep going until the
@@ -3325,11 +3819,28 @@ fn snk_webhook_posts_one_request_per_row() {
         }
     }
     let _ = handle.join();
-    assert_eq!(requests.len(), 2, "expected 2 HTTP requests, got {}", requests.len());
+    assert_eq!(
+        requests.len(),
+        2,
+        "expected 2 HTTP requests, got {}",
+        requests.len()
+    );
     let combined = requests.join("|");
-    assert!(combined.contains("alice"), "expected alice in payloads: {}", combined);
-    assert!(combined.contains("bob"), "expected bob in payloads: {}", combined);
-    assert!(combined.contains("POST"), "expected POST method: {}", combined);
+    assert!(
+        combined.contains("alice"),
+        "expected alice in payloads: {}",
+        combined
+    );
+    assert!(
+        combined.contains("bob"),
+        "expected bob in payloads: {}",
+        combined
+    );
+    assert!(
+        combined.contains("POST"),
+        "expected POST method: {}",
+        combined
+    );
 }
 
 #[test]
@@ -3345,12 +3856,24 @@ fn text_replace_slug_and_strip_html() {
     let r = engine.execute_pipeline(&doc(
         json!([
             node("s", "src.csv", json!({ "path": csv, "hasHeader": true })),
-            node("rep", "xf.text.replace", json!({
-                "column": "title", "search": "World", "replacement": "Galaxy",
-                "outputColumn": "title2"
-            })),
-            node("sg", "xf.text.slug", json!({ "column": "title", "outputColumn": "slug" })),
-            node("sh", "xf.text.strip_html", json!({ "column": "html", "outputColumn": "text" })),
+            node(
+                "rep",
+                "xf.text.replace",
+                json!({
+                    "column": "title", "search": "World", "replacement": "Galaxy",
+                    "outputColumn": "title2"
+                })
+            ),
+            node(
+                "sg",
+                "xf.text.slug",
+                json!({ "column": "title", "outputColumn": "slug" })
+            ),
+            node(
+                "sh",
+                "xf.text.strip_html",
+                json!({ "column": "html", "outputColumn": "text" })
+            ),
             node("k", "snk.csv", json!({ "path": out, "hasHeader": true })),
         ]),
         json!([
@@ -3360,7 +3883,11 @@ fn text_replace_slug_and_strip_html() {
             main_edge("e4", "sh", "k"),
         ]),
     ));
-    assert_eq!(r.status, "ok", "replace/slug/strip_html failed: {:?}", r.error);
+    assert_eq!(
+        r.status, "ok",
+        "replace/slug/strip_html failed: {:?}",
+        r.error
+    );
     let r1_title = scalar_string(&format!(
         "SELECT title2 FROM read_csv_auto('{}') WHERE id = 1",
         out
@@ -3387,20 +3914,28 @@ fn text_replace_slug_and_strip_html() {
 fn text_reverse_repeat_and_compare() {
     let engine = engine_or_skip!();
     let tmp = tempfile::tempdir().unwrap();
-    let csv = write_file(
-        tmp.path(),
-        "in.csv",
-        "id,a,b\n1,abc,xyz\n2,foo,foo\n",
-    );
+    let csv = write_file(tmp.path(), "in.csv", "id,a,b\n1,abc,xyz\n2,foo,foo\n");
     let out = out_path(tmp.path(), "out.csv");
     let r = engine.execute_pipeline(&doc(
         json!([
             node("s", "src.csv", json!({ "path": csv, "hasHeader": true })),
-            node("rv", "xf.text.reverse", json!({ "column": "a", "outputColumn": "a_rev" })),
-            node("rp", "xf.text.repeat", json!({ "column": "a", "count": 3, "outputColumn": "a_x3" })),
-            node("cp", "xf.compare", json!({
-                "leftColumn": "a", "rightColumn": "b", "op": "eq", "outputColumn": "match"
-            })),
+            node(
+                "rv",
+                "xf.text.reverse",
+                json!({ "column": "a", "outputColumn": "a_rev" })
+            ),
+            node(
+                "rp",
+                "xf.text.repeat",
+                json!({ "column": "a", "count": 3, "outputColumn": "a_x3" })
+            ),
+            node(
+                "cp",
+                "xf.compare",
+                json!({
+                    "leftColumn": "a", "rightColumn": "b", "op": "eq", "outputColumn": "match"
+                })
+            ),
             node("k", "snk.csv", json!({ "path": out, "hasHeader": true })),
         ]),
         json!([
@@ -3410,7 +3945,11 @@ fn text_reverse_repeat_and_compare() {
             main_edge("e4", "cp", "k"),
         ]),
     ));
-    assert_eq!(r.status, "ok", "reverse/repeat/compare failed: {:?}", r.error);
+    assert_eq!(
+        r.status, "ok",
+        "reverse/repeat/compare failed: {:?}",
+        r.error
+    );
     let row1_rev = scalar_string(&format!(
         "SELECT a_rev FROM read_csv_auto('{}') WHERE id = 1",
         out
@@ -3448,8 +3987,13 @@ fn snk_clickhouse_emits_jsoneachrow_to_insert_endpoint() {
 
     let handle = std::thread::spawn(move || {
         for stream in listener.incoming().take(1) {
-            let mut stream = match stream { Ok(s) => s, Err(_) => break };
-            stream.set_read_timeout(Some(Duration::from_millis(250))).ok();
+            let mut stream = match stream {
+                Ok(s) => s,
+                Err(_) => break,
+            };
+            stream
+                .set_read_timeout(Some(Duration::from_millis(250)))
+                .ok();
             stream.set_nodelay(true).ok();
             let mut buf = Vec::with_capacity(8192);
             let mut chunk = [0u8; 4096];
@@ -3461,7 +4005,8 @@ fn snk_clickhouse_emits_jsoneachrow_to_insert_endpoint() {
                 }
             }
             let _ = tx.send(buf);
-            let _ = stream.write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
+            let _ = stream
+                .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
             let _ = stream.flush();
             let _ = stream.shutdown(std::net::Shutdown::Write);
             std::thread::sleep(Duration::from_millis(100));
@@ -3474,31 +4019,63 @@ fn snk_clickhouse_emits_jsoneachrow_to_insert_endpoint() {
     let r = engine.execute_pipeline(&doc(
         json!([
             node("s", "src.csv", json!({ "path": csv, "hasHeader": true })),
-            node("c", "snk.clickhouse", json!({
-                "endpoint": endpoint,
-                "database": "default",
-                "tableName": "users",
-                "user": "ch", "password": "p"
-            })),
+            node(
+                "c",
+                "snk.clickhouse",
+                json!({
+                    "endpoint": endpoint,
+                    "database": "default",
+                    "tableName": "users",
+                    "user": "ch", "password": "p"
+                })
+            ),
         ]),
         json!([main_edge("e", "s", "c")]),
     ));
     assert_eq!(r.status, "ok", "clickhouse sink failed: {:?}", r.error);
 
-    let req = rx.recv_timeout(Duration::from_secs(5)).expect("expected 1 CH request");
+    let req = rx
+        .recv_timeout(Duration::from_secs(5))
+        .expect("expected 1 CH request");
     let _ = handle.join();
     let body = String::from_utf8_lossy(&req).to_string();
     // URL should have the urlencoded INSERT statement.
-    assert!(body.contains("/?query="), "expected query in URL: {}", body.lines().next().unwrap_or(""));
-    assert!(body.contains("INSERT") && body.contains("default") && body.contains("users"),
-        "expected URL-encoded INSERT INTO default.users: {}", body);
-    assert!(body.contains("FORMAT") && body.contains("JSONEachRow"),
-        "expected JSONEachRow in URL: {}", body);
-    assert!(body.contains("X-ClickHouse-User: ch"), "expected user header: {}", body);
-    assert!(body.contains("X-ClickHouse-Key: p"), "expected key header: {}", body);
+    assert!(
+        body.contains("/?query="),
+        "expected query in URL: {}",
+        body.lines().next().unwrap_or("")
+    );
+    assert!(
+        body.contains("INSERT") && body.contains("default") && body.contains("users"),
+        "expected URL-encoded INSERT INTO default.users: {}",
+        body
+    );
+    assert!(
+        body.contains("FORMAT") && body.contains("JSONEachRow"),
+        "expected JSONEachRow in URL: {}",
+        body
+    );
+    assert!(
+        body.contains("X-ClickHouse-User: ch"),
+        "expected user header: {}",
+        body
+    );
+    assert!(
+        body.contains("X-ClickHouse-Key: p"),
+        "expected key header: {}",
+        body
+    );
     // NDJSON body: each row on its own line.
-    assert!(body.contains("{\"id\":1,\"name\":\"alice\"}"), "expected alice row: {}", body);
-    assert!(body.contains("{\"id\":2,\"name\":\"bob\"}"), "expected bob row: {}", body);
+    assert!(
+        body.contains("{\"id\":1,\"name\":\"alice\"}"),
+        "expected alice row: {}",
+        body
+    );
+    assert!(
+        body.contains("{\"id\":2,\"name\":\"bob\"}"),
+        "expected bob row: {}",
+        body
+    );
 }
 
 #[test]
@@ -3523,12 +4100,16 @@ fn snk_and_src_mongodb_roundtrip_via_real_uri() {
     let r1 = engine.execute_pipeline(&doc(
         json!([
             node("s", "src.csv", json!({ "path": csv, "hasHeader": true })),
-            node("m", "snk.mongodb", json!({
-                "uri": &uri,
-                "database": "duckle_test",
-                "collection": &coll,
-                "mode": "replace"
-            })),
+            node(
+                "m",
+                "snk.mongodb",
+                json!({
+                    "uri": &uri,
+                    "database": "duckle_test",
+                    "collection": &coll,
+                    "mode": "replace"
+                })
+            ),
         ]),
         json!([main_edge("e", "s", "m")]),
     ));
@@ -3538,11 +4119,15 @@ fn snk_and_src_mongodb_roundtrip_via_real_uri() {
     let out = out_path(tmp.path(), "out.csv");
     let r2 = engine.execute_pipeline(&doc(
         json!([
-            node("m", "src.mongodb", json!({
-                "uri": &uri,
-                "database": "duckle_test",
-                "collection": &coll
-            })),
+            node(
+                "m",
+                "src.mongodb",
+                json!({
+                    "uri": &uri,
+                    "database": "duckle_test",
+                    "collection": &coll
+                })
+            ),
             node("k", "snk.csv", json!({ "path": out, "hasHeader": true })),
         ]),
         json!([main_edge("e", "m", "k")]),
@@ -3575,8 +4160,13 @@ fn src_elastic_paginates_via_search_after() {
 
     let handle = std::thread::spawn(move || {
         for stream in listener.incoming().take(2) {
-            let mut stream = match stream { Ok(s) => s, Err(_) => break };
-            stream.set_read_timeout(Some(Duration::from_millis(250))).ok();
+            let mut stream = match stream {
+                Ok(s) => s,
+                Err(_) => break,
+            };
+            stream
+                .set_read_timeout(Some(Duration::from_millis(250)))
+                .ok();
             stream.set_nodelay(true).ok();
             let mut buf = Vec::with_capacity(8192);
             let mut chunk = [0u8; 4096];
@@ -3587,7 +4177,9 @@ fn src_elastic_paginates_via_search_after() {
                     Err(_) => break,
                 }
             }
-            cap.lock().unwrap().push(String::from_utf8_lossy(&buf).to_string());
+            cap.lock()
+                .unwrap()
+                .push(String::from_utf8_lossy(&buf).to_string());
             let idx = rc.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
             let body: &[u8] = if idx == 0 { page1 } else { page2 };
             let resp = format!(
@@ -3607,13 +4199,17 @@ fn src_elastic_paginates_via_search_after() {
     let endpoint = format!("http://127.0.0.1:{}", port);
     let r = engine.execute_pipeline(&doc(
         json!([
-            node("e", "src.elastic", json!({
-                "endpoint": endpoint,
-                "index": "docs",
-                "size": 2,
-                "paginationMode": "search_after",
-                "sort": "[{\"_id\":\"asc\"}]"
-            })),
+            node(
+                "e",
+                "src.elastic",
+                json!({
+                    "endpoint": endpoint,
+                    "index": "docs",
+                    "size": 2,
+                    "paginationMode": "search_after",
+                    "sort": "[{\"_id\":\"asc\"}]"
+                })
+            ),
             node("k", "snk.csv", json!({ "path": out, "hasHeader": true })),
         ]),
         json!([main_edge("e1", "e", "k")]),
@@ -3625,7 +4221,11 @@ fn src_elastic_paginates_via_search_after() {
     assert_eq!(n, 3, "expected 3 docs total, got {}", n);
     let reqs = captured.lock().unwrap();
     // First request: no search_after key.
-    assert!(!reqs[0].contains("search_after"), "1st request shouldn't have search_after: {}", reqs[0]);
+    assert!(
+        !reqs[0].contains("search_after"),
+        "1st request shouldn't have search_after: {}",
+        reqs[0]
+    );
     // Second request: search_after with last hit's sort = [42, "b"].
     assert!(
         reqs[1].contains("search_after") && reqs[1].contains("42"),
@@ -3658,8 +4258,13 @@ fn src_elastic_paginates_via_from_size() {
 
     let handle = std::thread::spawn(move || {
         for stream in listener.incoming().take(2) {
-            let mut stream = match stream { Ok(s) => s, Err(_) => break };
-            stream.set_read_timeout(Some(Duration::from_millis(250))).ok();
+            let mut stream = match stream {
+                Ok(s) => s,
+                Err(_) => break,
+            };
+            stream
+                .set_read_timeout(Some(Duration::from_millis(250)))
+                .ok();
             stream.set_nodelay(true).ok();
             let mut buf = Vec::with_capacity(8192);
             let mut chunk = [0u8; 4096];
@@ -3670,7 +4275,9 @@ fn src_elastic_paginates_via_from_size() {
                     Err(_) => break,
                 }
             }
-            cap.lock().unwrap().push(String::from_utf8_lossy(&buf).to_string());
+            cap.lock()
+                .unwrap()
+                .push(String::from_utf8_lossy(&buf).to_string());
             let idx = rc.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
             let body: &[u8] = if idx == 0 { page1 } else { page2 };
             let resp = format!(
@@ -3690,12 +4297,16 @@ fn src_elastic_paginates_via_from_size() {
     let endpoint = format!("http://127.0.0.1:{}", port);
     let r = engine.execute_pipeline(&doc(
         json!([
-            node("e", "src.elastic", json!({
-                "endpoint": endpoint,
-                "index": "docs",
-                "size": 2,
-                "apiKey": "test-key"
-            })),
+            node(
+                "e",
+                "src.elastic",
+                json!({
+                    "endpoint": endpoint,
+                    "index": "docs",
+                    "size": 2,
+                    "apiKey": "test-key"
+                })
+            ),
             node("k", "snk.csv", json!({ "path": out, "hasHeader": true })),
         ]),
         json!([main_edge("e1", "e", "k")]),
@@ -3712,10 +4323,26 @@ fn src_elastic_paginates_via_from_size() {
     let reqs = captured.lock().unwrap();
     // Both requests should hit the /docs/_search path; the first carries
     // from=0, the second from=2.
-    assert!(reqs[0].contains("/docs/_search"), "expected /_search URL: {}", reqs[0].lines().next().unwrap_or(""));
-    assert!(reqs[0].contains(r#""from":0"#), "expected from=0: {}", reqs[0]);
-    assert!(reqs[1].contains(r#""from":2"#), "expected from=2: {}", reqs[1]);
-    assert!(reqs[0].contains("ApiKey test-key"), "expected ApiKey header: {}", reqs[0]);
+    assert!(
+        reqs[0].contains("/docs/_search"),
+        "expected /_search URL: {}",
+        reqs[0].lines().next().unwrap_or("")
+    );
+    assert!(
+        reqs[0].contains(r#""from":0"#),
+        "expected from=0: {}",
+        reqs[0]
+    );
+    assert!(
+        reqs[1].contains(r#""from":2"#),
+        "expected from=2: {}",
+        reqs[1]
+    );
+    assert!(
+        reqs[0].contains("ApiKey test-key"),
+        "expected ApiKey header: {}",
+        reqs[0]
+    );
 }
 
 #[test]
@@ -3740,8 +4367,13 @@ fn src_rest_paginates_via_offset() {
 
     let handle = std::thread::spawn(move || {
         for stream in listener.incoming().take(3) {
-            let mut stream = match stream { Ok(s) => s, Err(_) => break };
-            stream.set_read_timeout(Some(Duration::from_millis(250))).ok();
+            let mut stream = match stream {
+                Ok(s) => s,
+                Err(_) => break,
+            };
+            stream
+                .set_read_timeout(Some(Duration::from_millis(250)))
+                .ok();
             stream.set_nodelay(true).ok();
             let mut buf = Vec::with_capacity(8192);
             let mut chunk = [0u8; 4096];
@@ -3752,9 +4384,15 @@ fn src_rest_paginates_via_offset() {
                     Err(_) => break,
                 }
             }
-            cap.lock().unwrap().push(String::from_utf8_lossy(&buf).to_string());
+            cap.lock()
+                .unwrap()
+                .push(String::from_utf8_lossy(&buf).to_string());
             let idx = rc.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-            let body: &[u8] = match idx { 0 => page1, 1 => page2, _ => page3 };
+            let body: &[u8] = match idx {
+                0 => page1,
+                1 => page2,
+                _ => page3,
+            };
             let resp = format!(
                 "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
                 body.len()
@@ -3772,12 +4410,16 @@ fn src_rest_paginates_via_offset() {
     let url = format!("http://127.0.0.1:{}/items", port);
     let r = engine.execute_pipeline(&doc(
         json!([
-            node("r", "src.rest", json!({
-                "url": url,
-                "paginationType": "offset",
-                "offsetParam": "from",
-                "pageSize": 2
-            })),
+            node(
+                "r",
+                "src.rest",
+                json!({
+                    "url": url,
+                    "paginationType": "offset",
+                    "offsetParam": "from",
+                    "pageSize": 2
+                })
+            ),
             node("k", "snk.csv", json!({ "path": out, "hasHeader": true })),
         ]),
         json!([main_edge("e1", "r", "k")]),
@@ -3788,8 +4430,16 @@ fn src_rest_paginates_via_offset() {
     let n = count(&format!("read_csv_auto('{}')", out));
     assert_eq!(n, 5);
     let reqs = captured.lock().unwrap();
-    assert!(reqs[1].contains("from=2"), "expected from=2 on 2nd request: {}", reqs[1]);
-    assert!(reqs[2].contains("from=4"), "expected from=4 on 3rd request: {}", reqs[2]);
+    assert!(
+        reqs[1].contains("from=2"),
+        "expected from=2 on 2nd request: {}",
+        reqs[1]
+    );
+    assert!(
+        reqs[2].contains("from=4"),
+        "expected from=4 on 3rd request: {}",
+        reqs[2]
+    );
 }
 
 #[test]
@@ -3812,7 +4462,9 @@ fn src_rest_errors_when_maxpages_truncates() {
                 Ok(s) => s,
                 Err(_) => break,
             };
-            stream.set_read_timeout(Some(Duration::from_millis(250))).ok();
+            stream
+                .set_read_timeout(Some(Duration::from_millis(250)))
+                .ok();
             let mut chunk = [0u8; 4096];
             for _ in 0..16 {
                 match stream.read(&mut chunk) {
@@ -3838,21 +4490,33 @@ fn src_rest_errors_when_maxpages_truncates() {
     let url = format!("http://127.0.0.1:{}/items", port);
     let r = engine.execute_pipeline(&doc(
         json!([
-            node("r", "src.rest", json!({
-                "url": url,
-                "paginationType": "offset",
-                "offsetParam": "from",
-                "pageSize": 2,
-                "maxPages": 2
-            })),
+            node(
+                "r",
+                "src.rest",
+                json!({
+                    "url": url,
+                    "paginationType": "offset",
+                    "offsetParam": "from",
+                    "pageSize": 2,
+                    "maxPages": 2
+                })
+            ),
             node("k", "snk.csv", json!({ "path": out, "hasHeader": true })),
         ]),
         json!([main_edge("e1", "r", "k")]),
     ));
     let _ = handle.join();
-    assert_eq!(r.status, "error", "truncation should fail the run, got {:?}", r.status);
+    assert_eq!(
+        r.status, "error",
+        "truncation should fail the run, got {:?}",
+        r.status
+    );
     let err = r.error.unwrap_or_default();
-    assert!(err.contains("maxPages"), "error should mention maxPages, got: {}", err);
+    assert!(
+        err.contains("maxPages"),
+        "error should mention maxPages, got: {}",
+        err
+    );
 }
 
 #[test]
@@ -3877,8 +4541,13 @@ fn src_rest_paginates_via_page_number() {
 
     let handle = std::thread::spawn(move || {
         for stream in listener.incoming().take(3) {
-            let mut stream = match stream { Ok(s) => s, Err(_) => break };
-            stream.set_read_timeout(Some(Duration::from_millis(250))).ok();
+            let mut stream = match stream {
+                Ok(s) => s,
+                Err(_) => break,
+            };
+            stream
+                .set_read_timeout(Some(Duration::from_millis(250)))
+                .ok();
             stream.set_nodelay(true).ok();
             let mut buf = Vec::with_capacity(8192);
             let mut chunk = [0u8; 4096];
@@ -3889,9 +4558,15 @@ fn src_rest_paginates_via_page_number() {
                     Err(_) => break,
                 }
             }
-            cap.lock().unwrap().push(String::from_utf8_lossy(&buf).to_string());
+            cap.lock()
+                .unwrap()
+                .push(String::from_utf8_lossy(&buf).to_string());
             let idx = rc.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-            let body: &[u8] = match idx { 0 => page1, 1 => page2, _ => page3 };
+            let body: &[u8] = match idx {
+                0 => page1,
+                1 => page2,
+                _ => page3,
+            };
             let resp = format!(
                 "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
                 body.len()
@@ -3909,12 +4584,16 @@ fn src_rest_paginates_via_page_number() {
     let url = format!("http://127.0.0.1:{}/items", port);
     let r = engine.execute_pipeline(&doc(
         json!([
-            node("r", "src.rest", json!({
-                "url": url,
-                "paginationType": "page",
-                "pageParam": "p",
-                "startPage": 1
-            })),
+            node(
+                "r",
+                "src.rest",
+                json!({
+                    "url": url,
+                    "paginationType": "page",
+                    "pageParam": "p",
+                    "startPage": 1
+                })
+            ),
             node("k", "snk.csv", json!({ "path": out, "hasHeader": true })),
         ]),
         json!([main_edge("e1", "r", "k")]),
@@ -3952,8 +4631,13 @@ fn src_rest_paginates_via_link_header() {
 
     let handle = std::thread::spawn(move || {
         for stream in listener.incoming().take(2) {
-            let mut stream = match stream { Ok(s) => s, Err(_) => break };
-            stream.set_read_timeout(Some(Duration::from_millis(250))).ok();
+            let mut stream = match stream {
+                Ok(s) => s,
+                Err(_) => break,
+            };
+            stream
+                .set_read_timeout(Some(Duration::from_millis(250)))
+                .ok();
             stream.set_nodelay(true).ok();
             let mut buf = Vec::with_capacity(8192);
             let mut chunk = [0u8; 4096];
@@ -3964,7 +4648,9 @@ fn src_rest_paginates_via_link_header() {
                     Err(_) => break,
                 }
             }
-            cap.lock().unwrap().push(String::from_utf8_lossy(&buf).to_string());
+            cap.lock()
+                .unwrap()
+                .push(String::from_utf8_lossy(&buf).to_string());
             let idx = rc.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
             let (body, extra) = if idx == 0 {
                 (&page1_body[..], format!("Link: <{}>; rel=\"next\"\r\n", nu))
@@ -3989,10 +4675,14 @@ fn src_rest_paginates_via_link_header() {
     let url = format!("http://127.0.0.1:{}/items", port);
     let r = engine.execute_pipeline(&doc(
         json!([
-            node("r", "src.rest", json!({
-                "url": url,
-                "paginationType": "link"
-            })),
+            node(
+                "r",
+                "src.rest",
+                json!({
+                    "url": url,
+                    "paginationType": "link"
+                })
+            ),
             node("k", "snk.csv", json!({ "path": out, "hasHeader": true })),
         ]),
         json!([main_edge("e1", "r", "k")]),
@@ -4003,7 +4693,11 @@ fn src_rest_paginates_via_link_header() {
     let n = count(&format!("read_csv_auto('{}')", out));
     assert_eq!(n, 2);
     let reqs = captured.lock().unwrap();
-    assert!(reqs[1].contains("page=2"), "expected 2nd request to be /items?page=2: {}", reqs[1]);
+    assert!(
+        reqs[1].contains("page=2"),
+        "expected 2nd request to be /items?page=2: {}",
+        reqs[1]
+    );
 }
 
 #[test]
@@ -4020,8 +4714,10 @@ fn src_rest_fetches_and_walks_cursor_pages() {
     let listener = TcpListener::bind("127.0.0.1:0").expect("bind");
     let port = listener.local_addr().unwrap().port();
 
-    let page1 = br#"{"data":[{"id":1,"name":"alice"},{"id":2,"name":"bob"}],"meta":{"next_cursor":"p2"}}"#;
-    let page2 = br#"{"data":[{"id":3,"name":"carol"},{"id":4,"name":"dan"}],"meta":{"next_cursor":null}}"#;
+    let page1 =
+        br#"{"data":[{"id":1,"name":"alice"},{"id":2,"name":"bob"}],"meta":{"next_cursor":"p2"}}"#;
+    let page2 =
+        br#"{"data":[{"id":3,"name":"carol"},{"id":4,"name":"dan"}],"meta":{"next_cursor":null}}"#;
     let req_count = Arc::new(std::sync::atomic::AtomicUsize::new(0));
     let captured = Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
     let rc = req_count.clone();
@@ -4029,8 +4725,13 @@ fn src_rest_fetches_and_walks_cursor_pages() {
 
     let handle = std::thread::spawn(move || {
         for stream in listener.incoming().take(2) {
-            let mut stream = match stream { Ok(s) => s, Err(_) => break };
-            stream.set_read_timeout(Some(Duration::from_millis(250))).ok();
+            let mut stream = match stream {
+                Ok(s) => s,
+                Err(_) => break,
+            };
+            stream
+                .set_read_timeout(Some(Duration::from_millis(250)))
+                .ok();
             stream.set_nodelay(true).ok();
             let mut buf = Vec::with_capacity(8192);
             let mut chunk = [0u8; 4096];
@@ -4041,7 +4742,9 @@ fn src_rest_fetches_and_walks_cursor_pages() {
                     Err(_) => break,
                 }
             }
-            cap.lock().unwrap().push(String::from_utf8_lossy(&buf).to_string());
+            cap.lock()
+                .unwrap()
+                .push(String::from_utf8_lossy(&buf).to_string());
             let idx = rc.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
             let body: &[u8] = if idx == 0 { page1 } else { page2 };
             let resp = format!(
@@ -4061,13 +4764,17 @@ fn src_rest_fetches_and_walks_cursor_pages() {
     let url = format!("http://127.0.0.1:{}/items", port);
     let r = engine.execute_pipeline(&doc(
         json!([
-            node("r", "src.rest", json!({
-                "url": url,
-                "method": "GET",
-                "responsePath": "/data",
-                "cursorNextPath": "/meta/next_cursor",
-                "cursorParam": "cursor"
-            })),
+            node(
+                "r",
+                "src.rest",
+                json!({
+                    "url": url,
+                    "method": "GET",
+                    "responsePath": "/data",
+                    "cursorNextPath": "/meta/next_cursor",
+                    "cursorParam": "cursor"
+                })
+            ),
             node("k", "snk.csv", json!({ "path": out, "hasHeader": true })),
         ]),
         json!([main_edge("e1", "r", "k")]),
@@ -4113,8 +4820,13 @@ fn src_snowflake_walks_partitions() {
 
     let handle = std::thread::spawn(move || {
         for stream in listener.incoming().take(2) {
-            let mut stream = match stream { Ok(s) => s, Err(_) => break };
-            stream.set_read_timeout(Some(Duration::from_millis(250))).ok();
+            let mut stream = match stream {
+                Ok(s) => s,
+                Err(_) => break,
+            };
+            stream
+                .set_read_timeout(Some(Duration::from_millis(250)))
+                .ok();
             stream.set_nodelay(true).ok();
             let mut buf = Vec::with_capacity(8192);
             let mut chunk = [0u8; 4096];
@@ -4148,11 +4860,15 @@ fn src_snowflake_walks_partitions() {
     let endpoint = format!("http://127.0.0.1:{}/api/v2/statements", port);
     let r = engine.execute_pipeline(&doc(
         json!([
-            node("sf", "src.snowflake", json!({
-                "account": "test-account", "endpoint": endpoint,
-                "authType": "pat", "pat": "secret",
-                "query": "SELECT id, name FROM users"
-            })),
+            node(
+                "sf",
+                "src.snowflake",
+                json!({
+                    "account": "test-account", "endpoint": endpoint,
+                    "authType": "pat", "pat": "secret",
+                    "query": "SELECT id, name FROM users"
+                })
+            ),
             node("k", "snk.csv", json!({ "path": out, "hasHeader": true })),
         ]),
         json!([main_edge("e1", "sf", "k")]),
@@ -4200,8 +4916,13 @@ fn src_snowflake_gzip_partition_and_typed_columns() {
     let rc = request_count.clone();
     let handle = std::thread::spawn(move || {
         for stream in listener.incoming().take(2) {
-            let mut stream = match stream { Ok(s) => s, Err(_) => break };
-            stream.set_read_timeout(Some(Duration::from_millis(250))).ok();
+            let mut stream = match stream {
+                Ok(s) => s,
+                Err(_) => break,
+            };
+            stream
+                .set_read_timeout(Some(Duration::from_millis(250)))
+                .ok();
             stream.set_nodelay(true).ok();
             let mut buf = Vec::with_capacity(8192);
             let mut chunk = [0u8; 4096];
@@ -4243,38 +4964,61 @@ fn src_snowflake_gzip_partition_and_typed_columns() {
     let endpoint = format!("http://127.0.0.1:{}/api/v2/statements", port);
     let r = engine.execute_pipeline(&doc(
         json!([
-            node("sf", "src.snowflake", json!({
-                "account": "test-account", "endpoint": endpoint,
-                "authType": "pat", "pat": "secret",
-                "query": "SELECT id, ts, d FROM events"
-            })),
+            node(
+                "sf",
+                "src.snowflake",
+                json!({
+                    "account": "test-account", "endpoint": endpoint,
+                    "authType": "pat", "pat": "secret",
+                    "query": "SELECT id, ts, d FROM events"
+                })
+            ),
             node("k", "snk.parquet", json!({ "path": out })),
         ]),
         json!([main_edge("e1", "sf", "k")]),
     ));
     let _ = handle.join();
-    assert_eq!(r.status, "ok", "snowflake gzip partition failed: {:?}", r.error);
+    assert_eq!(
+        r.status, "ok",
+        "snowflake gzip partition failed: {:?}",
+        r.error
+    );
 
     // Both partitions (inline + gzipped bare array) land.
     let n = count(&format!("read_parquet('{}')", out));
     assert_eq!(n, 2, "expected 2 rows (inline + gzip partition), got {}", n);
 
     // Types come from rowType, not read_json_auto inference.
-    let id_ty = scalar_string(&format!("SELECT typeof(id) FROM read_parquet('{}') LIMIT 1", out));
+    let id_ty = scalar_string(&format!(
+        "SELECT typeof(id) FROM read_parquet('{}') LIMIT 1",
+        out
+    ));
     assert_eq!(id_ty, "BIGINT", "id should be BIGINT, got {}", id_ty);
-    let ts_ty = scalar_string(&format!("SELECT typeof(ts) FROM read_parquet('{}') LIMIT 1", out));
+    let ts_ty = scalar_string(&format!(
+        "SELECT typeof(ts) FROM read_parquet('{}') LIMIT 1",
+        out
+    ));
     assert_eq!(ts_ty, "TIMESTAMP", "ts should be TIMESTAMP, got {}", ts_ty);
-    let d_ty = scalar_string(&format!("SELECT typeof(d) FROM read_parquet('{}') LIMIT 1", out));
+    let d_ty = scalar_string(&format!(
+        "SELECT typeof(d) FROM read_parquet('{}') LIMIT 1",
+        out
+    ));
     assert_eq!(d_ty, "DATE", "d should be DATE, got {}", d_ty);
 
     // Values are decoded correctly: 1700000000 epoch s = 2023-11-14 22:13:20,
     // 19723 days since epoch = 2024-01-01.
     let ts_val = scalar_string(&format!(
-        "SELECT ts::VARCHAR FROM read_parquet('{}') WHERE id = 1", out
+        "SELECT ts::VARCHAR FROM read_parquet('{}') WHERE id = 1",
+        out
     ));
-    assert_eq!(ts_val, "2023-11-14 22:13:20", "ts value mismatch: {}", ts_val);
+    assert_eq!(
+        ts_val, "2023-11-14 22:13:20",
+        "ts value mismatch: {}",
+        ts_val
+    );
     let d_val = scalar_string(&format!(
-        "SELECT d::VARCHAR FROM read_parquet('{}') WHERE id = 1", out
+        "SELECT d::VARCHAR FROM read_parquet('{}') WHERE id = 1",
+        out
     ));
     assert_eq!(d_val, "2024-01-01", "date value mismatch: {}", d_val);
 }
@@ -4303,8 +5047,13 @@ fn src_databricks_follows_chunk_links() {
 
     let handle = std::thread::spawn(move || {
         for stream in listener.incoming().take(2) {
-            let mut stream = match stream { Ok(s) => s, Err(_) => break };
-            stream.set_read_timeout(Some(Duration::from_millis(250))).ok();
+            let mut stream = match stream {
+                Ok(s) => s,
+                Err(_) => break,
+            };
+            stream
+                .set_read_timeout(Some(Duration::from_millis(250)))
+                .ok();
             stream.set_nodelay(true).ok();
             let mut buf = Vec::with_capacity(8192);
             let mut chunk = [0u8; 4096];
@@ -4338,12 +5087,16 @@ fn src_databricks_follows_chunk_links() {
     let endpoint = format!("http://127.0.0.1:{}/api/2.0/sql/statements/", port);
     let r = engine.execute_pipeline(&doc(
         json!([
-            node("db", "src.databricks", json!({
-                "workspace": "dbc-test.cloud.databricks.com",
-                "endpoint": endpoint, "pat": "dapi-secret",
-                "warehouseId": "wh-abc",
-                "query": "SELECT id, name FROM users"
-            })),
+            node(
+                "db",
+                "src.databricks",
+                json!({
+                    "workspace": "dbc-test.cloud.databricks.com",
+                    "endpoint": endpoint, "pat": "dapi-secret",
+                    "warehouseId": "wh-abc",
+                    "query": "SELECT id, name FROM users"
+                })
+            ),
             node("k", "snk.csv", json!({ "path": out, "hasHeader": true })),
         ]),
         json!([main_edge("e1", "db", "k")]),
@@ -4379,8 +5132,13 @@ fn src_snowflake_materializes_inline_result_set() {
 
     let handle = std::thread::spawn(move || {
         for stream in listener.incoming().take(1) {
-            let mut stream = match stream { Ok(s) => s, Err(_) => break };
-            stream.set_read_timeout(Some(Duration::from_millis(250))).ok();
+            let mut stream = match stream {
+                Ok(s) => s,
+                Err(_) => break,
+            };
+            stream
+                .set_read_timeout(Some(Duration::from_millis(250)))
+                .ok();
             stream.set_nodelay(true).ok();
             let mut buf = Vec::with_capacity(8192);
             let mut chunk = [0u8; 4096];
@@ -4409,18 +5167,24 @@ fn src_snowflake_materializes_inline_result_set() {
     let endpoint = format!("http://127.0.0.1:{}/api/v2/statements", port);
     let r = engine.execute_pipeline(&doc(
         json!([
-            node("sf", "src.snowflake", json!({
-                "account": "test-account",
-                "endpoint": endpoint,
-                "authType": "pat",
-                "pat": "secret-pat",
-                "query": "SELECT id, name FROM users"
-            })),
+            node(
+                "sf",
+                "src.snowflake",
+                json!({
+                    "account": "test-account",
+                    "endpoint": endpoint,
+                    "authType": "pat",
+                    "pat": "secret-pat",
+                    "query": "SELECT id, name FROM users"
+                })
+            ),
             node("k", "snk.csv", json!({ "path": out, "hasHeader": true })),
         ]),
         json!([main_edge("e1", "sf", "k")]),
     ));
-    let _captured = rx.recv_timeout(Duration::from_secs(5)).expect("expected Snowflake request");
+    let _captured = rx
+        .recv_timeout(Duration::from_secs(5))
+        .expect("expected Snowflake request");
     let _ = handle.join();
     assert_eq!(r.status, "ok", "snowflake source failed: {:?}", r.error);
     let n = count(&format!("read_csv_auto('{}')", out));
@@ -4449,8 +5213,13 @@ fn src_databricks_materializes_inline_result_set() {
 
     let handle = std::thread::spawn(move || {
         for stream in listener.incoming().take(1) {
-            let mut stream = match stream { Ok(s) => s, Err(_) => break };
-            stream.set_read_timeout(Some(Duration::from_millis(250))).ok();
+            let mut stream = match stream {
+                Ok(s) => s,
+                Err(_) => break,
+            };
+            stream
+                .set_read_timeout(Some(Duration::from_millis(250)))
+                .ok();
             stream.set_nodelay(true).ok();
             let mut buf = Vec::with_capacity(8192);
             let mut chunk = [0u8; 4096];
@@ -4479,18 +5248,24 @@ fn src_databricks_materializes_inline_result_set() {
     let endpoint = format!("http://127.0.0.1:{}/api/2.0/sql/statements/", port);
     let r = engine.execute_pipeline(&doc(
         json!([
-            node("db", "src.databricks", json!({
-                "workspace": "dbc-test.cloud.databricks.com",
-                "endpoint": endpoint,
-                "pat": "dapi-secret",
-                "warehouseId": "wh-abc",
-                "query": "SELECT id, name FROM users"
-            })),
+            node(
+                "db",
+                "src.databricks",
+                json!({
+                    "workspace": "dbc-test.cloud.databricks.com",
+                    "endpoint": endpoint,
+                    "pat": "dapi-secret",
+                    "warehouseId": "wh-abc",
+                    "query": "SELECT id, name FROM users"
+                })
+            ),
             node("k", "snk.csv", json!({ "path": out, "hasHeader": true })),
         ]),
         json!([main_edge("e1", "db", "k")]),
     ));
-    let _captured = rx.recv_timeout(Duration::from_secs(5)).expect("expected Databricks request");
+    let _captured = rx
+        .recv_timeout(Duration::from_secs(5))
+        .expect("expected Databricks request");
     let _ = handle.join();
     assert_eq!(r.status, "ok", "databricks source failed: {:?}", r.error);
     let n = count(&format!("read_csv_auto('{}')", out));
@@ -4520,8 +5295,13 @@ fn snk_databricks_posts_multirow_insert() {
 
     let handle = std::thread::spawn(move || {
         for stream in listener.incoming().take(1) {
-            let mut stream = match stream { Ok(s) => s, Err(_) => break };
-            stream.set_read_timeout(Some(Duration::from_millis(250))).ok();
+            let mut stream = match stream {
+                Ok(s) => s,
+                Err(_) => break,
+            };
+            stream
+                .set_read_timeout(Some(Duration::from_millis(250)))
+                .ok();
             stream.set_nodelay(true).ok();
             let mut buf = Vec::with_capacity(8192);
             let mut chunk = [0u8; 4096];
@@ -4552,25 +5332,35 @@ fn snk_databricks_posts_multirow_insert() {
     let r = engine.execute_pipeline(&doc(
         json!([
             node("s", "src.csv", json!({ "path": csv, "hasHeader": true })),
-            node("db", "snk.databricks", json!({
-                "workspace": "dbc-test.cloud.databricks.com",
-                "endpoint": endpoint,
-                "pat": "dapi-secret-pat",
-                "warehouseId": "wh-abc123",
-                "catalog": "main",
-                "schema": "default",
-                "tableName": "users",
-                "waitTimeoutSeconds": 30
-            })),
+            node(
+                "db",
+                "snk.databricks",
+                json!({
+                    "workspace": "dbc-test.cloud.databricks.com",
+                    "endpoint": endpoint,
+                    "pat": "dapi-secret-pat",
+                    "warehouseId": "wh-abc123",
+                    "catalog": "main",
+                    "schema": "default",
+                    "tableName": "users",
+                    "waitTimeoutSeconds": 30
+                })
+            ),
         ]),
         json!([main_edge("e1", "s", "db")]),
     ));
     assert_eq!(r.status, "ok", "databricks sink failed: {:?}", r.error);
 
-    let req = rx.recv_timeout(Duration::from_secs(5)).expect("expected 1 Databricks request");
+    let req = rx
+        .recv_timeout(Duration::from_secs(5))
+        .expect("expected 1 Databricks request");
     let _ = handle.join();
     let body = String::from_utf8_lossy(&req).to_string();
-    assert!(body.contains("Bearer dapi-secret-pat"), "expected PAT bearer: {}", body);
+    assert!(
+        body.contains("Bearer dapi-secret-pat"),
+        "expected PAT bearer: {}",
+        body
+    );
     // Identifiers backtick-quoted; SQL is JSON-string-escaped (backticks
     // don't need escaping, but the literal sequence shows up as-is).
     assert!(
@@ -4578,11 +5368,27 @@ fn snk_databricks_posts_multirow_insert() {
         "expected backtick-qualified INSERT: {}",
         body
     );
-    assert!(body.contains("'alice'") && body.contains("'bob'"), "expected row values: {}", body);
+    assert!(
+        body.contains("'alice'") && body.contains("'bob'"),
+        "expected row values: {}",
+        body
+    );
     // Top-level Databricks request body keys.
-    assert!(body.contains(r#""warehouse_id":"wh-abc123""#), "expected warehouse_id: {}", body);
-    assert!(body.contains(r#""wait_timeout":"30s""#), "expected wait_timeout: {}", body);
-    assert!(body.contains(r#""on_wait_timeout":"CONTINUE""#), "expected on_wait_timeout: {}", body);
+    assert!(
+        body.contains(r#""warehouse_id":"wh-abc123""#),
+        "expected warehouse_id: {}",
+        body
+    );
+    assert!(
+        body.contains(r#""wait_timeout":"30s""#),
+        "expected wait_timeout: {}",
+        body
+    );
+    assert!(
+        body.contains(r#""on_wait_timeout":"CONTINUE""#),
+        "expected on_wait_timeout: {}",
+        body
+    );
 }
 
 #[test]
@@ -4619,8 +5425,13 @@ fn snk_snowflake_jwt_auth_signs_request() {
         // Two requests now: the auto-create CREATE TABLE, then the INSERT.
         // Both carry the same JWT auth, so asserting on the first is fine.
         for stream in listener.incoming().take(2) {
-            let mut stream = match stream { Ok(s) => s, Err(_) => break };
-            stream.set_read_timeout(Some(Duration::from_millis(250))).ok();
+            let mut stream = match stream {
+                Ok(s) => s,
+                Err(_) => break,
+            };
+            stream
+                .set_read_timeout(Some(Duration::from_millis(250)))
+                .ok();
             stream.set_nodelay(true).ok();
             let mut buf = Vec::with_capacity(16384);
             let mut chunk = [0u8; 4096];
@@ -4651,22 +5462,28 @@ fn snk_snowflake_jwt_auth_signs_request() {
     let r = engine.execute_pipeline(&doc(
         json!([
             node("s", "src.csv", json!({ "path": csv, "hasHeader": true })),
-            node("sf", "snk.snowflake", json!({
-                "account": "test-account",
-                "endpoint": endpoint,
-                "authType": "jwt",
-                "user": "my_user",
-                "privateKeyPem": pem,
-                "database": "MYDB",
-                "schema": "PUBLIC",
-                "tableName": "USERS"
-            })),
+            node(
+                "sf",
+                "snk.snowflake",
+                json!({
+                    "account": "test-account",
+                    "endpoint": endpoint,
+                    "authType": "jwt",
+                    "user": "my_user",
+                    "privateKeyPem": pem,
+                    "database": "MYDB",
+                    "schema": "PUBLIC",
+                    "tableName": "USERS"
+                })
+            ),
         ]),
         json!([main_edge("e1", "s", "sf")]),
     ));
     assert_eq!(r.status, "ok", "snowflake jwt sink failed: {:?}", r.error);
 
-    let req = rx.recv_timeout(Duration::from_secs(10)).expect("expected 1 jwt request");
+    let req = rx
+        .recv_timeout(Duration::from_secs(10))
+        .expect("expected 1 jwt request");
     let _ = handle.join();
     let body = String::from_utf8_lossy(&req).to_string();
     // The Authorization header is logged as *** by the request dumper,
@@ -4676,9 +5493,14 @@ fn snk_snowflake_jwt_auth_signs_request() {
         .find(|l| l.to_ascii_lowercase().starts_with("authorization:"))
         .expect("authorization header present");
     let auth_value = auth_line.splitn(2, ':').nth(1).unwrap_or("").trim();
-    assert!(auth_value.starts_with("Bearer eyJ"), "expected JWT bearer: {}", auth_value);
     assert!(
-        body.to_ascii_lowercase().contains("x-snowflake-authorization-token-type: keypair_jwt"),
+        auth_value.starts_with("Bearer eyJ"),
+        "expected JWT bearer: {}",
+        auth_value
+    );
+    assert!(
+        body.to_ascii_lowercase()
+            .contains("x-snowflake-authorization-token-type: keypair_jwt"),
         "expected KEYPAIR_JWT token-type header: {}",
         body
     );
@@ -4690,11 +5512,14 @@ fn snk_snowflake_jwt_auth_signs_request() {
     let payload_bytes = base64::engine::general_purpose::URL_SAFE_NO_PAD
         .decode(parts[1])
         .expect("decode payload");
-    let payload: serde_json::Value =
-        serde_json::from_slice(&payload_bytes).expect("payload JSON");
+    let payload: serde_json::Value = serde_json::from_slice(&payload_bytes).expect("payload JSON");
     let iss = payload.get("iss").and_then(|v| v.as_str()).unwrap_or("");
     let sub = payload.get("sub").and_then(|v| v.as_str()).unwrap_or("");
-    assert!(iss.starts_with("TEST-ACCOUNT.MY_USER.SHA256:"), "unexpected iss: {}", iss);
+    assert!(
+        iss.starts_with("TEST-ACCOUNT.MY_USER.SHA256:"),
+        "unexpected iss: {}",
+        iss
+    );
     assert_eq!(sub, "TEST-ACCOUNT.MY_USER");
 }
 
@@ -4732,8 +5557,13 @@ fn snk_snowflake_jwt_uses_account_locator_for_privatelink() {
 
     let handle = std::thread::spawn(move || {
         for stream in listener.incoming().take(2) {
-            let mut stream = match stream { Ok(s) => s, Err(_) => break };
-            stream.set_read_timeout(Some(Duration::from_millis(250))).ok();
+            let mut stream = match stream {
+                Ok(s) => s,
+                Err(_) => break,
+            };
+            stream
+                .set_read_timeout(Some(Duration::from_millis(250)))
+                .ok();
             stream.set_nodelay(true).ok();
             let mut buf = Vec::with_capacity(16384);
             let mut chunk = [0u8; 4096];
@@ -4764,22 +5594,28 @@ fn snk_snowflake_jwt_uses_account_locator_for_privatelink() {
     let r = engine.execute_pipeline(&doc(
         json!([
             node("s", "src.csv", json!({ "path": csv, "hasHeader": true })),
-            node("sf", "snk.snowflake", json!({
-                "account": "xy12345.us-east-1.privatelink",
-                "endpoint": endpoint,
-                "authType": "jwt",
-                "user": "my_user",
-                "privateKeyPem": pem,
-                "database": "MYDB",
-                "schema": "PUBLIC",
-                "tableName": "USERS"
-            })),
+            node(
+                "sf",
+                "snk.snowflake",
+                json!({
+                    "account": "xy12345.us-east-1.privatelink",
+                    "endpoint": endpoint,
+                    "authType": "jwt",
+                    "user": "my_user",
+                    "privateKeyPem": pem,
+                    "database": "MYDB",
+                    "schema": "PUBLIC",
+                    "tableName": "USERS"
+                })
+            ),
         ]),
         json!([main_edge("e1", "s", "sf")]),
     ));
     assert_eq!(r.status, "ok", "snowflake jwt sink failed: {:?}", r.error);
 
-    let req = rx.recv_timeout(Duration::from_secs(10)).expect("expected 1 jwt request");
+    let req = rx
+        .recv_timeout(Duration::from_secs(10))
+        .expect("expected 1 jwt request");
     let _ = handle.join();
     let body = String::from_utf8_lossy(&req).to_string();
     let auth_line = body
@@ -4793,8 +5629,7 @@ fn snk_snowflake_jwt_uses_account_locator_for_privatelink() {
     let payload_bytes = base64::engine::general_purpose::URL_SAFE_NO_PAD
         .decode(parts[1])
         .expect("decode payload");
-    let payload: serde_json::Value =
-        serde_json::from_slice(&payload_bytes).expect("payload JSON");
+    let payload: serde_json::Value = serde_json::from_slice(&payload_bytes).expect("payload JSON");
     let iss = payload.get("iss").and_then(|v| v.as_str()).unwrap_or("");
     let sub = payload.get("sub").and_then(|v| v.as_str()).unwrap_or("");
     // Locator only - region/cloud/privatelink stripped, uppercased.
@@ -4803,7 +5638,10 @@ fn snk_snowflake_jwt_uses_account_locator_for_privatelink() {
         "iss must use the account locator only (got: {})",
         iss
     );
-    assert_eq!(sub, "XY12345.MY_USER", "sub must use the account locator only");
+    assert_eq!(
+        sub, "XY12345.MY_USER",
+        "sub must use the account locator only"
+    );
 }
 
 #[test]
@@ -4824,8 +5662,13 @@ fn snk_snowflake_posts_multirow_insert() {
     let handle = std::thread::spawn(move || {
         // Two requests now: the auto-create CREATE TABLE, then the INSERT.
         for stream in listener.incoming().take(2) {
-            let mut stream = match stream { Ok(s) => s, Err(_) => break };
-            stream.set_read_timeout(Some(Duration::from_millis(250))).ok();
+            let mut stream = match stream {
+                Ok(s) => s,
+                Err(_) => break,
+            };
+            stream
+                .set_read_timeout(Some(Duration::from_millis(250)))
+                .ok();
             stream.set_nodelay(true).ok();
             let mut buf = Vec::with_capacity(8192);
             let mut chunk = [0u8; 4096];
@@ -4859,22 +5702,30 @@ fn snk_snowflake_posts_multirow_insert() {
     let r = engine.execute_pipeline(&doc(
         json!([
             node("s", "src.csv", json!({ "path": csv, "hasHeader": true })),
-            node("sf", "snk.snowflake", json!({
-                "account": "test-account",
-                "endpoint": endpoint,
-                "pat": "secret-pat",
-                "database": "MYDB",
-                "schema": "PUBLIC",
-                "tableName": "USERS",
-                "warehouse": "COMPUTE_WH"
-            })),
+            node(
+                "sf",
+                "snk.snowflake",
+                json!({
+                    "account": "test-account",
+                    "endpoint": endpoint,
+                    "pat": "secret-pat",
+                    "database": "MYDB",
+                    "schema": "PUBLIC",
+                    "tableName": "USERS",
+                    "warehouse": "COMPUTE_WH"
+                })
+            ),
         ]),
         json!([main_edge("e1", "s", "sf")]),
     ));
     assert_eq!(r.status, "ok", "snowflake sink failed: {:?}", r.error);
 
-    let req1 = rx.recv_timeout(Duration::from_secs(5)).expect("expected create request");
-    let req2 = rx.recv_timeout(Duration::from_secs(5)).expect("expected insert request");
+    let req1 = rx
+        .recv_timeout(Duration::from_secs(5))
+        .expect("expected create request");
+    let req2 = rx
+        .recv_timeout(Duration::from_secs(5))
+        .expect("expected insert request");
     let _ = handle.join();
     let body = format!(
         "{}{}",
@@ -4886,7 +5737,11 @@ fn snk_snowflake_posts_multirow_insert() {
         "expected auto-create: {}",
         body
     );
-    assert!(body.contains("Bearer secret-pat"), "expected Bearer auth: {}", body);
+    assert!(
+        body.contains("Bearer secret-pat"),
+        "expected Bearer auth: {}",
+        body
+    );
     // The SQL is embedded inside a JSON string, so the identifiers'
     // double quotes are backslash-escaped: \"MYDB\".\"PUBLIC\".\"USERS\".
     assert!(
@@ -4895,7 +5750,11 @@ fn snk_snowflake_posts_multirow_insert() {
         body
     );
     // Single-quoted string literals stay as-is inside the JSON string.
-    assert!(body.contains("'alice'"), "expected 'alice' literal: {}", body);
+    assert!(
+        body.contains("'alice'"),
+        "expected 'alice' literal: {}",
+        body
+    );
     assert!(body.contains("'bob'"), "expected 'bob' literal: {}", body);
     // Top-level JSON keys aren't backslash-escaped - just standard JSON.
     assert!(
@@ -4921,8 +5780,13 @@ fn snk_elastic_emits_ndjson_bulk_pairs() {
 
     let handle = std::thread::spawn(move || {
         for stream in listener.incoming().take(1) {
-            let mut stream = match stream { Ok(s) => s, Err(_) => break };
-            stream.set_read_timeout(Some(Duration::from_millis(250))).ok();
+            let mut stream = match stream {
+                Ok(s) => s,
+                Err(_) => break,
+            };
+            stream
+                .set_read_timeout(Some(Duration::from_millis(250)))
+                .ok();
             stream.set_nodelay(true).ok();
             let mut buf = Vec::with_capacity(8192);
             let mut chunk = [0u8; 4096];
@@ -4949,24 +5813,46 @@ fn snk_elastic_emits_ndjson_bulk_pairs() {
     let r = engine.execute_pipeline(&doc(
         json!([
             node("s", "src.csv", json!({ "path": csv, "hasHeader": true })),
-            node("e", "snk.elastic", json!({
-                "endpoint": endpoint, "index": "docs"
-            })),
+            node(
+                "e",
+                "snk.elastic",
+                json!({
+                    "endpoint": endpoint, "index": "docs"
+                })
+            ),
         ]),
         json!([main_edge("e1", "s", "e")]),
     ));
     assert_eq!(r.status, "ok", "elastic bulk failed: {:?}", r.error);
 
-    let req = rx.recv_timeout(Duration::from_secs(5)).expect("expected 1 bulk request");
+    let req = rx
+        .recv_timeout(Duration::from_secs(5))
+        .expect("expected 1 bulk request");
     let _ = handle.join();
     let body = String::from_utf8_lossy(&req).to_string();
     // NDJSON: each row should have an action line + doc line.
-    assert!(body.contains("application/x-ndjson"), "expected ndjson content-type: {}", body);
-    assert!(body.contains("\"_index\":\"docs\""), "expected index action with docs: {}", body);
-    assert!(body.contains("alice") && body.contains("bob"), "expected docs in body: {}", body);
+    assert!(
+        body.contains("application/x-ndjson"),
+        "expected ndjson content-type: {}",
+        body
+    );
+    assert!(
+        body.contains("\"_index\":\"docs\""),
+        "expected index action with docs: {}",
+        body
+    );
+    assert!(
+        body.contains("alice") && body.contains("bob"),
+        "expected docs in body: {}",
+        body
+    );
     // Action and doc are separated by \n, action appears twice (one per row).
     let action_count = body.matches("\"_index\":\"docs\"").count();
-    assert_eq!(action_count, 2, "expected 2 index actions, got {}: {}", action_count, body);
+    assert_eq!(
+        action_count, 2,
+        "expected 2 index actions, got {}: {}",
+        action_count, body
+    );
 }
 
 #[test]
@@ -4983,8 +5869,13 @@ fn snk_milvus_injects_collection_name_alongside_data() {
 
     let handle = std::thread::spawn(move || {
         for stream in listener.incoming().take(1) {
-            let mut stream = match stream { Ok(s) => s, Err(_) => break };
-            stream.set_read_timeout(Some(Duration::from_millis(250))).ok();
+            let mut stream = match stream {
+                Ok(s) => s,
+                Err(_) => break,
+            };
+            stream
+                .set_read_timeout(Some(Duration::from_millis(250)))
+                .ok();
             stream.set_nodelay(true).ok();
             let mut buf = Vec::with_capacity(8192);
             let mut chunk = [0u8; 4096];
@@ -5011,19 +5902,29 @@ fn snk_milvus_injects_collection_name_alongside_data() {
     let r = engine.execute_pipeline(&doc(
         json!([
             node("s", "src.csv", json!({ "path": csv, "hasHeader": true })),
-            node("m", "snk.milvus", json!({
-                "endpoint": endpoint, "collection": "embeddings"
-            })),
+            node(
+                "m",
+                "snk.milvus",
+                json!({
+                    "endpoint": endpoint, "collection": "embeddings"
+                })
+            ),
         ]),
         json!([main_edge("e1", "s", "m")]),
     ));
     assert_eq!(r.status, "ok", "milvus insert failed: {:?}", r.error);
 
-    let req = rx.recv_timeout(Duration::from_secs(5)).expect("expected 1 milvus request");
+    let req = rx
+        .recv_timeout(Duration::from_secs(5))
+        .expect("expected 1 milvus request");
     let _ = handle.join();
     let body = String::from_utf8_lossy(&req).to_string();
     // body shape: {"collectionName":"embeddings","data":[{...}]}
-    assert!(body.contains("\"collectionName\":\"embeddings\""), "expected collectionName: {}", body);
+    assert!(
+        body.contains("\"collectionName\":\"embeddings\""),
+        "expected collectionName: {}",
+        body
+    );
     assert!(body.contains("\"data\""), "expected data key: {}", body);
 }
 
@@ -5043,8 +5944,13 @@ fn snk_pinecone_wraps_batch_in_vectors_key() {
 
     let handle = std::thread::spawn(move || {
         for stream in listener.incoming().take(1) {
-            let mut stream = match stream { Ok(s) => s, Err(_) => break };
-            stream.set_read_timeout(Some(Duration::from_millis(250))).ok();
+            let mut stream = match stream {
+                Ok(s) => s,
+                Err(_) => break,
+            };
+            stream
+                .set_read_timeout(Some(Duration::from_millis(250)))
+                .ok();
             stream.set_nodelay(true).ok();
             let mut buf = Vec::with_capacity(8192);
             let mut chunk = [0u8; 4096];
@@ -5056,7 +5962,8 @@ fn snk_pinecone_wraps_batch_in_vectors_key() {
                 }
             }
             let _ = tx.send(buf);
-            let _ = stream.write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok");
+            let _ = stream
+                .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok");
             let _ = stream.flush();
             let _ = stream.shutdown(std::net::Shutdown::Write);
             std::thread::sleep(Duration::from_millis(100));
@@ -5084,22 +5991,36 @@ fn snk_pinecone_wraps_batch_in_vectors_key() {
     let r = engine.execute_pipeline(&doc(
         json!([
             node("s", "src.csv", json!({ "path": csv, "hasHeader": true })),
-            node("p", "snk.webhook", json!({
-                "url": url,
-                "batchMode": "array",
-                "bodyWrap": "vectors"
-            })),
+            node(
+                "p",
+                "snk.webhook",
+                json!({
+                    "url": url,
+                    "batchMode": "array",
+                    "bodyWrap": "vectors"
+                })
+            ),
         ]),
         json!([main_edge("e1", "s", "p")]),
     ));
     assert_eq!(r.status, "ok", "pinecone-shape failed: {:?}", r.error);
 
-    let req = rx.recv_timeout(Duration::from_secs(5)).expect("expected 1 batched request");
+    let req = rx
+        .recv_timeout(Duration::from_secs(5))
+        .expect("expected 1 batched request");
     let _ = handle.join();
     let body = String::from_utf8_lossy(&req).to_string();
     // The wrap key must appear in the body around the array.
-    assert!(body.contains("\"vectors\""), "expected wrapped body with 'vectors' key: {}", body);
-    assert!(body.contains("\"id\":1") || body.contains("\"id\": 1"), "expected id=1: {}", body);
+    assert!(
+        body.contains("\"vectors\""),
+        "expected wrapped body with 'vectors' key: {}",
+        body
+    );
+    assert!(
+        body.contains("\"id\":1") || body.contains("\"id\": 1"),
+        "expected id=1: {}",
+        body
+    );
 }
 
 #[test]
@@ -5123,7 +6044,9 @@ fn snk_rest_batches_rows_into_one_request() {
                 Ok(s) => s,
                 Err(_) => break,
             };
-            stream.set_read_timeout(Some(Duration::from_millis(250))).ok();
+            stream
+                .set_read_timeout(Some(Duration::from_millis(250)))
+                .ok();
             stream.set_nodelay(true).ok();
             // Drain until read times out so we catch header + body even
             // when they land in separate TCP segments.
@@ -5137,9 +6060,8 @@ fn snk_rest_batches_rows_into_one_request() {
                 }
             }
             let _ = tx.send(buf);
-            let _ = stream.write_all(
-                b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok",
-            );
+            let _ = stream
+                .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok");
             let _ = stream.flush();
             let _ = stream.shutdown(std::net::Shutdown::Write);
             std::thread::sleep(Duration::from_millis(100));
@@ -5181,18 +6103,25 @@ fn retry_attempts_actually_retries_failing_stage() {
     let r = engine.execute_pipeline(&doc(
         json!([
             node("s", "src.csv", json!({ "path": csv, "hasHeader": true })),
-            node("r", "xf.regex", json!({
-                "column": "no_such_column",
-                "pattern": "x",
-                "replacement": "y",
-                "retryAttempts": 3,
-                "retryBackoffMs": 80
-            })),
+            node(
+                "r",
+                "xf.regex",
+                json!({
+                    "column": "no_such_column",
+                    "pattern": "x",
+                    "replacement": "y",
+                    "retryAttempts": 3,
+                    "retryBackoffMs": 80
+                })
+            ),
         ]),
         json!([main_edge("e1", "s", "r")]),
     ));
     let elapsed = started.elapsed();
-    assert_ne!(r.status, "ok", "pipeline should ultimately fail after retries");
+    assert_ne!(
+        r.status, "ok",
+        "pipeline should ultimately fail after retries"
+    );
     assert!(
         elapsed >= std::time::Duration::from_millis(200),
         "expected >= 200ms wall-clock with 3 attempts and 80ms backoff, got {:?}",
@@ -5211,10 +6140,14 @@ fn memory_limit_pragma_applied_without_breaking_normal_query() {
     let r = engine.execute_pipeline(&doc(
         json!([
             node("s", "src.csv", json!({ "path": csv, "hasHeader": true })),
-            node("t", "xf.trim", json!({
-                "column": "name",
-                "memoryLimitMb": 256
-            })),
+            node(
+                "t",
+                "xf.trim",
+                json!({
+                    "column": "name",
+                    "memoryLimitMb": 256
+                })
+            ),
             node("k", "snk.csv", json!({ "path": out, "hasHeader": true })),
         ]),
         json!([main_edge("e1", "s", "t"), main_edge("e2", "t", "k")]),
@@ -5244,15 +6177,21 @@ fn ctl_iterate_runs_subpipeline_n_times_with_iter_index() {
         "edges": [main_edge("e", "s", "k")],
     });
     let sub_doc_path = out_path(tmp.path(), "sub.json");
-    std::fs::write(&sub_doc_path, serde_json::to_string(&sub_doc_value).unwrap()).unwrap();
+    std::fs::write(
+        &sub_doc_path,
+        serde_json::to_string(&sub_doc_value).unwrap(),
+    )
+    .unwrap();
 
     let r = engine.execute_pipeline(&doc(
-        json!([
-            node("it", "ctl.iterate", json!({
+        json!([node(
+            "it",
+            "ctl.iterate",
+            json!({
                 "pipelineRef": sub_doc_path,
                 "count": 3
-            })),
-        ]),
+            })
+        ),]),
         json!([]),
     ));
     assert_eq!(r.status, "ok", "iterate failed: {:?}", r.error);
@@ -5291,11 +6230,19 @@ fn ctl_foreach_runs_subpipeline_per_upstream_row_with_iter_item() {
         "edges": [main_edge("e", "s", "k")],
     });
     let sub_doc_path = out_path(tmp.path(), "sub.json");
-    std::fs::write(&sub_doc_path, serde_json::to_string(&sub_doc_value).unwrap()).unwrap();
+    std::fs::write(
+        &sub_doc_path,
+        serde_json::to_string(&sub_doc_value).unwrap(),
+    )
+    .unwrap();
 
     let r = engine.execute_pipeline(&doc(
         json!([
-            node("s", "src.csv", json!({ "path": parent_in, "hasHeader": true })),
+            node(
+                "s",
+                "src.csv",
+                json!({ "path": parent_in, "hasHeader": true })
+            ),
             node("fe", "ctl.foreach", json!({ "pipelineRef": sub_doc_path })),
         ]),
         json!([main_edge("e1", "s", "fe")]),
@@ -5332,25 +6279,38 @@ fn ctl_try_fires_fallback_when_downstream_stage_fails() {
         "edges": [main_edge("e", "s", "k")],
     });
     let fallback_path = out_path(tmp.path(), "fallback.json");
-    std::fs::write(&fallback_path, serde_json::to_string(&fallback_doc_value).unwrap()).unwrap();
+    std::fs::write(
+        &fallback_path,
+        serde_json::to_string(&fallback_doc_value).unwrap(),
+    )
+    .unwrap();
 
     // Parent: a failing transform comes AFTER ctl.try installs the
     // fallback. xf.regex against a non-existent column reliably fails.
     let parent_in = write_file(tmp.path(), "in.csv", "x\n1\n");
     let r = engine.execute_pipeline(&doc(
         json!([
-            node("s", "src.csv", json!({ "path": parent_in, "hasHeader": true })),
-            node("t", "ctl.try", json!({ "fallbackPipelineRef": fallback_path })),
-            node("f", "xf.regex", json!({
-                "column": "no_such_column",
-                "pattern": "x",
-                "replacement": "y"
-            })),
+            node(
+                "s",
+                "src.csv",
+                json!({ "path": parent_in, "hasHeader": true })
+            ),
+            node(
+                "t",
+                "ctl.try",
+                json!({ "fallbackPipelineRef": fallback_path })
+            ),
+            node(
+                "f",
+                "xf.regex",
+                json!({
+                    "column": "no_such_column",
+                    "pattern": "x",
+                    "replacement": "y"
+                })
+            ),
         ]),
-        json!([
-            main_edge("e1", "s", "t"),
-            main_edge("e2", "t", "f"),
-        ]),
+        json!([main_edge("e1", "s", "t"), main_edge("e2", "t", "f"),]),
     ));
     assert_ne!(r.status, "ok", "parent should surface the original failure");
 
@@ -5382,20 +6342,29 @@ fn ctl_try_does_not_fire_when_no_failure() {
         "edges": [main_edge("e", "s", "k")],
     });
     let fallback_path = out_path(tmp.path(), "fallback.json");
-    std::fs::write(&fallback_path, serde_json::to_string(&fallback_doc_value).unwrap()).unwrap();
+    std::fs::write(
+        &fallback_path,
+        serde_json::to_string(&fallback_doc_value).unwrap(),
+    )
+    .unwrap();
 
     let parent_in = write_file(tmp.path(), "in.csv", "x\n1\n2\n");
     let out = out_path(tmp.path(), "out.csv");
     let r = engine.execute_pipeline(&doc(
         json!([
-            node("s", "src.csv", json!({ "path": parent_in, "hasHeader": true })),
-            node("t", "ctl.try", json!({ "fallbackPipelineRef": fallback_path })),
+            node(
+                "s",
+                "src.csv",
+                json!({ "path": parent_in, "hasHeader": true })
+            ),
+            node(
+                "t",
+                "ctl.try",
+                json!({ "fallbackPipelineRef": fallback_path })
+            ),
             node("k", "snk.csv", json!({ "path": out, "hasHeader": true })),
         ]),
-        json!([
-            main_edge("e1", "s", "t"),
-            main_edge("e2", "t", "k"),
-        ]),
+        json!([main_edge("e1", "s", "t"), main_edge("e2", "t", "k"),]),
     ));
     assert_eq!(r.status, "ok", "happy path should succeed: {:?}", r.error);
     let n = count(&format!("read_csv_auto('{}')", out));
@@ -5429,7 +6398,11 @@ fn ctl_runpipeline_executes_referenced_pipeline_as_side_effect() {
         "edges": [main_edge("e", "s", "k")],
     });
     let sub_doc_path = out_path(tmp.path(), "sub.json");
-    std::fs::write(&sub_doc_path, serde_json::to_string(&sub_doc_value).unwrap()).unwrap();
+    std::fs::write(
+        &sub_doc_path,
+        serde_json::to_string(&sub_doc_value).unwrap(),
+    )
+    .unwrap();
 
     // Parent pipeline: a row passes through ctl.runpipeline, which
     // also triggers the sub-pipeline above. Downstream sink gets the
@@ -5438,14 +6411,23 @@ fn ctl_runpipeline_executes_referenced_pipeline_as_side_effect() {
     let parent_out = out_path(tmp.path(), "out.csv");
     let r = engine.execute_pipeline(&doc(
         json!([
-            node("s", "src.csv", json!({ "path": parent_in, "hasHeader": true })),
-            node("rp", "ctl.runpipeline", json!({ "pipelineRef": sub_doc_path })),
-            node("k", "snk.csv", json!({ "path": parent_out, "hasHeader": true })),
+            node(
+                "s",
+                "src.csv",
+                json!({ "path": parent_in, "hasHeader": true })
+            ),
+            node(
+                "rp",
+                "ctl.runpipeline",
+                json!({ "pipelineRef": sub_doc_path })
+            ),
+            node(
+                "k",
+                "snk.csv",
+                json!({ "path": parent_out, "hasHeader": true })
+            ),
         ]),
-        json!([
-            main_edge("e1", "s", "rp"),
-            main_edge("e2", "rp", "k"),
-        ]),
+        json!([main_edge("e1", "s", "rp"), main_edge("e2", "rp", "k"),]),
     ));
     assert_eq!(r.status, "ok", "runpipeline failed: {:?}", r.error);
 
@@ -5455,7 +6437,10 @@ fn ctl_runpipeline_executes_referenced_pipeline_as_side_effect() {
 
     // Parent passed its 3 rows through.
     let parent_n = count(&format!("read_csv_auto('{}')", parent_out));
-    assert_eq!(parent_n, 3, "parent should have passed 3 rows through ctl.runpipeline");
+    assert_eq!(
+        parent_n, 3,
+        "parent should have passed 3 rows through ctl.runpipeline"
+    );
 }
 
 #[test]
@@ -5474,17 +6459,32 @@ fn ctl_runpipeline_propagates_subpipeline_failure() {
         "edges": [main_edge("e", "s", "k")],
     });
     let sub_doc_path = out_path(tmp.path(), "sub.json");
-    std::fs::write(&sub_doc_path, serde_json::to_string(&sub_doc_value).unwrap()).unwrap();
+    std::fs::write(
+        &sub_doc_path,
+        serde_json::to_string(&sub_doc_value).unwrap(),
+    )
+    .unwrap();
 
     let parent_in = write_file(tmp.path(), "in.csv", "x\n1\n");
     let r = engine.execute_pipeline(&doc(
         json!([
-            node("s", "src.csv", json!({ "path": parent_in, "hasHeader": true })),
-            node("rp", "ctl.runpipeline", json!({ "pipelineRef": sub_doc_path })),
+            node(
+                "s",
+                "src.csv",
+                json!({ "path": parent_in, "hasHeader": true })
+            ),
+            node(
+                "rp",
+                "ctl.runpipeline",
+                json!({ "pipelineRef": sub_doc_path })
+            ),
         ]),
         json!([main_edge("e1", "s", "rp")]),
     ));
-    assert_ne!(r.status, "ok", "parent should have failed when sub-pipeline failed");
+    assert_ne!(
+        r.status, "ok",
+        "parent should have failed when sub-pipeline failed"
+    );
     let err = format!("{:?}", r.error.unwrap_or_default());
     assert!(
         err.contains("ctl.runpipeline") || err.contains(&sub_doc_path),
@@ -5503,7 +6503,11 @@ fn ctl_wait_actually_sleeps_before_passthrough() {
     let r = engine.execute_pipeline(&doc(
         json!([
             node("s", "src.csv", json!({ "path": csv, "hasHeader": true })),
-            node("w", "ctl.wait", json!({ "duration": 250, "unit": "milliseconds" })),
+            node(
+                "w",
+                "ctl.wait",
+                json!({ "duration": 250, "unit": "milliseconds" })
+            ),
             node("k", "snk.csv", json!({ "path": out, "hasHeader": true })),
         ]),
         json!([main_edge("e1", "s", "w"), main_edge("e2", "w", "k")]),
@@ -5529,7 +6533,11 @@ fn ctl_checkpoint_writes_sidecar_parquet() {
     let r = engine.execute_pipeline(&doc(
         json!([
             node("s", "src.csv", json!({ "path": csv, "hasHeader": true })),
-            node("c", "ctl.checkpoint", json!({ "name": "after_ingest", "storage": snapshot })),
+            node(
+                "c",
+                "ctl.checkpoint",
+                json!({ "name": "after_ingest", "storage": snapshot })
+            ),
             node("k", "snk.csv", json!({ "path": out, "hasHeader": true })),
         ]),
         json!([main_edge("e1", "s", "c"), main_edge("e2", "c", "k")]),
@@ -5552,7 +6560,11 @@ fn ctl_deadletter_writes_to_path() {
     let r = engine.execute_pipeline(&doc(
         json!([
             node("s", "src.csv", json!({ "path": csv, "hasHeader": true })),
-            node("d", "ctl.deadletter", json!({ "destination": dlq, "format": "json" })),
+            node(
+                "d",
+                "ctl.deadletter",
+                json!({ "destination": dlq, "format": "json" })
+            ),
         ]),
         json!([main_edge("e1", "s", "d")]),
     ));
@@ -5600,14 +6612,22 @@ fn text_match_contains_starts_ends() {
     let r1 = engine.execute_pipeline(&doc(
         json!([
             node("s", "src.csv", json!({ "path": csv, "hasHeader": true })),
-            node("m", "xf.text.match", json!({
-                "column": "name", "needle": "foo", "mode": "contains", "outputColumn": "hit"
-            })),
+            node(
+                "m",
+                "xf.text.match",
+                json!({
+                    "column": "name", "needle": "foo", "mode": "contains", "outputColumn": "hit"
+                })
+            ),
             node("k", "snk.csv", json!({ "path": out1, "hasHeader": true })),
         ]),
         json!([main_edge("e1", "s", "m"), main_edge("e2", "m", "k")]),
     ));
-    assert_eq!(r1.status, "ok", "text.match contains failed: {:?}", r1.error);
+    assert_eq!(
+        r1.status, "ok",
+        "text.match contains failed: {:?}",
+        r1.error
+    );
     let c1 = scalar_string(&format!(
         "SELECT CAST(hit AS VARCHAR) FROM read_csv_auto('{}') WHERE id = 2",
         out1
@@ -5631,7 +6651,11 @@ fn text_match_contains_starts_ends() {
         ]),
         json!([main_edge("e1", "s", "m"), main_edge("e2", "m", "k")]),
     ));
-    assert_eq!(r2.status, "ok", "text.match starts_with failed: {:?}", r2.error);
+    assert_eq!(
+        r2.status, "ok",
+        "text.match starts_with failed: {:?}",
+        r2.error
+    );
     let s1 = scalar_string(&format!(
         "SELECT CAST(hit AS VARCHAR) FROM read_csv_auto('{}') WHERE id = 1",
         out2
@@ -5653,7 +6677,11 @@ fn num_sign_classifies_signed_values() {
     let r = engine.execute_pipeline(&doc(
         json!([
             node("s", "src.csv", json!({ "path": csv, "hasHeader": true })),
-            node("g", "xf.num.sign", json!({ "column": "v", "outputColumn": "sg" })),
+            node(
+                "g",
+                "xf.num.sign",
+                json!({ "column": "v", "outputColumn": "sg" })
+            ),
             node("k", "snk.csv", json!({ "path": out, "hasHeader": true })),
         ]),
         json!([main_edge("e1", "s", "g"), main_edge("e2", "g", "k")]),
@@ -5691,7 +6719,11 @@ fn dt_extract_dayofweek_via_existing_transform() {
     let r = engine.execute_pipeline(&doc(
         json!([
             node("s", "src.csv", json!({ "path": csv, "hasHeader": true })),
-            node("e", "xf.dt.extract", json!({ "column": "d", "unit": "dayofweek", "outputColumn": "dow" })),
+            node(
+                "e",
+                "xf.dt.extract",
+                json!({ "column": "d", "unit": "dayofweek", "outputColumn": "dow" })
+            ),
             node("k", "snk.csv", json!({ "path": out, "hasHeader": true })),
         ]),
         json!([main_edge("e1", "s", "e"), main_edge("e2", "e", "k")]),
@@ -5710,16 +6742,16 @@ fn dt_extract_dayofweek_via_existing_transform() {
 fn num_clamp_caps_outliers() {
     let engine = engine_or_skip!();
     let tmp = tempfile::tempdir().unwrap();
-    let csv = write_file(
-        tmp.path(),
-        "vals.csv",
-        "id,v\n1,-50\n2,25\n3,150\n4,75\n",
-    );
+    let csv = write_file(tmp.path(), "vals.csv", "id,v\n1,-50\n2,25\n3,150\n4,75\n");
     let out = out_path(tmp.path(), "out.csv");
     let r = engine.execute_pipeline(&doc(
         json!([
             node("s", "src.csv", json!({ "path": csv, "hasHeader": true })),
-            node("c", "xf.num.clamp", json!({ "column": "v", "low": 0, "high": 100 })),
+            node(
+                "c",
+                "xf.num.clamp",
+                json!({ "column": "v", "low": 0, "high": 100 })
+            ),
             node("k", "snk.csv", json!({ "path": out, "hasHeader": true })),
         ]),
         json!([main_edge("e1", "s", "c"), main_edge("e2", "c", "k")]),
@@ -5742,19 +6774,19 @@ fn num_clamp_caps_outliers() {
 fn text_padding_lpad_zero_pads() {
     let engine = engine_or_skip!();
     let tmp = tempfile::tempdir().unwrap();
-    let csv = write_file(
-        tmp.path(),
-        "ids.csv",
-        "id\n7\n42\n1000\n",
-    );
+    let csv = write_file(tmp.path(), "ids.csv", "id\n7\n42\n1000\n");
     let out = out_path(tmp.path(), "out.csv");
     let r = engine.execute_pipeline(&doc(
         json!([
             node("s", "src.csv", json!({ "path": csv, "hasHeader": true })),
-            node("p", "xf.text.padding", json!({
-                "column": "id", "length": 5, "fill": "0", "side": "left",
-                "outputColumn": "padded"
-            })),
+            node(
+                "p",
+                "xf.text.padding",
+                json!({
+                    "column": "id", "length": 5, "fill": "0", "side": "left",
+                    "outputColumn": "padded"
+                })
+            ),
             node("k", "snk.csv", json!({ "path": out, "hasHeader": true })),
         ]),
         json!([main_edge("e1", "s", "p"), main_edge("e2", "p", "k")]),
@@ -5776,16 +6808,16 @@ fn text_padding_lpad_zero_pads() {
 fn dt_epoch_roundtrips() {
     let engine = engine_or_skip!();
     let tmp = tempfile::tempdir().unwrap();
-    let csv = write_file(
-        tmp.path(),
-        "ts.csv",
-        "id,ts\n1,2026-01-01 12:00:00\n",
-    );
+    let csv = write_file(tmp.path(), "ts.csv", "id,ts\n1,2026-01-01 12:00:00\n");
     let out = out_path(tmp.path(), "out.csv");
     let r = engine.execute_pipeline(&doc(
         json!([
             node("s", "src.csv", json!({ "path": csv, "hasHeader": true })),
-            node("e", "xf.dt.epoch", json!({ "column": "ts", "mode": "to", "outputColumn": "sec" })),
+            node(
+                "e",
+                "xf.dt.epoch",
+                json!({ "column": "ts", "mode": "to", "outputColumn": "sec" })
+            ),
             node("k", "snk.csv", json!({ "path": out, "hasHeader": true })),
         ]),
         json!([main_edge("e1", "s", "e"), main_edge("e2", "e", "k")]),
@@ -5803,7 +6835,11 @@ fn dt_epoch_roundtrips() {
     let r2 = engine.execute_pipeline(&doc(
         json!([
             node("s", "src.csv", json!({ "path": out, "hasHeader": true })),
-            node("e", "xf.dt.epoch", json!({ "column": "sec", "mode": "from", "outputColumn": "ts2" })),
+            node(
+                "e",
+                "xf.dt.epoch",
+                json!({ "column": "sec", "mode": "from", "outputColumn": "ts2" })
+            ),
             node("k", "snk.csv", json!({ "path": out2, "hasHeader": true })),
         ]),
         json!([main_edge("e1", "s", "e"), main_edge("e2", "e", "k")]),
@@ -5844,11 +6880,7 @@ fn dt_now_stamps_loaded_at() {
 fn uuid_generates_unique_ids_per_row() {
     let engine = engine_or_skip!();
     let tmp = tempfile::tempdir().unwrap();
-    let csv = write_file(
-        tmp.path(),
-        "in.csv",
-        "id\n1\n2\n3\n4\n5\n",
-    );
+    let csv = write_file(tmp.path(), "in.csv", "id\n1\n2\n3\n4\n5\n");
     let out = out_path(tmp.path(), "out.csv");
     let r = engine.execute_pipeline(&doc(
         json!([
@@ -5880,11 +6912,15 @@ fn cumulative_running_sum_per_group() {
     let r = engine.execute_pipeline(&doc(
         json!([
             node("s", "src.csv", json!({ "path": csv, "hasHeader": true })),
-            node("c", "xf.cumulative", json!({
-                "column": "amount", "function": "sum",
-                "orderBy": "day", "partitionBy": ["region"],
-                "outputColumn": "cum_amount"
-            })),
+            node(
+                "c",
+                "xf.cumulative",
+                json!({
+                    "column": "amount", "function": "sum",
+                    "orderBy": "day", "partitionBy": ["region"],
+                    "outputColumn": "cum_amount"
+                })
+            ),
             node("k", "snk.csv", json!({ "path": out, "hasHeader": true })),
         ]),
         json!([main_edge("e1", "s", "c"), main_edge("e2", "c", "k")]),
@@ -5916,9 +6952,13 @@ fn dt_bin_rounds_to_five_minute_buckets() {
     let r = engine.execute_pipeline(&doc(
         json!([
             node("s", "src.csv", json!({ "path": csv, "hasHeader": true })),
-            node("b", "xf.dt.bin", json!({
-                "column": "ts", "unit": "minute", "count": 5, "outputColumn": "bucket"
-            })),
+            node(
+                "b",
+                "xf.dt.bin",
+                json!({
+                    "column": "ts", "unit": "minute", "count": 5, "outputColumn": "bucket"
+                })
+            ),
             node("k", "snk.csv", json!({ "path": out, "hasHeader": true })),
         ]),
         json!([main_edge("e1", "s", "b"), main_edge("e2", "b", "k")]),
@@ -5948,22 +6988,30 @@ fn arr_length_counts_list_elements() {
     let tmp = tempfile::tempdir().unwrap();
     // Use the existing collect/array path to build a list column we can
     // measure. csv -> arr.collect -> arr.length.
-    let csv = write_file(
-        tmp.path(),
-        "raw.csv",
-        "group,val\na,1\na,2\na,3\nb,4\n",
-    );
+    let csv = write_file(tmp.path(), "raw.csv", "group,val\na,1\na,2\na,3\nb,4\n");
     let out = out_path(tmp.path(), "out.csv");
     let r = engine.execute_pipeline(&doc(
         json!([
             node("s", "src.csv", json!({ "path": csv, "hasHeader": true })),
-            node("c", "xf.arr.collect", json!({
-                "valueColumn": "val", "groupBy": ["group"], "outputColumn": "items"
-            })),
-            node("l", "xf.arr.length", json!({ "column": "items", "outputColumn": "n" })),
+            node(
+                "c",
+                "xf.arr.collect",
+                json!({
+                    "valueColumn": "val", "groupBy": ["group"], "outputColumn": "items"
+                })
+            ),
+            node(
+                "l",
+                "xf.arr.length",
+                json!({ "column": "items", "outputColumn": "n" })
+            ),
             node("k", "snk.csv", json!({ "path": out, "hasHeader": true })),
         ]),
-        json!([main_edge("e1", "s", "c"), main_edge("e2", "c", "l"), main_edge("e3", "l", "k")]),
+        json!([
+            main_edge("e1", "s", "c"),
+            main_edge("e2", "c", "l"),
+            main_edge("e3", "l", "k")
+        ]),
     ));
     assert_eq!(r.status, "ok", "arr.length failed: {:?}", r.error);
     let na = scalar_string(&format!(
@@ -5991,9 +7039,13 @@ fn rank_filter_keeps_top_n_per_group() {
     let r = engine.execute_pipeline(&doc(
         json!([
             node("s", "src.csv", json!({ "path": csv, "hasHeader": true })),
-            node("r", "xf.rank.filter", json!({
-                "partitionBy": ["region"], "orderBy": "amount", "desc": true, "n": 2
-            })),
+            node(
+                "r",
+                "xf.rank.filter",
+                json!({
+                    "partitionBy": ["region"], "orderBy": "amount", "desc": true, "n": 2
+                })
+            ),
             node("k", "snk.csv", json!({ "path": out, "hasHeader": true })),
         ]),
         json!([main_edge("e1", "s", "r"), main_edge("e2", "r", "k")]),
@@ -6006,7 +7058,10 @@ fn rank_filter_keeps_top_n_per_group() {
         "SELECT CAST(count(*) AS VARCHAR) FROM read_csv_auto('{}') WHERE \"user\" = 'c'",
         out
     ));
-    assert_eq!(has_c, "0", "user c (rank 3 in us) should have been filtered out");
+    assert_eq!(
+        has_c, "0",
+        "user c (rank 3 in us) should have been filtered out"
+    );
 }
 
 // ---- Regression tests for the correctness pass (joins + transforms) ----
@@ -6026,7 +7081,11 @@ fn join_dedupes_shared_key_via_using_clause() {
         json!([
             node("l", "src.csv", json!({ "path": l, "hasHeader": true })),
             node("r", "src.csv", json!({ "path": r, "hasHeader": true })),
-            node("j", "xf.join.inner", json!({ "leftKey": "id", "rightKey": "id" })),
+            node(
+                "j",
+                "xf.join.inner",
+                json!({ "leftKey": "id", "rightKey": "id" })
+            ),
             node("k", "snk.csv", json!({ "path": out, "hasHeader": true })),
         ]),
         json!([
@@ -6069,9 +7128,13 @@ fn right_join_differently_named_keys_keeps_key() {
         json!([
             node("l", "src.csv", json!({ "path": l, "hasHeader": true })),
             node("r", "src.csv", json!({ "path": r, "hasHeader": true })),
-            node("j", "xf.join.inner", json!({
-                "leftKey": "lid", "rightKey": "rid", "joinType": "right"
-            })),
+            node(
+                "j",
+                "xf.join.inner",
+                json!({
+                    "leftKey": "lid", "rightKey": "rid", "joinType": "right"
+                })
+            ),
             node("k", "snk.csv", json!({ "path": out, "hasHeader": true })),
         ]),
         json!([
@@ -6109,7 +7172,11 @@ fn fan_in_to_single_input_port_fails_loud() {
         ]),
         json!([main_edge("e1", "a", "k"), main_edge("e2", "b", "k")]),
     ));
-    assert_eq!(res.status, "error", "fan-in should fail loud, got {:?}", res.status);
+    assert_eq!(
+        res.status, "error",
+        "fan-in should fail loud, got {:?}",
+        res.status
+    );
     let err = res.error.unwrap_or_default();
     assert!(
         err.contains("single input"),
@@ -6206,21 +7273,33 @@ fn arr_contains_handles_null_array() {
     let res = engine.execute_pipeline(&doc(
         json!([
             // Force the column to LIST(VARCHAR) so list_contains works.
-            node("s", "src.csv", json!({
-                "path": csv, "hasHeader": true,
-                "columns": [
-                    {"name": "id", "type": "int64", "nullable": false},
-                    {"name": "tags", "type": "string", "nullable": true}
-                ]
-            })),
+            node(
+                "s",
+                "src.csv",
+                json!({
+                    "path": csv, "hasHeader": true,
+                    "columns": [
+                        {"name": "id", "type": "int64", "nullable": false},
+                        {"name": "tags", "type": "string", "nullable": true}
+                    ]
+                })
+            ),
             // Cast the string '[''red'',''blue'']' shaped value to a real
             // LIST. xf.cast is the safest path; downstream node uses it.
-            node("c", "xf.cast", json!({
-                "casts": [{"column":"tags", "targetType": "VARCHAR[]"}]
-            })),
-            node("a", "xf.arr.contains", json!({
-                "column":"tags", "value":"red", "outputColumn":"has_red"
-            })),
+            node(
+                "c",
+                "xf.cast",
+                json!({
+                    "casts": [{"column":"tags", "targetType": "VARCHAR[]"}]
+                })
+            ),
+            node(
+                "a",
+                "xf.arr.contains",
+                json!({
+                    "column":"tags", "value":"red", "outputColumn":"has_red"
+                })
+            ),
             node("k", "snk.csv", json!({ "path": out, "hasHeader": true })),
         ]),
         json!([
@@ -6242,7 +7321,10 @@ fn arr_contains_handles_null_array() {
     // Three rows in, three rows out. Most importantly: the NULL-array
     // row (id=3) is still present, with has_red = false (not NULL).
     let n = count(&format!("read_csv_auto('{}')", out));
-    assert_eq!(n, 3, "all three rows should survive (NULL-array row included)");
+    assert_eq!(
+        n, 3,
+        "all three rows should survive (NULL-array row included)"
+    );
     let null_row_has_red = scalar_string(&format!(
         "SELECT CAST(has_red AS VARCHAR) FROM read_csv_auto('{}') WHERE id = 3",
         out
@@ -6268,9 +7350,13 @@ fn fill_forward_propagates_last_non_null() {
     let r = engine.execute_pipeline(&doc(
         json!([
             node("s", "src.csv", json!({ "path": csv, "hasHeader": true })),
-            node("f", "xf.fill_forward", json!({
-                "column": "reading", "orderBy": "ts", "partitionBy": ["sensor"]
-            })),
+            node(
+                "f",
+                "xf.fill_forward",
+                json!({
+                    "column": "reading", "orderBy": "ts", "partitionBy": ["sensor"]
+                })
+            ),
             node("k", "snk.csv", json!({ "path": out, "hasHeader": true })),
         ]),
         json!([main_edge("e1", "s", "f"), main_edge("e2", "f", "k")]),
@@ -6291,7 +7377,10 @@ fn fill_forward_propagates_last_non_null() {
     ));
     assert_eq!(r_a2, "10", "A@ts=2 should fill to 10");
     assert_eq!(r_a3, "10", "A@ts=3 should fill to 10");
-    assert_eq!(r_b2, "5", "B@ts=2 should fill from B@ts=1 (5), not bleed from A");
+    assert_eq!(
+        r_b2, "5",
+        "B@ts=2 should fill from B@ts=1 (5), not bleed from A"
+    );
 }
 
 #[test]
@@ -6310,9 +7399,13 @@ fn fill_backward_propagates_next_non_null() {
     let r = engine.execute_pipeline(&doc(
         json!([
             node("s", "src.csv", json!({ "path": csv, "hasHeader": true })),
-            node("f", "xf.fill_backward", json!({
-                "column": "reading", "orderBy": "ts", "partitionBy": ["sensor"]
-            })),
+            node(
+                "f",
+                "xf.fill_backward",
+                json!({
+                    "column": "reading", "orderBy": "ts", "partitionBy": ["sensor"]
+                })
+            ),
             node("k", "snk.csv", json!({ "path": out, "hasHeader": true })),
         ]),
         json!([main_edge("e1", "s", "f"), main_edge("e2", "f", "k")]),
@@ -6340,7 +7433,10 @@ fn fill_backward_propagates_next_non_null() {
     assert_eq!(r_a1, "10", "A@ts=1 should backward-fill to 10");
     assert_eq!(r_a3, "20", "A@ts=3 should backward-fill to 20");
     assert_eq!(r_b1, "15", "B@ts=1 should backward-fill to 15");
-    assert_eq!(r_b2, "15", "B@ts=2 should backward-fill to 15 (not bleed from A)");
+    assert_eq!(
+        r_b2, "15",
+        "B@ts=2 should backward-fill to 15 (not bleed from A)"
+    );
 }
 
 #[test]
@@ -6352,8 +7448,16 @@ fn text_base64_roundtrips() {
     let r1 = engine.execute_pipeline(&doc(
         json!([
             node("s", "src.csv", json!({ "path": csv, "hasHeader": true })),
-            node("e", "xf.text.base64", json!({ "column": "word", "mode": "encode", "outputColumn": "b" })),
-            node("k", "snk.csv", json!({ "path": encoded, "hasHeader": true })),
+            node(
+                "e",
+                "xf.text.base64",
+                json!({ "column": "word", "mode": "encode", "outputColumn": "b" })
+            ),
+            node(
+                "k",
+                "snk.csv",
+                json!({ "path": encoded, "hasHeader": true })
+            ),
         ]),
         json!([main_edge("e1", "s", "e"), main_edge("e2", "e", "k")]),
     ));
@@ -6369,9 +7473,21 @@ fn text_base64_roundtrips() {
     let decoded = out_path(tmp.path(), "decoded.csv");
     let r2 = engine.execute_pipeline(&doc(
         json!([
-            node("s", "src.csv", json!({ "path": encoded, "hasHeader": true })),
-            node("d", "xf.text.base64", json!({ "column": "b", "mode": "decode", "outputColumn": "decoded_word" })),
-            node("k", "snk.csv", json!({ "path": decoded, "hasHeader": true })),
+            node(
+                "s",
+                "src.csv",
+                json!({ "path": encoded, "hasHeader": true })
+            ),
+            node(
+                "d",
+                "xf.text.base64",
+                json!({ "column": "b", "mode": "decode", "outputColumn": "decoded_word" })
+            ),
+            node(
+                "k",
+                "snk.csv",
+                json!({ "path": decoded, "hasHeader": true })
+            ),
         ]),
         json!([main_edge("e1", "s", "d"), main_edge("e2", "d", "k")]),
     ));
@@ -6387,16 +7503,16 @@ fn text_base64_roundtrips() {
 fn num_zscore_normalizes_against_dataset() {
     let engine = engine_or_skip!();
     let tmp = tempfile::tempdir().unwrap();
-    let csv = write_file(
-        tmp.path(),
-        "vals.csv",
-        "id,v\n1,1\n2,2\n3,3\n4,4\n5,5\n",
-    );
+    let csv = write_file(tmp.path(), "vals.csv", "id,v\n1,1\n2,2\n3,3\n4,4\n5,5\n");
     let out = out_path(tmp.path(), "out.csv");
     let r = engine.execute_pipeline(&doc(
         json!([
             node("s", "src.csv", json!({ "path": csv, "hasHeader": true })),
-            node("z", "xf.num.zscore", json!({ "column": "v", "outputColumn": "z" })),
+            node(
+                "z",
+                "xf.num.zscore",
+                json!({ "column": "v", "outputColumn": "z" })
+            ),
             node("k", "snk.csv", json!({ "path": out, "hasHeader": true })),
         ]),
         json!([main_edge("e1", "s", "z"), main_edge("e2", "z", "k")]),
@@ -6424,10 +7540,14 @@ fn num_bucketize_assigns_width_buckets() {
     let r = engine.execute_pipeline(&doc(
         json!([
             node("s", "src.csv", json!({ "path": csv, "hasHeader": true })),
-            node("b", "xf.num.bucketize", json!({
-                "column": "score", "low": 0, "high": 100, "buckets": 10,
-                "outputColumn": "decile"
-            })),
+            node(
+                "b",
+                "xf.num.bucketize",
+                json!({
+                    "column": "score", "low": 0, "high": 100, "buckets": 10,
+                    "outputColumn": "decile"
+                })
+            ),
             node("k", "snk.csv", json!({ "path": out, "hasHeader": true })),
         ]),
         json!([main_edge("e1", "s", "b"), main_edge("e2", "b", "k")]),
@@ -6465,9 +7585,13 @@ fn json_array_agg_collapses_rows_per_group() {
     let r = engine.execute_pipeline(&doc(
         json!([
             node("s", "src.csv", json!({ "path": csv, "hasHeader": true })),
-            node("a", "xf.json.array_agg", json!({
-                "column": "item", "groupBy": ["user"], "outputColumn": "items"
-            })),
+            node(
+                "a",
+                "xf.json.array_agg",
+                json!({
+                    "column": "item", "groupBy": ["user"], "outputColumn": "items"
+                })
+            ),
             node("k", "snk.csv", json!({ "path": out, "hasHeader": true })),
         ]),
         json!([main_edge("e1", "s", "a"), main_edge("e2", "a", "k")]),
@@ -6480,7 +7604,11 @@ fn json_array_agg_collapses_rows_per_group() {
     // json_group_array gives ["apple","banana"] - exact order depends on
     // input but DuckDB preserves scan order for grouped aggregates with
     // a single thread on this tiny input.
-    assert!(alice.contains("apple") && alice.contains("banana"), "got {}", alice);
+    assert!(
+        alice.contains("apple") && alice.contains("banana"),
+        "got {}",
+        alice
+    );
 }
 
 #[test]
@@ -6496,10 +7624,14 @@ fn text_similarity_scores_with_levenshtein() {
     let r = engine.execute_pipeline(&doc(
         json!([
             node("s", "src.csv", json!({ "path": csv, "hasHeader": true })),
-            node("t", "xf.text.similarity", json!({
-                "leftColumn": "a", "rightColumn": "b",
-                "algorithm": "levenshtein", "outputColumn": "dist"
-            })),
+            node(
+                "t",
+                "xf.text.similarity",
+                json!({
+                    "leftColumn": "a", "rightColumn": "b",
+                    "algorithm": "levenshtein", "outputColumn": "dist"
+                })
+            ),
             node("k", "snk.csv", json!({ "path": out, "hasHeader": true })),
         ]),
         json!([main_edge("e1", "s", "t"), main_edge("e2", "t", "k")]),
@@ -6527,11 +7659,7 @@ fn text_similarity_scores_with_levenshtein() {
 fn assert_passes_when_predicate_holds_on_every_row() {
     let engine = engine_or_skip!();
     let tmp = tempfile::tempdir().unwrap();
-    let csv = write_file(
-        tmp.path(),
-        "rows.csv",
-        "id,amount\n1,10\n2,20\n3,30\n",
-    );
+    let csv = write_file(tmp.path(), "rows.csv", "id,amount\n1,10\n2,20\n3,30\n");
     let out = out_path(tmp.path(), "out.csv");
     let r = engine.execute_pipeline(&doc(
         json!([
@@ -6550,24 +7678,27 @@ fn assert_passes_when_predicate_holds_on_every_row() {
 fn assert_fails_when_any_row_violates_predicate() {
     let engine = engine_or_skip!();
     let tmp = tempfile::tempdir().unwrap();
-    let csv = write_file(
-        tmp.path(),
-        "rows.csv",
-        "id,amount\n1,10\n2,-5\n3,30\n",
-    );
+    let csv = write_file(tmp.path(), "rows.csv", "id,amount\n1,10\n2,-5\n3,30\n");
     let out = out_path(tmp.path(), "out.csv");
     let r = engine.execute_pipeline(&doc(
         json!([
             node("s", "src.csv", json!({ "path": csv, "hasHeader": true })),
-            node("a", "xf.assert", json!({
-                "predicate": "amount >= 0",
-                "message": "amount must be non-negative"
-            })),
+            node(
+                "a",
+                "xf.assert",
+                json!({
+                    "predicate": "amount >= 0",
+                    "message": "amount must be non-negative"
+                })
+            ),
             node("k", "snk.csv", json!({ "path": out, "hasHeader": true })),
         ]),
         json!([main_edge("e1", "s", "a"), main_edge("e2", "a", "k")]),
     ));
-    assert_ne!(r.status, "ok", "assert should have failed but pipeline returned ok");
+    assert_ne!(
+        r.status, "ok",
+        "assert should have failed but pipeline returned ok"
+    );
     let err = format!("{:?}", r.error.unwrap_or_default());
     assert!(
         err.contains("amount must be non-negative") || err.to_lowercase().contains("non-negative"),
@@ -6589,10 +7720,14 @@ fn parquet_sink_writes_hive_partitions() {
     let r = engine.execute_pipeline(&doc(
         json!([
             node("s", "src.csv", json!({ "path": csv, "hasHeader": true })),
-            node("k", "snk.parquet", json!({
-                "path": out_dir,
-                "partitionBy": ["region"]
-            })),
+            node(
+                "k",
+                "snk.parquet",
+                json!({
+                    "path": out_dir,
+                    "partitionBy": ["region"]
+                })
+            ),
         ]),
         json!([main_edge("e", "s", "k")]),
     ));
@@ -6623,8 +7758,16 @@ fn url_parse_extracts_components() {
     let r1 = engine.execute_pipeline(&doc(
         json!([
             node("s", "src.csv", json!({ "path": csv, "hasHeader": true })),
-            node("p", "xf.url.parse", json!({ "column": "url", "kind": "host", "outputColumn": "h" })),
-            node("k", "snk.csv", json!({ "path": host_out, "hasHeader": true })),
+            node(
+                "p",
+                "xf.url.parse",
+                json!({ "column": "url", "kind": "host", "outputColumn": "h" })
+            ),
+            node(
+                "k",
+                "snk.csv",
+                json!({ "path": host_out, "hasHeader": true })
+            ),
         ]),
         json!([main_edge("e1", "s", "p"), main_edge("e2", "p", "k")]),
     ));
@@ -6639,8 +7782,16 @@ fn url_parse_extracts_components() {
     let r2 = engine.execute_pipeline(&doc(
         json!([
             node("s", "src.csv", json!({ "path": csv, "hasHeader": true })),
-            node("p", "xf.url.parse", json!({ "column": "url", "kind": "port", "outputColumn": "po" })),
-            node("k", "snk.csv", json!({ "path": port_out, "hasHeader": true })),
+            node(
+                "p",
+                "xf.url.parse",
+                json!({ "column": "url", "kind": "port", "outputColumn": "po" })
+            ),
+            node(
+                "k",
+                "snk.csv",
+                json!({ "path": port_out, "hasHeader": true })
+            ),
         ]),
         json!([main_edge("e1", "s", "p"), main_edge("e2", "p", "k")]),
     ));
@@ -6665,11 +7816,15 @@ fn regex_match_emits_boolean() {
     let r = engine.execute_pipeline(&doc(
         json!([
             node("s", "src.csv", json!({ "path": csv, "hasHeader": true })),
-            node("m", "xf.regex.match", json!({
-                "column": "tag",
-                "pattern": "^FOO-",
-                "outputColumn": "is_foo"
-            })),
+            node(
+                "m",
+                "xf.regex.match",
+                json!({
+                    "column": "tag",
+                    "pattern": "^FOO-",
+                    "outputColumn": "is_foo"
+                })
+            ),
             node("k", "snk.csv", json!({ "path": out, "hasHeader": true })),
         ]),
         json!([main_edge("e1", "s", "m"), main_edge("e2", "m", "k")]),
@@ -6702,17 +7857,25 @@ fn approx_count_distinct_via_groupby() {
     let r = engine.execute_pipeline(&doc(
         json!([
             node("s", "src.csv", json!({ "path": csv, "hasHeader": true })),
-            node("g", "xf.groupby", json!({
-                "groupKeys": ["region"],
-                "aggregations": [
-                    { "column": "user", "func": "approx_count_distinct", "output": "users" }
-                ]
-            })),
+            node(
+                "g",
+                "xf.groupby",
+                json!({
+                    "groupKeys": ["region"],
+                    "aggregations": [
+                        { "column": "user", "func": "approx_count_distinct", "output": "users" }
+                    ]
+                })
+            ),
             node("k", "snk.csv", json!({ "path": out, "hasHeader": true })),
         ]),
         json!([main_edge("e1", "s", "g"), main_edge("e2", "g", "k")]),
     ));
-    assert_eq!(r.status, "ok", "approx_count_distinct failed: {:?}", r.error);
+    assert_eq!(
+        r.status, "ok",
+        "approx_count_distinct failed: {:?}",
+        r.error
+    );
     // 3 distinct US users, 2 distinct EU users; approx HLL is exact at
     // these tiny cardinalities.
     let us = scalar_string(&format!(
@@ -6741,9 +7904,13 @@ fn approx_quantile_finds_median() {
     let r = engine.execute_pipeline(&doc(
         json!([
             node("s", "src.csv", json!({ "path": csv, "hasHeader": true })),
-            node("q", "xf.approx.quantile", json!({
-                "column": "n", "quantile": 0.5, "outputColumn": "p50"
-            })),
+            node(
+                "q",
+                "xf.approx.quantile",
+                json!({
+                    "column": "n", "quantile": 0.5, "outputColumn": "p50"
+                })
+            ),
             node("k", "snk.csv", json!({ "path": out, "hasHeader": true })),
         ]),
         json!([main_edge("e1", "s", "q"), main_edge("e2", "q", "k")]),
@@ -6770,12 +7937,16 @@ fn regex_extract_pulls_capture_group() {
     let r = engine.execute_pipeline(&doc(
         json!([
             node("s", "src.csv", json!({ "path": csv, "hasHeader": true })),
-            node("x", "xf.regex.extract", json!({
-                "column": "line",
-                "pattern": "ID=([0-9]+)",
-                "groupIndex": 1,
-                "outputColumn": "user_id"
-            })),
+            node(
+                "x",
+                "xf.regex.extract",
+                json!({
+                    "column": "line",
+                    "pattern": "ID=([0-9]+)",
+                    "groupIndex": 1,
+                    "outputColumn": "user_id"
+                })
+            ),
             node("k", "snk.csv", json!({ "path": out, "hasHeader": true })),
         ]),
         json!([main_edge("e1", "s", "x"), main_edge("e2", "x", "k")]),
@@ -6823,11 +7994,15 @@ fn spatial_join_matches_points_inside_polygons() {
         json!([
             node("L", "src.parquet", json!({ "path": pts })),
             node("R", "src.parquet", json!({ "path": polys })),
-            node("j", "xf.join.spatial", json!({
-                "leftGeomColumn": "p",
-                "rightGeomColumn": "g",
-                "relation": "within"
-            })),
+            node(
+                "j",
+                "xf.join.spatial",
+                json!({
+                    "leftGeomColumn": "p",
+                    "rightGeomColumn": "g",
+                    "relation": "within"
+                })
+            ),
             node("k", "snk.csv", json!({ "path": out, "hasHeader": true })),
         ]),
         json!([
@@ -6840,9 +8015,7 @@ fn spatial_join_matches_points_inside_polygons() {
     // 'a' (5,5) and 'c' (7,7) are inside the square; 'b' (50,50) is not.
     let matched = count(&format!("read_csv_auto('{}')", out));
     assert_eq!(matched, 2, "expected 2 matched rows, got {}", matched);
-    let names: Vec<String> = (0..2)
-        .map(|_| String::new())
-        .collect::<Vec<_>>();
+    let names: Vec<String> = (0..2).map(|_| String::new()).collect::<Vec<_>>();
     let _ = names;
     let has_a = scalar_string(&format!(
         "SELECT CAST(count(*) AS VARCHAR) FROM read_csv_auto('{}') WHERE name = 'a'",
@@ -6881,11 +8054,15 @@ fn geo_intersects_flags_overlapping_geometries() {
     let r = engine.execute_pipeline(&doc(
         json!([
             node("s", "src.parquet", json!({ "path": parquet })),
-            node("g", "xf.geo.intersects", json!({
-                "geomColumn": "loc",
-                "targetWkt": "POLYGON((0 0, 0 10, 10 10, 10 0, 0 0))",
-                "outputColumn": "hits"
-            })),
+            node(
+                "g",
+                "xf.geo.intersects",
+                json!({
+                    "geomColumn": "loc",
+                    "targetWkt": "POLYGON((0 0, 0 10, 10 10, 10 0, 0 0))",
+                    "outputColumn": "hits"
+                })
+            ),
             node("k", "snk.csv", json!({ "path": out, "hasHeader": true })),
         ]),
         json!([main_edge("e1", "s", "g"), main_edge("e2", "g", "k")]),
@@ -6920,8 +8097,16 @@ fn ip_parse_extracts_host_and_family() {
     let r1 = engine.execute_pipeline(&doc(
         json!([
             node("s", "src.csv", json!({ "path": csv, "hasHeader": true })),
-            node("p", "xf.ip.parse", json!({ "column": "addr", "kind": "host", "outputColumn": "h" })),
-            node("k", "snk.csv", json!({ "path": host_out, "hasHeader": true })),
+            node(
+                "p",
+                "xf.ip.parse",
+                json!({ "column": "addr", "kind": "host", "outputColumn": "h" })
+            ),
+            node(
+                "k",
+                "snk.csv",
+                json!({ "path": host_out, "hasHeader": true })
+            ),
         ]),
         json!([main_edge("e1", "s", "p"), main_edge("e2", "p", "k")]),
     ));
@@ -6936,8 +8121,16 @@ fn ip_parse_extracts_host_and_family() {
     let r2 = engine.execute_pipeline(&doc(
         json!([
             node("s", "src.csv", json!({ "path": csv, "hasHeader": true })),
-            node("p", "xf.ip.parse", json!({ "column": "addr", "kind": "family", "outputColumn": "f" })),
-            node("k", "snk.csv", json!({ "path": fam_out, "hasHeader": true })),
+            node(
+                "p",
+                "xf.ip.parse",
+                json!({ "column": "addr", "kind": "family", "outputColumn": "f" })
+            ),
+            node(
+                "k",
+                "snk.csv",
+                json!({ "path": fam_out, "hasHeader": true })
+            ),
         ]),
         json!([main_edge("e1", "s", "p"), main_edge("e2", "p", "k")]),
     ));
@@ -6976,11 +8169,15 @@ fn pg_pgvector_roundtrip_through_postgres_attach() {
     let r1 = engine.execute_pipeline(&doc(
         json!([
             node("s", "src.csv", json!({ "path": csv, "hasHeader": true })),
-            node("w", "snk.pgvector", json!({
-                "host": &host, "port": port, "database": &db,
-                "user": &user, "password": &pass,
-                "schemaName": "public", "tableName": &table, "mode": "overwrite"
-            })),
+            node(
+                "w",
+                "snk.pgvector",
+                json!({
+                    "host": &host, "port": port, "database": &db,
+                    "user": &user, "password": &pass,
+                    "schemaName": "public", "tableName": &table, "mode": "overwrite"
+                })
+            ),
         ]),
         json!([main_edge("e", "s", "w")]),
     ));
@@ -6989,11 +8186,15 @@ fn pg_pgvector_roundtrip_through_postgres_attach() {
     let out = out_path(tmp.path(), "out.csv");
     let r2 = engine.execute_pipeline(&doc(
         json!([
-            node("r", "src.pgvector", json!({
-                "host": host, "port": port, "database": db,
-                "user": user, "password": pass,
-                "schemaName": "public", "tableName": table, "mode": "table"
-            })),
+            node(
+                "r",
+                "src.pgvector",
+                json!({
+                    "host": host, "port": port, "database": db,
+                    "user": user, "password": pass,
+                    "schemaName": "public", "tableName": table, "mode": "table"
+                })
+            ),
             node("k", "snk.csv", json!({ "path": out, "hasHeader": true })),
         ]),
         json!([main_edge("e", "r", "k")]),
@@ -7051,10 +8252,7 @@ fn project_and_rename_reshape_columns() {
     // Output has 2 rows and exactly 2 columns (id, first).
     assert_eq!(count(&format!("read_parquet('{}')", out)), 2);
     // DESCRIBE returns one row per column.
-    let cols = count(&format!(
-        "(DESCRIBE SELECT * FROM read_parquet('{}'))",
-        out
-    ));
+    let cols = count(&format!("(DESCRIBE SELECT * FROM read_parquet('{}'))", out));
     assert_eq!(cols, 2, "should have projected to 2 columns");
 }
 
@@ -7075,13 +8273,14 @@ fn ctl_retry_is_a_passthrough_view() {
             node("r", "ctl.retry", json!({})),
             node("k", "snk.csv", json!({ "path": out, "hasHeader": true })),
         ]),
-        json!([
-            main_edge("e1", "s", "r"),
-            main_edge("e2", "r", "k"),
-        ]),
+        json!([main_edge("e1", "s", "r"), main_edge("e2", "r", "k"),]),
     );
     let result = engine.execute_pipeline(&d);
-    assert_eq!(result.status, "ok", "ctl.retry pipeline failed: {:?}", result.error);
+    assert_eq!(
+        result.status, "ok",
+        "ctl.retry pipeline failed: {:?}",
+        result.error
+    );
     assert_eq!(count(&format!("read_csv_auto('{}')", out)), 3);
 }
 
@@ -7108,7 +8307,9 @@ fn src_github_alias_routes_through_rest_path() {
 
     let handle = std::thread::spawn(move || {
         if let Ok((mut stream, _)) = listener.accept() {
-            stream.set_read_timeout(Some(Duration::from_millis(250))).ok();
+            stream
+                .set_read_timeout(Some(Duration::from_millis(250)))
+                .ok();
             let mut buf = Vec::with_capacity(8192);
             let mut chunk = [0u8; 4096];
             for _ in 0..16 {
@@ -7136,12 +8337,16 @@ fn src_github_alias_routes_through_rest_path() {
     let url = format!("http://127.0.0.1:{}/users", port);
     let r = engine.execute_pipeline(&doc(
         json!([
-            node("g", "src.github", json!({
-                "url": url,
-                "method": "GET",
-                "authType": "bearer",
-                "authToken": "ghp_TEST_TOKEN_NOT_REAL",
-            })),
+            node(
+                "g",
+                "src.github",
+                json!({
+                    "url": url,
+                    "method": "GET",
+                    "authType": "bearer",
+                    "authToken": "ghp_TEST_TOKEN_NOT_REAL",
+                })
+            ),
             node("k", "snk.csv", json!({ "path": out, "hasHeader": true })),
         ]),
         json!([main_edge("e1", "g", "k")]),
@@ -7180,7 +8385,9 @@ fn src_linear_alias_routes_through_graphql_path() {
 
     let handle = std::thread::spawn(move || {
         if let Ok((mut stream, _)) = listener.accept() {
-            stream.set_read_timeout(Some(Duration::from_millis(250))).ok();
+            stream
+                .set_read_timeout(Some(Duration::from_millis(250)))
+                .ok();
             let mut buf = Vec::with_capacity(8192);
             let mut chunk = [0u8; 4096];
             for _ in 0..16 {
@@ -7208,13 +8415,17 @@ fn src_linear_alias_routes_through_graphql_path() {
     let url = format!("http://127.0.0.1:{}/graphql", port);
     let r = engine.execute_pipeline(&doc(
         json!([
-            node("l", "src.linear", json!({
-                "url": url,
-                "query": "query { issues { nodes { id title } } }",
-                "responsePath": "/data/issues/nodes",
-                "authType": "bearer",
-                "authToken": "lin_api_TEST",
-            })),
+            node(
+                "l",
+                "src.linear",
+                json!({
+                    "url": url,
+                    "query": "query { issues { nodes { id title } } }",
+                    "responsePath": "/data/issues/nodes",
+                    "authType": "bearer",
+                    "authToken": "lin_api_TEST",
+                })
+            ),
             node("k", "snk.csv", json!({ "path": out, "hasHeader": true })),
         ]),
         json!([main_edge("e1", "l", "k")]),
@@ -7224,7 +8435,10 @@ fn src_linear_alias_routes_through_graphql_path() {
     assert_eq!(count(&format!("read_csv_auto('{}')", out)), 2);
     // Confirm it was a POST (GraphQL is always POST) and the query was sent.
     let req = captured.lock().unwrap();
-    assert!(req.starts_with("POST "), "expected POST request from src.linear alias");
+    assert!(
+        req.starts_with("POST "),
+        "expected POST request from src.linear alias"
+    );
     assert!(
         req.contains("query { issues { nodes { id title } } }"),
         "expected GraphQL query body in src.linear request"
@@ -7251,15 +8465,19 @@ fn snk_cockroach_routes_through_postgres_attach_path() {
     let r = engine.execute_pipeline(&doc(
         json!([
             node("s", "src.csv", json!({ "path": csv, "hasHeader": true })),
-            node("c", "snk.cockroach", json!({
-                "host": "127.0.0.1",
-                "port": 1,
-                "database": "defaultdb",
-                "user": "root",
-                "password": "",
-                "table": "users",
-                "mode": "append",
-            })),
+            node(
+                "c",
+                "snk.cockroach",
+                json!({
+                    "host": "127.0.0.1",
+                    "port": 1,
+                    "database": "defaultdb",
+                    "user": "root",
+                    "password": "",
+                    "table": "users",
+                    "mode": "append",
+                })
+            ),
         ]),
         json!([main_edge("e1", "s", "c")]),
     ));
@@ -7294,14 +8512,18 @@ fn src_fixedwidth_extracts_positional_columns() {
     let out = out_path(tmp.path(), "out.csv");
     let r = engine.execute_pipeline(&doc(
         json!([
-            node("f", "src.fixedwidth", json!({
-                "path": fw,
-                "columns": [
-                    {"name": "id",     "start": 1,  "width": 5},
-                    {"name": "name",   "start": 6,  "width": 20},
-                    {"name": "amount", "start": 26, "width": 10}
-                ]
-            })),
+            node(
+                "f",
+                "src.fixedwidth",
+                json!({
+                    "path": fw,
+                    "columns": [
+                        {"name": "id",     "start": 1,  "width": 5},
+                        {"name": "name",   "start": 6,  "width": 20},
+                        {"name": "amount", "start": 26, "width": 10}
+                    ]
+                })
+            ),
             node("k", "snk.csv", json!({ "path": out, "hasHeader": true })),
         ]),
         json!([main_edge("e1", "f", "k")]),
@@ -7351,10 +8573,14 @@ fn src_xml_walks_row_path_and_emits_matches_as_rows() {
     let out = out_path(tmp.path(), "out.csv");
     let r = engine.execute_pipeline(&doc(
         json!([
-            node("x", "src.xml", json!({
-                "path": xml_path,
-                "rowPath": "library/books/book",
-            })),
+            node(
+                "x",
+                "src.xml",
+                json!({
+                    "path": xml_path,
+                    "rowPath": "library/books/book",
+                })
+            ),
             node("k", "snk.csv", json!({ "path": out, "hasHeader": true })),
         ]),
         json!([main_edge("e1", "x", "k")]),
@@ -7365,7 +8591,11 @@ fn src_xml_walks_row_path_and_emits_matches_as_rows() {
     // by that name through DuckDB without quoting, so probe the file
     // text directly for the values we expect.
     let raw = std::fs::read_to_string(&out).unwrap();
-    assert!(raw.contains("Hyperion"), "expected Hyperion in output: {}", raw);
+    assert!(
+        raw.contains("Hyperion"),
+        "expected Hyperion in output: {}",
+        raw
+    );
     assert!(raw.contains("Dune"), "expected Dune");
     assert!(raw.contains("Foundation"), "expected Foundation");
 }
@@ -7388,14 +8618,34 @@ fn xml_roundtrip_via_snk_then_src() {
     ));
     assert_eq!(r1.status, "ok", "snk.xml failed: {:?}", r1.error);
     let written = std::fs::read_to_string(&xml_path).unwrap();
-    assert!(written.contains("<root>"), "expected default root wrapper: {}", written);
-    assert!(written.contains("<row>"), "expected default row wrapper: {}", written);
-    assert!(written.contains("alpha"), "expected alpha in xml: {}", written);
+    assert!(
+        written.contains("<root>"),
+        "expected default root wrapper: {}",
+        written
+    );
+    assert!(
+        written.contains("<row>"),
+        "expected default row wrapper: {}",
+        written
+    );
+    assert!(
+        written.contains("alpha"),
+        "expected alpha in xml: {}",
+        written
+    );
 
     let r2 = engine.execute_pipeline(&doc(
         json!([
-            node("x", "src.xml", json!({ "path": xml_path, "rowPath": "root/row" })),
-            node("k", "snk.csv", json!({ "path": out_csv, "hasHeader": true })),
+            node(
+                "x",
+                "src.xml",
+                json!({ "path": xml_path, "rowPath": "root/row" })
+            ),
+            node(
+                "k",
+                "snk.csv",
+                json!({ "path": out_csv, "hasHeader": true })
+            ),
         ]),
         json!([main_edge("e1", "x", "k")]),
     ));
@@ -7427,12 +8677,19 @@ fn snk_avro_writes_container_file_with_inferred_schema() {
         json!([main_edge("e1", "s", "a")]),
     ));
     assert_eq!(r1.status, "ok", "snk.avro failed: {:?}", r1.error);
-    assert!(std::path::Path::new(&avro_path).exists(), "avro file not written");
+    assert!(
+        std::path::Path::new(&avro_path).exists(),
+        "avro file not written"
+    );
 
     let r2 = engine.execute_pipeline(&doc(
         json!([
             node("a", "src.avro", json!({ "path": avro_path })),
-            node("k", "snk.csv", json!({ "path": out_csv, "hasHeader": true })),
+            node(
+                "k",
+                "snk.csv",
+                json!({ "path": out_csv, "hasHeader": true })
+            ),
         ]),
         json!([main_edge("e1", "a", "k")]),
     ));
@@ -7532,11 +8789,7 @@ fn yaml_roundtrip_via_snk_then_src() {
     // CSV -> snk.yaml -> src.yaml -> CSV; preserve all 3 rows.
     let engine = engine_or_skip!();
     let tmp = tempfile::tempdir().unwrap();
-    let csv = write_file(
-        tmp.path(),
-        "in.csv",
-        "id,name\n1,alpha\n2,beta\n3,gamma\n",
-    );
+    let csv = write_file(tmp.path(), "in.csv", "id,name\n1,alpha\n2,beta\n3,gamma\n");
     let yaml_path = out_path(tmp.path(), "mid.yaml");
     let out_csv = out_path(tmp.path(), "out.csv");
 
@@ -7548,12 +8801,19 @@ fn yaml_roundtrip_via_snk_then_src() {
         json!([main_edge("e1", "s", "y")]),
     ));
     assert_eq!(r1.status, "ok", "snk.yaml failed: {:?}", r1.error);
-    assert!(std::path::Path::new(&yaml_path).exists(), "yaml file not written");
+    assert!(
+        std::path::Path::new(&yaml_path).exists(),
+        "yaml file not written"
+    );
 
     let r2 = engine.execute_pipeline(&doc(
         json!([
             node("y", "src.yaml", json!({ "path": yaml_path })),
-            node("k", "snk.csv", json!({ "path": out_csv, "hasHeader": true })),
+            node(
+                "k",
+                "snk.csv",
+                json!({ "path": out_csv, "hasHeader": true })
+            ),
         ]),
         json!([main_edge("e1", "y", "k")]),
     ));
@@ -7587,8 +8847,16 @@ fn toml_roundtrip_wraps_under_rows_key() {
         "expected TOML output wrapped in [[rows]]: {}",
         written
     );
-    assert!(written.contains("alpha"), "expected alpha row in TOML: {}", written);
-    assert!(written.contains("beta"), "expected beta row in TOML: {}", written);
+    assert!(
+        written.contains("alpha"),
+        "expected alpha row in TOML: {}",
+        written
+    );
+    assert!(
+        written.contains("beta"),
+        "expected beta row in TOML: {}",
+        written
+    );
 }
 
 #[test]
@@ -7615,8 +8883,13 @@ fn src_qdrant_walks_scroll_pages_and_flattens_payload() {
 
     let handle = std::thread::spawn(move || {
         for stream in listener.incoming().take(2) {
-            let mut stream = match stream { Ok(s) => s, Err(_) => break };
-            stream.set_read_timeout(Some(Duration::from_millis(250))).ok();
+            let mut stream = match stream {
+                Ok(s) => s,
+                Err(_) => break,
+            };
+            stream
+                .set_read_timeout(Some(Duration::from_millis(250)))
+                .ok();
             stream.set_nodelay(true).ok();
             let mut buf = Vec::with_capacity(8192);
             let mut chunk = [0u8; 4096];
@@ -7627,7 +8900,9 @@ fn src_qdrant_walks_scroll_pages_and_flattens_payload() {
                     Err(_) => break,
                 }
             }
-            cap.lock().unwrap().push(String::from_utf8_lossy(&buf).to_string());
+            cap.lock()
+                .unwrap()
+                .push(String::from_utf8_lossy(&buf).to_string());
             let idx = rc.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
             let body: &[u8] = if idx == 0 { page1 } else { page2 };
             let resp = format!(
@@ -7647,12 +8922,16 @@ fn src_qdrant_walks_scroll_pages_and_flattens_payload() {
     let cluster = format!("http://127.0.0.1:{}", port);
     let r = engine.execute_pipeline(&doc(
         json!([
-            node("q", "src.qdrant", json!({
-                "clusterUrl": cluster,
-                "collection": "mydocs",
-                "apiKey": "test-key",
-                "pageSize": 100,
-            })),
+            node(
+                "q",
+                "src.qdrant",
+                json!({
+                    "clusterUrl": cluster,
+                    "collection": "mydocs",
+                    "apiKey": "test-key",
+                    "pageSize": 100,
+                })
+            ),
             node("k", "snk.csv", json!({ "path": out, "hasHeader": true })),
         ]),
         json!([main_edge("e1", "q", "k")]),
@@ -7664,7 +8943,11 @@ fn src_qdrant_walks_scroll_pages_and_flattens_payload() {
         2,
         "expected 2 scroll requests"
     );
-    assert_eq!(count(&format!("read_csv_auto('{}')", out)), 3, "expected 3 points total");
+    assert_eq!(
+        count(&format!("read_csv_auto('{}')", out)),
+        3,
+        "expected 3 points total"
+    );
     // Second request must carry the cursor offset from page 1.
     let reqs = captured.lock().unwrap();
     assert!(
@@ -7695,7 +8978,8 @@ fn src_weaviate_paginates_via_after_cursor() {
     let port = listener.local_addr().unwrap().port();
 
     let page1 = br#"{"objects":[{"id":"uuid-1","class":"Article","properties":{"title":"hello"}},{"id":"uuid-2","class":"Article","properties":{"title":"world"}}]}"#;
-    let page2 = br#"{"objects":[{"id":"uuid-3","class":"Article","properties":{"title":"again"}}]}"#;
+    let page2 =
+        br#"{"objects":[{"id":"uuid-3","class":"Article","properties":{"title":"again"}}]}"#;
     let req_count = Arc::new(std::sync::atomic::AtomicUsize::new(0));
     let captured = Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
     let rc = req_count.clone();
@@ -7703,8 +8987,13 @@ fn src_weaviate_paginates_via_after_cursor() {
 
     let handle = std::thread::spawn(move || {
         for stream in listener.incoming().take(2) {
-            let mut stream = match stream { Ok(s) => s, Err(_) => break };
-            stream.set_read_timeout(Some(Duration::from_millis(250))).ok();
+            let mut stream = match stream {
+                Ok(s) => s,
+                Err(_) => break,
+            };
+            stream
+                .set_read_timeout(Some(Duration::from_millis(250)))
+                .ok();
             stream.set_nodelay(true).ok();
             let mut buf = Vec::with_capacity(8192);
             let mut chunk = [0u8; 4096];
@@ -7715,7 +9004,9 @@ fn src_weaviate_paginates_via_after_cursor() {
                     Err(_) => break,
                 }
             }
-            cap.lock().unwrap().push(String::from_utf8_lossy(&buf).to_string());
+            cap.lock()
+                .unwrap()
+                .push(String::from_utf8_lossy(&buf).to_string());
             let idx = rc.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
             let body: &[u8] = if idx == 0 { page1 } else { page2 };
             let resp = format!(
@@ -7735,12 +9026,16 @@ fn src_weaviate_paginates_via_after_cursor() {
     let endpoint = format!("http://127.0.0.1:{}", port);
     let r = engine.execute_pipeline(&doc(
         json!([
-            node("w", "src.weaviate", json!({
-                "endpoint": endpoint,
-                "class": "Article",
-                "apiKey": "wv-key",
-                "pageSize": 2,
-            })),
+            node(
+                "w",
+                "src.weaviate",
+                json!({
+                    "endpoint": endpoint,
+                    "class": "Article",
+                    "apiKey": "wv-key",
+                    "pageSize": 2,
+                })
+            ),
             node("k", "snk.csv", json!({ "path": out, "hasHeader": true })),
         ]),
         json!([main_edge("e1", "w", "k")]),
@@ -7752,7 +9047,11 @@ fn src_weaviate_paginates_via_after_cursor() {
         2,
         "expected 2 requests (full page then short page)"
     );
-    assert_eq!(count(&format!("read_csv_auto('{}')", out)), 3, "expected 3 objects total");
+    assert_eq!(
+        count(&format!("read_csv_auto('{}')", out)),
+        3,
+        "expected 3 objects total"
+    );
     let reqs = captured.lock().unwrap();
     assert!(
         reqs[1].contains("after=uuid-2"),
@@ -7789,8 +9088,13 @@ fn src_milvus_paginates_via_offset() {
 
     let handle = std::thread::spawn(move || {
         for stream in listener.incoming().take(2) {
-            let mut stream = match stream { Ok(s) => s, Err(_) => break };
-            stream.set_read_timeout(Some(Duration::from_millis(250))).ok();
+            let mut stream = match stream {
+                Ok(s) => s,
+                Err(_) => break,
+            };
+            stream
+                .set_read_timeout(Some(Duration::from_millis(250)))
+                .ok();
             stream.set_nodelay(true).ok();
             let mut buf = Vec::with_capacity(8192);
             let mut chunk = [0u8; 4096];
@@ -7801,7 +9105,9 @@ fn src_milvus_paginates_via_offset() {
                     Err(_) => break,
                 }
             }
-            cap.lock().unwrap().push(String::from_utf8_lossy(&buf).to_string());
+            cap.lock()
+                .unwrap()
+                .push(String::from_utf8_lossy(&buf).to_string());
             let idx = rc.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
             let body: &[u8] = if idx == 0 { page1 } else { page2 };
             let resp = format!(
@@ -7821,13 +9127,17 @@ fn src_milvus_paginates_via_offset() {
     let endpoint = format!("http://127.0.0.1:{}", port);
     let r = engine.execute_pipeline(&doc(
         json!([
-            node("m", "src.milvus", json!({
-                "endpoint": endpoint,
-                "collection": "products",
-                "apiKey": "mv-key",
-                "filter": "id > 0",
-                "pageSize": 2,
-            })),
+            node(
+                "m",
+                "src.milvus",
+                json!({
+                    "endpoint": endpoint,
+                    "collection": "products",
+                    "apiKey": "mv-key",
+                    "filter": "id > 0",
+                    "pageSize": 2,
+                })
+            ),
             node("k", "snk.csv", json!({ "path": out, "hasHeader": true })),
         ]),
         json!([main_edge("e1", "m", "k")]),
@@ -7839,7 +9149,11 @@ fn src_milvus_paginates_via_offset() {
         2,
         "expected 2 query requests"
     );
-    assert_eq!(count(&format!("read_csv_auto('{}')", out)), 3, "expected 3 rows total");
+    assert_eq!(
+        count(&format!("read_csv_auto('{}')", out)),
+        3,
+        "expected 3 rows total"
+    );
     let reqs = captured.lock().unwrap();
     assert!(
         reqs[1].contains("\"offset\":2"),
@@ -7872,11 +9186,15 @@ fn snk_and_src_kafka_roundtrip_via_real_broker() {
     let r1 = engine.execute_pipeline(&doc(
         json!([
             node("s", "src.csv", json!({ "path": csv, "hasHeader": true })),
-            node("k", "snk.kafka", json!({
-                "brokers": &brokers,
-                "topic": &topic,
-                "keyColumn": "id",
-            })),
+            node(
+                "k",
+                "snk.kafka",
+                json!({
+                    "brokers": &brokers,
+                    "topic": &topic,
+                    "keyColumn": "id",
+                })
+            ),
         ]),
         json!([main_edge("e", "s", "k")]),
     ));
@@ -7886,12 +9204,16 @@ fn snk_and_src_kafka_roundtrip_via_real_broker() {
     let out = out_path(tmp.path(), "kafka.csv");
     let r2 = engine.execute_pipeline(&doc(
         json!([
-            node("k", "src.kafka", json!({
-                "brokers": &brokers,
-                "topic": &topic,
-                "startOffset": -1,
-                "maxRecords": 100,
-            })),
+            node(
+                "k",
+                "src.kafka",
+                json!({
+                    "brokers": &brokers,
+                    "topic": &topic,
+                    "startOffset": -1,
+                    "maxRecords": 100,
+                })
+            ),
             node("o", "snk.csv", json!({ "path": out, "hasHeader": true })),
         ]),
         json!([main_edge("e", "k", "o")]),
@@ -7927,11 +9249,15 @@ fn snk_and_src_rabbit_roundtrip_via_real_broker() {
     let r1 = engine.execute_pipeline(&doc(
         json!([
             node("s", "src.csv", json!({ "path": csv, "hasHeader": true })),
-            node("r", "snk.rabbit", json!({
-                "url": &url,
-                "exchange": "",
-                "routingKey": &queue,
-            })),
+            node(
+                "r",
+                "snk.rabbit",
+                json!({
+                    "url": &url,
+                    "exchange": "",
+                    "routingKey": &queue,
+                })
+            ),
         ]),
         json!([main_edge("e", "s", "r")]),
     ));
@@ -7941,12 +9267,16 @@ fn snk_and_src_rabbit_roundtrip_via_real_broker() {
     let out = out_path(tmp.path(), "rabbit.csv");
     let r2 = engine.execute_pipeline(&doc(
         json!([
-            node("r", "src.rabbit", json!({
-                "url": &url,
-                "queue": &queue,
-                "maxMessages": 3,
-                "timeoutMs": 5000,
-            })),
+            node(
+                "r",
+                "src.rabbit",
+                json!({
+                    "url": &url,
+                    "queue": &queue,
+                    "maxMessages": 3,
+                    "timeoutMs": 5000,
+                })
+            ),
             node("k", "snk.csv", json!({ "path": out, "hasHeader": true })),
         ]),
         json!([main_edge("e", "r", "k")]),
@@ -7986,11 +9316,19 @@ fn snk_and_src_nats_roundtrip_via_real_urls() {
         let engine_inner = engine_or_skip!();
         let r1 = engine_inner.execute_pipeline(&doc(
             json!([
-                node("s", "src.csv", json!({ "path": csv_path, "hasHeader": true })),
-                node("n", "snk.nats", json!({
-                    "urls": &urls_pub,
-                    "subject": &subj_pub,
-                })),
+                node(
+                    "s",
+                    "src.csv",
+                    json!({ "path": csv_path, "hasHeader": true })
+                ),
+                node(
+                    "n",
+                    "snk.nats",
+                    json!({
+                        "urls": &urls_pub,
+                        "subject": &subj_pub,
+                    })
+                ),
             ]),
             json!([main_edge("e", "s", "n")]),
         ));
@@ -8000,12 +9338,16 @@ fn snk_and_src_nats_roundtrip_via_real_urls() {
     let out = out_path(tmp.path(), "nats.csv");
     let r2 = engine.execute_pipeline(&doc(
         json!([
-            node("n", "src.nats", json!({
-                "urls": &urls,
-                "subject": &subject,
-                "maxRecords": 3,
-                "timeoutMs": 5000,
-            })),
+            node(
+                "n",
+                "src.nats",
+                json!({
+                    "urls": &urls,
+                    "subject": &subject,
+                    "maxRecords": 3,
+                    "timeoutMs": 5000,
+                })
+            ),
             node("k", "snk.csv", json!({ "path": out, "hasHeader": true })),
         ]),
         json!([main_edge("e", "n", "k")]),
@@ -8032,11 +9374,15 @@ fn snk_pubsub_routes_through_pubsub_handler_not_preview_fallback() {
     let r = engine.execute_pipeline(&doc(
         json!([
             node("s", "src.csv", json!({ "path": csv, "hasHeader": true })),
-            node("p", "snk.pubsub", json!({
-                "project": "fake-project",
-                "topic": "fake-topic",
-                "accessToken": "ya29.fake_token_will_401",
-            })),
+            node(
+                "p",
+                "snk.pubsub",
+                json!({
+                    "project": "fake-project",
+                    "topic": "fake-topic",
+                    "accessToken": "ya29.fake_token_will_401",
+                })
+            ),
         ]),
         json!([main_edge("e", "s", "p")]),
     ));
@@ -8077,12 +9423,16 @@ fn snk_and_src_redis_roundtrip_via_real_url() {
     let r1 = engine.execute_pipeline(&doc(
         json!([
             node("s", "src.csv", json!({ "path": csv, "hasHeader": true })),
-            node("r", "snk.redis", json!({
-                "url": &url,
-                "keyColumn": "key",
-                "valueColumn": "value",
-                "ttlSeconds": 60,
-            })),
+            node(
+                "r",
+                "snk.redis",
+                json!({
+                    "url": &url,
+                    "keyColumn": "key",
+                    "valueColumn": "value",
+                    "ttlSeconds": 60,
+                })
+            ),
         ]),
         json!([main_edge("e", "s", "r")]),
     ));
@@ -8091,11 +9441,15 @@ fn snk_and_src_redis_roundtrip_via_real_url() {
     let out = out_path(tmp.path(), "out.csv");
     let r2 = engine.execute_pipeline(&doc(
         json!([
-            node("g", "src.redis", json!({
-                "url": &url,
-                "keyPattern": format!("{}*", prefix),
-                "limit": 1000,
-            })),
+            node(
+                "g",
+                "src.redis",
+                json!({
+                    "url": &url,
+                    "keyPattern": format!("{}*", prefix),
+                    "limit": 1000,
+                })
+            ),
             node("k", "snk.csv", json!({ "path": out, "hasHeader": true })),
         ]),
         json!([main_edge("e", "g", "k")]),
@@ -8159,11 +9513,15 @@ fn src_git_log_emits_one_row_per_commit() {
     let out = out_path(tmp.path(), "log.csv");
     let r = engine.execute_pipeline(&doc(
         json!([
-            node("g", "src.git", json!({
-                "repo": &repo,
-                "mode": "log",
-                "maxRows": 100,
-            })),
+            node(
+                "g",
+                "src.git",
+                json!({
+                    "repo": &repo,
+                    "mode": "log",
+                    "maxRows": 100,
+                })
+            ),
             node("k", "snk.csv", json!({ "path": out, "hasHeader": true })),
         ]),
         json!([main_edge("e", "g", "k")]),
@@ -8255,8 +9613,14 @@ fn code_javascript_preserves_bigint_ids() {
         json!([main_edge("e1", "s", "j"), main_edge("e2", "j", "k")]),
     ));
     assert_eq!(r.status, "ok", "code.javascript failed: {:?}", r.error);
-    let id = scalar_string(&format!("SELECT CAST(id AS VARCHAR) FROM read_csv_auto('{}')", out));
-    assert_eq!(id, "1350000000000000001", "64-bit id must survive the JS bridge exactly");
+    let id = scalar_string(&format!(
+        "SELECT CAST(id AS VARCHAR) FROM read_csv_auto('{}')",
+        out
+    ));
+    assert_eq!(
+        id, "1350000000000000001",
+        "64-bit id must survive the JS bridge exactly"
+    );
 }
 
 /// Column lineage end-to-end: real json_serialize_sql AST -> resolved sources.
@@ -8272,17 +9636,29 @@ fn column_lineage_resolves_sources_live() {
     let total = by("total").expect("total column");
     let mut tcols: Vec<String> = total.sources.iter().map(|s| s.column.clone()).collect();
     tcols.sort();
-    assert_eq!(tcols, vec!["b".to_string(), "c".to_string()], "total <- b,c; got {:?}", total);
+    assert_eq!(
+        tcols,
+        vec!["b".to_string(), "c".to_string()],
+        "total <- b,c; got {:?}",
+        total
+    );
     // amt derives from amount (through the aggregate)
     let amt = by("amt").expect("amt column");
     assert_eq!(
-        amt.sources.iter().map(|s| s.column.as_str()).collect::<Vec<_>>(),
+        amt.sources
+            .iter()
+            .map(|s| s.column.as_str())
+            .collect::<Vec<_>>(),
         vec!["amount"],
         "amt <- amount; got {:?}",
         amt
     );
     // a is a passthrough of a
-    assert!(by("a").is_some(), "expected an 'a' output column: {:?}", lin);
+    assert!(
+        by("a").is_some(),
+        "expected an 'a' output column: {:?}",
+        lin
+    );
 }
 
 /// qa.survivor: collapse duplicates sharing a key into one golden record,
@@ -8301,18 +9677,40 @@ fn survivor_builds_golden_record_live() {
     let d = doc(
         json!([
             node("s", "src.csv", json!({ "path": csv, "hasHeader": true })),
-            node("g", "qa.survivor", json!({ "groupBy": ["id"], "rule": "most_recent", "recencyColumn": "updated" })),
+            node(
+                "g",
+                "qa.survivor",
+                json!({ "groupBy": ["id"], "rule": "most_recent", "recencyColumn": "updated" })
+            ),
             node("k", "snk.csv", json!({ "path": out, "hasHeader": true })),
         ]),
         json!([main_edge("e1", "s", "g"), main_edge("e2", "g", "k")]),
     );
     let r = engine.execute_pipeline(&d);
     assert_eq!(r.status, "ok", "qa.survivor failed: {:?}", r.error);
-    assert_eq!(count(&format!("read_csv_auto('{}')", out)), 2, "one golden record per id");
-    let name = scalar_string(&format!("SELECT name FROM read_csv_auto('{}') WHERE id = 1", out));
-    assert_eq!(name, "Jonathan", "id=1 survives the most-recent name, got {}", name);
-    let phone = scalar_string(&format!("SELECT CAST(phone AS VARCHAR) FROM read_csv_auto('{}') WHERE id = 1", out));
-    assert_eq!(phone, "222", "id=1 survives the most-recent phone, got {}", phone);
+    assert_eq!(
+        count(&format!("read_csv_auto('{}')", out)),
+        2,
+        "one golden record per id"
+    );
+    let name = scalar_string(&format!(
+        "SELECT name FROM read_csv_auto('{}') WHERE id = 1",
+        out
+    ));
+    assert_eq!(
+        name, "Jonathan",
+        "id=1 survives the most-recent name, got {}",
+        name
+    );
+    let phone = scalar_string(&format!(
+        "SELECT CAST(phone AS VARCHAR) FROM read_csv_auto('{}') WHERE id = 1",
+        out
+    ));
+    assert_eq!(
+        phone, "222",
+        "id=1 survives the most-recent phone, got {}",
+        phone
+    );
 }
 
 /// qa.refintegrity: orphans (main key absent from the reference) route to the
@@ -8320,7 +9718,11 @@ fn survivor_builds_golden_record_live() {
 #[test]
 fn refintegrity_routes_orphans_to_reject() {
     let tmp = tempfile::tempdir().unwrap();
-    let orders = write_file(tmp.path(), "orders.csv", "order_id,cust_id\n1,1\n2,2\n3,3\n4,4\n5,5\n");
+    let orders = write_file(
+        tmp.path(),
+        "orders.csv",
+        "order_id,cust_id\n1,1\n2,2\n3,3\n4,4\n5,5\n",
+    );
     let customers = write_file(tmp.path(), "customers.csv", "id\n1\n2\n3\n3\n");
     let pass = out_path(tmp.path(), "pass.csv");
     let rej = out_path(tmp.path(), "reject.csv");
@@ -8328,8 +9730,16 @@ fn refintegrity_routes_orphans_to_reject() {
     let d = doc(
         json!([
             node("o", "src.csv", json!({ "path": orders, "hasHeader": true })),
-            node("r", "src.csv", json!({ "path": customers, "hasHeader": true })),
-            node("ri", "qa.refintegrity", json!({ "leftKey": "cust_id", "rightKey": "id" })),
+            node(
+                "r",
+                "src.csv",
+                json!({ "path": customers, "hasHeader": true })
+            ),
+            node(
+                "ri",
+                "qa.refintegrity",
+                json!({ "leftKey": "cust_id", "rightKey": "id" })
+            ),
             node("kp", "snk.csv", json!({ "path": pass, "hasHeader": true })),
             node("kr", "snk.csv", json!({ "path": rej, "hasHeader": true })),
         ]),
@@ -8342,9 +9752,20 @@ fn refintegrity_routes_orphans_to_reject() {
     );
     let result = engine.execute_pipeline(&d);
     assert_eq!(result.status, "ok", "run failed: {:?}", result.error);
-    assert_eq!(count(&format!("read_csv_auto('{}')", pass)), 3, "3 valid rows (no fan-out from duplicate ref key)");
-    assert_eq!(count(&format!("read_csv_auto('{}')", rej)), 2, "cust_id 4,5 are orphans");
-    let bad = count(&format!("read_csv_auto('{}') WHERE cust_id NOT IN (1,2,3)", pass));
+    assert_eq!(
+        count(&format!("read_csv_auto('{}')", pass)),
+        3,
+        "3 valid rows (no fan-out from duplicate ref key)"
+    );
+    assert_eq!(
+        count(&format!("read_csv_auto('{}')", rej)),
+        2,
+        "cust_id 4,5 are orphans"
+    );
+    let bad = count(&format!(
+        "read_csv_auto('{}') WHERE cust_id NOT IN (1,2,3)",
+        pass
+    ));
     assert_eq!(bad, 0, "no orphan should leak into the pass output");
 }
 
@@ -8362,7 +9783,11 @@ fn profile_adv_topn_and_pattern_fraction_live() {
     let d = doc(
         json!([
             node("s1", "src.csv", json!({ "path": csv, "hasHeader": true })),
-            node("p1", "qa.profile.adv", json!({ "column": "email", "topN": 3 })),
+            node(
+                "p1",
+                "qa.profile.adv",
+                json!({ "column": "email", "topN": 3 })
+            ),
             node("k1", "snk.csv", json!({ "path": out, "hasHeader": true })),
         ]),
         json!([main_edge("e1", "s1", "p1"), main_edge("e2", "p1", "k1")]),
@@ -8391,21 +9816,44 @@ fn profile_adv_topn_and_pattern_fraction_live() {
 fn link_matches_two_inputs_with_scores() {
     let engine = engine_or_skip!();
     let tmp = tempfile::tempdir().unwrap();
-    let main = write_file(tmp.path(), "main.csv", "cust_id,name\n1,Acme Inc\n2,Globex Corporation\n3,Initech\n");
-    let reference = write_file(tmp.path(), "ref.csv", "ref_id,company\nA,Acme Incorporated\nB,Globex Corp\nC,Umbrella\n");
+    let main = write_file(
+        tmp.path(),
+        "main.csv",
+        "cust_id,name\n1,Acme Inc\n2,Globex Corporation\n3,Initech\n",
+    );
+    let reference = write_file(
+        tmp.path(),
+        "ref.csv",
+        "ref_id,company\nA,Acme Incorporated\nB,Globex Corp\nC,Umbrella\n",
+    );
     let out = out_path(tmp.path(), "links.csv");
     let d = doc(
         json!([
             node("m", "src.csv", json!({ "path": main, "hasHeader": true })),
-            node("r", "src.csv", json!({ "path": reference, "hasHeader": true })),
-            node("lk", "qa.link", json!({ "leftColumns": ["name"], "rightColumns": ["company"], "threshold": 0.85, "algorithm": "jaro-winkler" })),
+            node(
+                "r",
+                "src.csv",
+                json!({ "path": reference, "hasHeader": true })
+            ),
+            node(
+                "lk",
+                "qa.link",
+                json!({ "leftColumns": ["name"], "rightColumns": ["company"], "threshold": 0.85, "algorithm": "jaro-winkler" })
+            ),
             node("k", "snk.csv", json!({ "path": out, "hasHeader": true })),
         ]),
-        json!([main_edge("e1", "m", "lk"), lookup_edge("e2", "r", "lk"), main_edge("e3", "lk", "k")]),
+        json!([
+            main_edge("e1", "m", "lk"),
+            lookup_edge("e2", "r", "lk"),
+            main_edge("e3", "lk", "k")
+        ]),
     );
     let result = engine.execute_pipeline(&d);
     assert_eq!(result.status, "ok", "run failed: {:?}", result.error);
-    let acme_right = scalar_string(&format!("SELECT right_key FROM read_csv_auto('{}') WHERE left_key = 'Acme Inc'", out));
+    let acme_right = scalar_string(&format!(
+        "SELECT right_key FROM read_csv_auto('{}') WHERE left_key = 'Acme Inc'",
+        out
+    ));
     assert_eq!(acme_right, "Acme Incorporated", "got {}", acme_right);
     let below = count(&format!("read_csv_auto('{}') WHERE score < 0.85", out));
     assert_eq!(below, 0, "no sub-threshold pair leaks in");
@@ -8416,21 +9864,42 @@ fn link_matches_two_inputs_with_scores() {
 fn reconcile_reports_source_vs_target_live() {
     let engine = engine_or_skip!();
     let tmp = tempfile::tempdir().unwrap();
-    let source = write_file(tmp.path(), "source.csv", "id,amount\n1,100\n2,200\n3,300\n4,400\n");
-    let target = write_file(tmp.path(), "target.csv", "id,amount\n1,100\n2,250\n3,300\n5,500\n");
+    let source = write_file(
+        tmp.path(),
+        "source.csv",
+        "id,amount\n1,100\n2,200\n3,300\n4,400\n",
+    );
+    let target = write_file(
+        tmp.path(),
+        "target.csv",
+        "id,amount\n1,100\n2,250\n3,300\n5,500\n",
+    );
     let out = out_path(tmp.path(), "report.csv");
     let d = doc(
         json!([
             node("s", "src.csv", json!({ "path": source, "hasHeader": true })),
             node("t", "src.csv", json!({ "path": target, "hasHeader": true })),
-            node("rc", "qa.reconcile", json!({ "keyColumns": ["id"], "measureColumns": ["amount"] })),
+            node(
+                "rc",
+                "qa.reconcile",
+                json!({ "keyColumns": ["id"], "measureColumns": ["amount"] })
+            ),
             node("k", "snk.csv", json!({ "path": out, "hasHeader": true })),
         ]),
-        json!([main_edge("e1", "s", "rc"), lookup_edge("e2", "t", "rc"), main_edge("e3", "rc", "k")]),
+        json!([
+            main_edge("e1", "s", "rc"),
+            lookup_edge("e2", "t", "rc"),
+            main_edge("e3", "rc", "k")
+        ]),
     );
     let r = engine.execute_pipeline(&d);
     assert_eq!(r.status, "ok", "qa.reconcile failed: {:?}", r.error);
-    let m = |name: &str| scalar_string(&format!("SELECT \"value\" FROM read_csv_auto('{}') WHERE \"metric\" = '{}'", out, name));
+    let m = |name: &str| {
+        scalar_string(&format!(
+            "SELECT \"value\" FROM read_csv_auto('{}') WHERE \"metric\" = '{}'",
+            out, name
+        ))
+    };
     assert_eq!(m("rows_only_in_source"), "1.0", "key 4 only in source");
     assert_eq!(m("rows_only_in_target"), "1.0", "key 5 only in target");
     assert_eq!(m("keys_matched"), "3.0", "keys 1,2,3 matched");
@@ -8458,7 +9927,12 @@ fn classify_detects_email_and_ssn_live() {
     );
     let r = engine.execute_pipeline(&d);
     assert_eq!(r.status, "ok", "qa.classify failed: {:?}", r.error);
-    let typ = |col: &str| scalar_string(&format!("SELECT detected_type FROM read_csv_auto('{}') WHERE \"column\" = '{}'", out, col));
+    let typ = |col: &str| {
+        scalar_string(&format!(
+            "SELECT detected_type FROM read_csv_auto('{}') WHERE \"column\" = '{}'",
+            out, col
+        ))
+    };
     assert_eq!(typ("email"), "email", "email column");
     assert_eq!(typ("ssn"), "ssn", "ssn column");
     assert_eq!(typ("note"), "text", "free text");
@@ -8490,7 +9964,13 @@ fn rename_via_mapping_file_live() {
         out
     ));
     assert_eq!(cols, 3, "alpha, gamma, b must all be present");
-    assert_eq!(scalar_string(&format!("SELECT CAST(alpha AS VARCHAR) FROM read_csv_auto('{}')", out)), "1");
+    assert_eq!(
+        scalar_string(&format!(
+            "SELECT CAST(alpha AS VARCHAR) FROM read_csv_auto('{}')",
+            out
+        )),
+        "1"
+    );
 }
 
 /// #84: spatial functions in a SQL Template over a CSV source - the spatial
@@ -8504,15 +9984,27 @@ fn sql_template_spatial_over_csv_live() {
     let d = doc(
         json!([
             node("s", "src.csv", json!({ "path": csv, "hasHeader": true })),
-            node("q", "code.sql", json!({ "sql": "SELECT lon, lat, ST_AsText(ST_Point(lon, lat)) AS geom FROM input" })),
+            node(
+                "q",
+                "code.sql",
+                json!({ "sql": "SELECT lon, lat, ST_AsText(ST_Point(lon, lat)) AS geom FROM input" })
+            ),
             node("k", "snk.csv", json!({ "path": out, "hasHeader": true })),
         ]),
         json!([main_edge("e1", "s", "q"), main_edge("e2", "q", "k")]),
     );
     let res = engine.execute_pipeline(&d);
-    assert_eq!(res.status, "ok", "spatial SQL template failed: {:?}", res.error);
+    assert_eq!(
+        res.status, "ok",
+        "spatial SQL template failed: {:?}",
+        res.error
+    );
     let geom = scalar_string(&format!("SELECT geom FROM read_csv_auto('{}')", out));
-    assert_eq!(geom, "POINT (10 20)", "ST_Point should compute a geometry, got {}", geom);
+    assert_eq!(
+        geom, "POINT (10 20)",
+        "ST_Point should compute a geometry, got {}",
+        geom
+    );
 }
 
 /// #83: extra CSV read options - filename=true adds a filename column when
@@ -8531,17 +10023,35 @@ fn csv_filename_option_live() {
     let out = out_path(tmp.path(), "out.csv");
     let d = doc(
         json!([
-            node("s", "src.csv", json!({ "path": glob, "hasHeader": true, "filename": true })),
+            node(
+                "s",
+                "src.csv",
+                json!({ "path": glob, "hasHeader": true, "filename": true })
+            ),
             node("k", "snk.csv", json!({ "path": out, "hasHeader": true })),
         ]),
         json!([main_edge("e1", "s", "k")]),
     );
     let res = engine.execute_pipeline(&d);
-    assert_eq!(res.status, "ok", "csv filename option failed: {:?}", res.error);
-    assert_eq!(count(&format!("read_csv_auto('{}')", out)), 2, "both files read");
+    assert_eq!(
+        res.status, "ok",
+        "csv filename option failed: {:?}",
+        res.error
+    );
+    assert_eq!(
+        count(&format!("read_csv_auto('{}')", out)),
+        2,
+        "both files read"
+    );
     // A filename column exists and is non-null.
-    let with_fn = count(&format!("read_csv_auto('{}') WHERE filename IS NOT NULL", out));
-    assert_eq!(with_fn, 2, "filename column should be populated for every row");
+    let with_fn = count(&format!(
+        "read_csv_auto('{}') WHERE filename IS NOT NULL",
+        out
+    ));
+    assert_eq!(
+        with_fn, 2,
+        "filename column should be populated for every row"
+    );
 }
 
 /// qa.contract: clean data passes through unchanged; a violation aborts the run
@@ -8550,7 +10060,11 @@ fn csv_filename_option_live() {
 fn contract_passes_clean_and_aborts_on_violation() {
     let engine = engine_or_skip!();
     let tmp = tempfile::tempdir().unwrap();
-    let clean = write_file(tmp.path(), "clean.csv", "id,email,amt\n1,a@x.com,5\n2,b@x.com,9\n3,c@x.com,0\n");
+    let clean = write_file(
+        tmp.path(),
+        "clean.csv",
+        "id,email,amt\n1,a@x.com,5\n2,b@x.com,9\n3,c@x.com,0\n",
+    );
     let out = out_path(tmp.path(), "contract_pass.csv");
     let rules = json!([
         { "column": "email", "check": "not_null" },
@@ -8567,17 +10081,33 @@ fn contract_passes_clean_and_aborts_on_violation() {
     );
     let r = engine.execute_pipeline(&d);
     assert_eq!(r.status, "ok", "clean contract must pass: {:?}", r.error);
-    assert_eq!(count(&format!("read_csv_auto('{}')", out)), 3, "all rows pass through unchanged");
+    assert_eq!(
+        count(&format!("read_csv_auto('{}')", out)),
+        3,
+        "all rows pass through unchanged"
+    );
 
-    let dirty = write_file(tmp.path(), "dirty.csv", "id,email,amt\n1,a@x.com,5\n2,b@x.com,99\n2,c@x.com,7\n");
+    let dirty = write_file(
+        tmp.path(),
+        "dirty.csv",
+        "id,email,amt\n1,a@x.com,5\n2,b@x.com,99\n2,c@x.com,7\n",
+    );
     let bad = doc(
         json!([
             node("s", "src.csv", json!({ "path": dirty, "hasHeader": true })),
-            node("c", "qa.contract", json!({ "rules": [
-                { "column": "amt", "check": "in_range", "args": { "min": 0, "max": 10 } },
-                { "column": "id",  "check": "unique" }
-            ]})),
-            node("k", "snk.csv", json!({ "path": out_path(tmp.path(), "contract_never.csv"), "hasHeader": true })),
+            node(
+                "c",
+                "qa.contract",
+                json!({ "rules": [
+                    { "column": "amt", "check": "in_range", "args": { "min": 0, "max": 10 } },
+                    { "column": "id",  "check": "unique" }
+                ]})
+            ),
+            node(
+                "k",
+                "snk.csv",
+                json!({ "path": out_path(tmp.path(), "contract_never.csv"), "hasHeader": true })
+            ),
         ]),
         json!([main_edge("e1", "s", "c"), main_edge("e2", "c", "k")]),
     );
@@ -8585,7 +10115,9 @@ fn contract_passes_clean_and_aborts_on_violation() {
     assert_eq!(rb.status, "error", "violating contract must fail the run");
     let err = rb.error.unwrap_or_default();
     assert!(
-        err.contains("Data contract violated") && err.contains("in_range") && err.contains("unique"),
+        err.contains("Data contract violated")
+            && err.contains("in_range")
+            && err.contains("unique"),
         "error should name the violated checks: {}",
         err
     );
@@ -8597,34 +10129,67 @@ fn contract_passes_clean_and_aborts_on_violation() {
 fn surrogate_key_hash_and_sequence_live() {
     let engine = engine_or_skip!();
     let tmp = tempfile::tempdir().unwrap();
-    let csv = write_file(tmp.path(), "in.csv", "company,country,amt\nACME,US,100\nACME,US,200\nBeta,UK,50\nGamma,US,75\n");
+    let csv = write_file(
+        tmp.path(),
+        "in.csv",
+        "company,country,amt\nACME,US,100\nACME,US,200\nBeta,UK,50\nGamma,US,75\n",
+    );
     let out_hash = out_path(tmp.path(), "hash.csv");
     let dh = doc(
         json!([
             node("s", "src.csv", json!({ "path": csv, "hasHeader": true })),
-            node("k", "xf.surrogatekey", json!({ "mode": "hash", "keyColumns": ["company", "country"] })),
-            node("w", "snk.csv", json!({ "path": out_hash, "hasHeader": true })),
+            node(
+                "k",
+                "xf.surrogatekey",
+                json!({ "mode": "hash", "keyColumns": ["company", "country"] })
+            ),
+            node(
+                "w",
+                "snk.csv",
+                json!({ "path": out_hash, "hasHeader": true })
+            ),
         ]),
         json!([main_edge("e1", "s", "k"), main_edge("e2", "k", "w")]),
     );
     assert_eq!(engine.execute_pipeline(&dh).status, "ok");
     // 4 business keys, 3 distinct (ACME/US repeats -> one surrogate).
-    let total_distinct = scalar_string(&format!("SELECT count(DISTINCT surrogate_key) FROM read_csv_auto('{}')", out_hash));
-    assert_eq!(total_distinct, "3", "expected 3 distinct surrogate keys, got {}", total_distinct);
-    let any_key = scalar_string(&format!("SELECT surrogate_key FROM read_csv_auto('{}') WHERE company='ACME' LIMIT 1", out_hash));
+    let total_distinct = scalar_string(&format!(
+        "SELECT count(DISTINCT surrogate_key) FROM read_csv_auto('{}')",
+        out_hash
+    ));
+    assert_eq!(
+        total_distinct, "3",
+        "expected 3 distinct surrogate keys, got {}",
+        total_distinct
+    );
+    let any_key = scalar_string(&format!(
+        "SELECT surrogate_key FROM read_csv_auto('{}') WHERE company='ACME' LIMIT 1",
+        out_hash
+    ));
     assert_eq!(any_key.len(), 32, "md5 hex is 32 chars, got {}", any_key);
 
     let out_seq = out_path(tmp.path(), "seq.csv");
     let ds = doc(
         json!([
             node("s", "src.csv", json!({ "path": csv, "hasHeader": true })),
-            node("k", "xf.surrogatekey", json!({ "mode": "sequence", "keyColumns": ["company", "country"] })),
-            node("w", "snk.csv", json!({ "path": out_seq, "hasHeader": true })),
+            node(
+                "k",
+                "xf.surrogatekey",
+                json!({ "mode": "sequence", "keyColumns": ["company", "country"] })
+            ),
+            node(
+                "w",
+                "snk.csv",
+                json!({ "path": out_seq, "hasHeader": true })
+            ),
         ]),
         json!([main_edge("e1", "s", "k"), main_edge("e2", "k", "w")]),
     );
     assert_eq!(engine.execute_pipeline(&ds).status, "ok");
-    let hi = scalar_string(&format!("SELECT max(surrogate_key) FROM read_csv_auto('{}')", out_seq));
+    let hi = scalar_string(&format!(
+        "SELECT max(surrogate_key) FROM read_csv_auto('{}')",
+        out_seq
+    ));
     assert_eq!(hi, "4", "sequence should end at N=4, got {}", hi);
 }
 
@@ -8638,15 +10203,37 @@ fn bucketize_labeled_bounds_live() {
     let d = doc(
         json!([
             node("s", "src.csv", json!({ "path": csv, "hasHeader": true })),
-            node("b", "xf.num.bucketize", json!({ "column": "age", "bounds": [18, 65], "labels": ["minor", "adult", "senior"], "outputColumn": "band" })),
+            node(
+                "b",
+                "xf.num.bucketize",
+                json!({ "column": "age", "bounds": [18, 65], "labels": ["minor", "adult", "senior"], "outputColumn": "band" })
+            ),
             node("k", "snk.csv", json!({ "path": out, "hasHeader": true })),
         ]),
         json!([main_edge("e1", "s", "b"), main_edge("e2", "b", "k")]),
     );
     assert_eq!(engine.execute_pipeline(&d).status, "ok");
-    assert_eq!(scalar_string(&format!("SELECT band FROM read_csv_auto('{}') WHERE id=1", out)), "minor");
-    assert_eq!(scalar_string(&format!("SELECT band FROM read_csv_auto('{}') WHERE id=2", out)), "adult");
-    assert_eq!(scalar_string(&format!("SELECT band FROM read_csv_auto('{}') WHERE id=3", out)), "senior");
+    assert_eq!(
+        scalar_string(&format!(
+            "SELECT band FROM read_csv_auto('{}') WHERE id=1",
+            out
+        )),
+        "minor"
+    );
+    assert_eq!(
+        scalar_string(&format!(
+            "SELECT band FROM read_csv_auto('{}') WHERE id=2",
+            out
+        )),
+        "adult"
+    );
+    assert_eq!(
+        scalar_string(&format!(
+            "SELECT band FROM read_csv_auto('{}') WHERE id=3",
+            out
+        )),
+        "senior"
+    );
 }
 
 /// qa.matchgroup: transitive-closure clustering of matched record pairs. a~b
@@ -8661,23 +10248,45 @@ fn matchgroup_clusters_pairs_live() {
     let d = doc(
         json!([
             node("s", "src.csv", json!({ "path": csv, "hasHeader": true })),
-            node("g", "qa.matchgroup", json!({ "leftKey": "id_a", "rightKey": "id_b" })),
+            node(
+                "g",
+                "qa.matchgroup",
+                json!({ "leftKey": "id_a", "rightKey": "id_b" })
+            ),
             node("k", "snk.csv", json!({ "path": out, "hasHeader": true })),
         ]),
         json!([main_edge("e1", "s", "g"), main_edge("e2", "g", "k")]),
     );
     let r = engine.execute_pipeline(&d);
     assert_eq!(r.status, "ok", "qa.matchgroup failed: {:?}", r.error);
-    assert_eq!(count(&format!("read_csv_auto('{}')", out)), 4, "one cluster row per id");
+    assert_eq!(
+        count(&format!("read_csv_auto('{}')", out)),
+        4,
+        "one cluster row per id"
+    );
     let abc = count(&format!(
         "(SELECT DISTINCT cluster_id FROM read_csv_auto('{}') WHERE id IN ('a','b','c'))",
         out
     ));
     assert_eq!(abc, 1, "a, b, c must share one cluster");
-    let a_cluster = scalar_string(&format!("SELECT cluster_id FROM read_csv_auto('{}') WHERE id = 'a'", out));
-    assert_eq!(a_cluster, "a", "cluster rep should be the MIN id, got {}", a_cluster);
-    let d_cluster = scalar_string(&format!("SELECT cluster_id FROM read_csv_auto('{}') WHERE id = 'd'", out));
-    assert_eq!(d_cluster, "d", "isolated d should be its own cluster, got {}", d_cluster);
+    let a_cluster = scalar_string(&format!(
+        "SELECT cluster_id FROM read_csv_auto('{}') WHERE id = 'a'",
+        out
+    ));
+    assert_eq!(
+        a_cluster, "a",
+        "cluster rep should be the MIN id, got {}",
+        a_cluster
+    );
+    let d_cluster = scalar_string(&format!(
+        "SELECT cluster_id FROM read_csv_auto('{}') WHERE id = 'd'",
+        out
+    ));
+    assert_eq!(
+        d_cluster, "d",
+        "isolated d should be its own cluster, got {}",
+        d_cluster
+    );
 }
 
 /// qa.expect: run an expectation suite over real data and read the scorecard
@@ -8695,22 +10304,33 @@ fn expect_scorecard_live() {
     let d = doc(
         json!([
             node("s", "src.csv", json!({ "path": csv, "hasHeader": true })),
-            node("q", "qa.expect", json!({ "rules": [
-                { "column": "email",  "check": "not_null" },
-                { "column": "amt",    "check": "in_range", "args": { "min": 0, "max": 10 } },
-                { "column": "status", "check": "in_set",   "args": ["paid", "pending"] },
-                { "column": "amt",    "check": "non_negative" },
-                { "column": "id",     "check": "unique" }
-            ]})),
+            node(
+                "q",
+                "qa.expect",
+                json!({ "rules": [
+                    { "column": "email",  "check": "not_null" },
+                    { "column": "amt",    "check": "in_range", "args": { "min": 0, "max": 10 } },
+                    { "column": "status", "check": "in_set",   "args": ["paid", "pending"] },
+                    { "column": "amt",    "check": "non_negative" },
+                    { "column": "id",     "check": "unique" }
+                ]})
+            ),
             node("k", "snk.csv", json!({ "path": out, "hasHeader": true })),
         ]),
         json!([main_edge("e1", "s", "q"), main_edge("e2", "q", "k")]),
     );
     let r = engine.execute_pipeline(&d);
     assert_eq!(r.status, "ok", "qa.expect failed: {:?}", r.error);
-    assert_eq!(count(&format!("read_csv_auto('{}')", out)), 5, "one scorecard row per rule");
+    assert_eq!(
+        count(&format!("read_csv_auto('{}')", out)),
+        5,
+        "one scorecard row per rule"
+    );
     let q = |col: &str, exp: &str| {
-        format!("SELECT {} FROM read_csv_auto('{}') WHERE expectation = '{}'", col, out, exp)
+        format!(
+            "SELECT {} FROM read_csv_auto('{}') WHERE expectation = '{}'",
+            col, out, exp
+        )
     };
     assert_eq!(scalar_string(&q("failed", "not_null(email)")), "1");
     assert_eq!(scalar_string(&q("pass_rate", "not_null(email)")), "0.75");
@@ -8735,7 +10355,11 @@ fn sample_adv_reproducible_live() {
         let d = doc(
             json!([
                 node("s", "src.csv", json!({ "path": csv, "hasHeader": true })),
-                node("p", "qa.sample.adv", json!({ "percent": 10, "method": "reservoir", "seed": 42 })),
+                node(
+                    "p",
+                    "qa.sample.adv",
+                    json!({ "percent": 10, "method": "reservoir", "seed": 42 })
+                ),
                 node("k", "snk.csv", json!({ "path": out, "hasHeader": true })),
             ]),
             json!([main_edge("e1", "s", "p"), main_edge("e2", "p", "k")]),
@@ -8747,7 +10371,11 @@ fn sample_adv_reproducible_live() {
     let out_b = out_path(tmp.path(), "b.csv");
     run(&out_a);
     run(&out_b);
-    assert_eq!(count(&format!("read_csv_auto('{}')", out_a)), 20, "10% of 200 rows");
+    assert_eq!(
+        count(&format!("read_csv_auto('{}')", out_a)),
+        20,
+        "10% of 200 rows"
+    );
     let h_a = scalar_string(&format!(
         "SELECT md5(string_agg(CAST(id AS VARCHAR), ',' ORDER BY id)) FROM read_csv_auto('{}')",
         out_a
@@ -8756,7 +10384,11 @@ fn sample_adv_reproducible_live() {
         "SELECT md5(string_agg(CAST(id AS VARCHAR), ',' ORDER BY id)) FROM read_csv_auto('{}')",
         out_b
     ));
-    assert_eq!(h_a, h_b, "same seed must select the same rows: {} vs {}", h_a, h_b);
+    assert_eq!(
+        h_a, h_b,
+        "same seed must select the same rows: {} vs {}",
+        h_a, h_b
+    );
 }
 
 /// qa.mask: partial-mask + deterministic salted-hash anonymization, end to end.
@@ -8764,15 +10396,23 @@ fn sample_adv_reproducible_live() {
 fn mask_anonymizes_columns_live() {
     let engine = engine_or_skip!();
     let tmp = tempfile::tempdir().unwrap();
-    let csv = write_file(tmp.path(), "in.csv", "id,ssn,email\n1,123456789,a@x.com\n2,123456789,b@x.com\n");
+    let csv = write_file(
+        tmp.path(),
+        "in.csv",
+        "id,ssn,email\n1,123456789,a@x.com\n2,123456789,b@x.com\n",
+    );
     let out = out_path(tmp.path(), "out.csv");
     let d = doc(
         json!([
             node("s", "src.csv", json!({ "path": csv, "hasHeader": true })),
-            node("m", "qa.mask", json!({ "masks": [
-                { "column": "ssn", "mode": "partial", "showLast": 4 },
-                { "column": "email", "mode": "hash", "salt": "pepper" }
-            ]})),
+            node(
+                "m",
+                "qa.mask",
+                json!({ "masks": [
+                    { "column": "ssn", "mode": "partial", "showLast": 4 },
+                    { "column": "email", "mode": "hash", "salt": "pepper" }
+                ]})
+            ),
             node("k", "snk.csv", json!({ "path": out, "hasHeader": true })),
         ]),
         json!([main_edge("e1", "s", "m"), main_edge("e2", "m", "k")]),
@@ -8780,11 +10420,21 @@ fn mask_anonymizes_columns_live() {
     let r = engine.execute_pipeline(&d);
     assert_eq!(r.status, "ok", "qa.mask failed: {:?}", r.error);
     // ssn shows only the last 4 digits.
-    let ssn = scalar_string(&format!("SELECT ssn FROM read_csv_auto('{}') WHERE id = 1", out));
-    assert_eq!(ssn, "*****6789", "ssn should be partially masked, got {}", ssn);
+    let ssn = scalar_string(&format!(
+        "SELECT ssn FROM read_csv_auto('{}') WHERE id = 1",
+        out
+    ));
+    assert_eq!(
+        ssn, "*****6789",
+        "ssn should be partially masked, got {}",
+        ssn
+    );
     // email is hashed (no plaintext) and deterministic: both rows have the same
     // value '123...'? no - emails differ, but the SAME email would hash equal.
-    let e1 = scalar_string(&format!("SELECT email FROM read_csv_auto('{}') WHERE id = 1", out));
+    let e1 = scalar_string(&format!(
+        "SELECT email FROM read_csv_auto('{}') WHERE id = 1",
+        out
+    ));
     assert!(!e1.contains('@'), "email should be hashed, got {}", e1);
     assert_eq!(e1.len(), 32, "md5 hex is 32 chars, got {}", e1);
 }
@@ -8805,12 +10455,17 @@ fn pipeline_column_lineage_traces_to_source() {
         ]),
         json!([main_edge("e1", "s", "p"), main_edge("e2", "p", "k")]),
     );
-    let lin = engine.pipeline_column_lineage(&d).expect("pipeline lineage");
+    let lin = engine
+        .pipeline_column_lineage(&d)
+        .expect("pipeline lineage");
     let p = lin.get("p").expect("lineage for node p");
     let a = p.iter().find(|(name, _)| name == "a").expect("col a in p");
     assert_eq!(
         a.1,
-        vec![duckle_duckdb_engine::lineage::RootColumn { node: "s".into(), column: "a".into() }],
+        vec![duckle_duckdb_engine::lineage::RootColumn {
+            node: "s".into(),
+            column: "a".into()
+        }],
         "output column a should trace to source s.a; got {:?}",
         a
     );
@@ -8835,7 +10490,11 @@ fn code_javascript_undefined_return_errors_not_panics() {
         ]),
         json!([main_edge("e1", "s", "j"), main_edge("e2", "j", "k")]),
     ));
-    assert_eq!(r.status, "error", "undefined return should error, got {:?}", r.status);
+    assert_eq!(
+        r.status, "error",
+        "undefined return should error, got {:?}",
+        r.status
+    );
     let err = r.error.unwrap_or_default();
     assert!(
         err.contains("must return an object"),
@@ -8869,10 +10528,14 @@ fn xf_ai_dedupe_drops_near_duplicate_rows_by_cosine() {
     let r = engine.execute_pipeline(&doc(
         json!([
             node("s", "src.csv", json!({ "path": in_csv, "hasHeader": true })),
-            node("d", "xf.ai.dedupe", json!({
-                "embeddingColumn": "embedding",
-                "threshold": 0.95,
-            })),
+            node(
+                "d",
+                "xf.ai.dedupe",
+                json!({
+                    "embeddingColumn": "embedding",
+                    "threshold": 0.95,
+                })
+            ),
             node("k", "snk.csv", json!({ "path": out, "hasHeader": true })),
         ]),
         json!([main_edge("e1", "s", "d"), main_edge("e2", "d", "k")]),
@@ -8911,7 +10574,9 @@ fn xf_ai_classify_constrains_to_supplied_categories() {
                 Ok(s) => s,
                 Err(_) => break,
             };
-            stream.set_read_timeout(Some(Duration::from_millis(500))).ok();
+            stream
+                .set_read_timeout(Some(Duration::from_millis(500)))
+                .ok();
             stream.set_nodelay(true).ok();
             let mut buf = Vec::with_capacity(8192);
             let mut chunk = [0u8; 4096];
@@ -8922,7 +10587,9 @@ fn xf_ai_classify_constrains_to_supplied_categories() {
                     Err(_) => break,
                 }
             }
-            cap.lock().unwrap().push(String::from_utf8_lossy(&buf).to_string());
+            cap.lock()
+                .unwrap()
+                .push(String::from_utf8_lossy(&buf).to_string());
             let body = format!(
                 r#"{{"choices":[{{"message":{{"role":"assistant","content":"{}"}}}}]}}"#,
                 replies[idx]
@@ -8949,14 +10616,18 @@ fn xf_ai_classify_constrains_to_supplied_categories() {
     let r = engine.execute_pipeline(&doc(
         json!([
             node("s", "src.csv", json!({ "path": in_csv, "hasHeader": true })),
-            node("c", "xf.ai.classify", json!({
-                "inputColumn": "text",
-                "outputColumn": "sentiment",
-                "categories": "positive, negative",
-                "model": "mock",
-                "apiKey": "sk-test",
-                "baseUrl": base_url,
-            })),
+            node(
+                "c",
+                "xf.ai.classify",
+                json!({
+                    "inputColumn": "text",
+                    "outputColumn": "sentiment",
+                    "categories": "positive, negative",
+                    "model": "mock",
+                    "apiKey": "sk-test",
+                    "baseUrl": base_url,
+                })
+            ),
             node("k", "snk.csv", json!({ "path": out, "hasHeader": true })),
         ]),
         json!([main_edge("e1", "s", "c"), main_edge("e2", "c", "k")]),
@@ -9013,9 +10684,12 @@ fn src_webhook_collects_inbound_http_requests() {
     // runners (notably macos-14), where the listener accepted but
     // hadn't yet read body 2 before the test moved on.
     let client = std::thread::spawn(move || {
-        for (i, body) in [r#"{"id":1,"event":"signup"}"#, r#"{"id":2,"event":"login"}"#]
-            .into_iter()
-            .enumerate()
+        for (i, body) in [
+            r#"{"id":1,"event":"signup"}"#,
+            r#"{"id":2,"event":"login"}"#,
+        ]
+        .into_iter()
+        .enumerate()
         {
             if i > 0 {
                 std::thread::sleep(Duration::from_millis(200));
@@ -9044,11 +10718,15 @@ fn src_webhook_collects_inbound_http_requests() {
     let out = out_path(tmp.path(), "out.csv");
     let r = engine.execute_pipeline(&doc(
         json!([
-            node("w", "src.webhook", json!({
-                "port": port,
-                "maxRequests": 2,
-                "timeoutMs": 5000,
-            })),
+            node(
+                "w",
+                "src.webhook",
+                json!({
+                    "port": port,
+                    "maxRequests": 2,
+                    "timeoutMs": 5000,
+                })
+            ),
             node("k", "snk.csv", json!({ "path": out, "hasHeader": true })),
         ]),
         json!([main_edge("e", "w", "k")]),
@@ -9126,24 +10804,24 @@ fn xf_ai_llm_calls_chat_completions_with_template() {
     });
 
     let tmp = tempfile::tempdir().unwrap();
-    let in_csv = write_file(
-        tmp.path(),
-        "in.csv",
-        "id,name\n1,alice\n2,bob\n",
-    );
+    let in_csv = write_file(tmp.path(), "in.csv", "id,name\n1,alice\n2,bob\n");
     let out = out_path(tmp.path(), "out.csv");
     let base_url = format!("http://127.0.0.1:{}", port);
     let r = engine.execute_pipeline(&doc(
         json!([
             node("s", "src.csv", json!({ "path": in_csv, "hasHeader": true })),
-            node("l", "xf.ai.llm", json!({
-                "promptTemplate": "Greet {name}",
-                "outputColumn": "reply",
-                "model": "mock",
-                "apiKey": "sk-test",
-                "baseUrl": base_url,
-                "systemPrompt": "You are concise.",
-            })),
+            node(
+                "l",
+                "xf.ai.llm",
+                json!({
+                    "promptTemplate": "Greet {name}",
+                    "outputColumn": "reply",
+                    "model": "mock",
+                    "apiKey": "sk-test",
+                    "baseUrl": base_url,
+                    "systemPrompt": "You are concise.",
+                })
+            ),
             node("k", "snk.csv", json!({ "path": out, "hasHeader": true })),
         ]),
         json!([main_edge("e1", "s", "l"), main_edge("e2", "l", "k")]),
@@ -9153,13 +10831,23 @@ fn xf_ai_llm_calls_chat_completions_with_template() {
     assert_eq!(count(&format!("read_csv_auto('{}')", out)), 2);
     // The two prompt-rendered requests should contain the substituted names.
     let reqs = captured.lock().unwrap();
-    assert!(reqs[0].contains("Greet alice"), "row 1 prompt missing 'Greet alice': {}", reqs[0]);
-    assert!(reqs[1].contains("Greet bob"), "row 2 prompt missing 'Greet bob': {}", reqs[1]);
+    assert!(
+        reqs[0].contains("Greet alice"),
+        "row 1 prompt missing 'Greet alice': {}",
+        reqs[0]
+    );
+    assert!(
+        reqs[1].contains("Greet bob"),
+        "row 2 prompt missing 'Greet bob': {}",
+        reqs[1]
+    );
     // System prompt should be on both.
     assert!(reqs[0].contains("You are concise."));
     // Bearer auth + correct endpoint
     assert!(reqs[0].starts_with("POST /v1/chat/completions"));
-    assert!(reqs[0].to_lowercase().contains("authorization: bearer sk-test"));
+    assert!(reqs[0]
+        .to_lowercase()
+        .contains("authorization: bearer sk-test"));
     // Output column should contain the mock completion
     let r1 = scalar_string(&format!(
         "SELECT reply FROM read_csv_auto('{}') WHERE id = 1",
@@ -9197,13 +10885,25 @@ fn xf_ai_pii_replaces_emails_phones_ssns_credit_cards() {
         "SELECT note FROM read_csv_auto('{}') WHERE id = 1",
         out
     ));
-    assert!(row1.contains("[REDACTED-EMAIL]"), "missing email redact: {}", row1);
-    assert!(row1.contains("[REDACTED-PHONE]"), "missing phone redact: {}", row1);
+    assert!(
+        row1.contains("[REDACTED-EMAIL]"),
+        "missing email redact: {}",
+        row1
+    );
+    assert!(
+        row1.contains("[REDACTED-PHONE]"),
+        "missing phone redact: {}",
+        row1
+    );
     let row2 = scalar_string(&format!(
         "SELECT note FROM read_csv_auto('{}') WHERE id = 2",
         out
     ));
-    assert!(row2.contains("[REDACTED-SSN]"), "missing SSN redact: {}", row2);
+    assert!(
+        row2.contains("[REDACTED-SSN]"),
+        "missing SSN redact: {}",
+        row2
+    );
     let row3 = scalar_string(&format!(
         "SELECT note FROM read_csv_auto('{}') WHERE id = 3",
         out
@@ -9232,13 +10932,17 @@ fn xf_ai_chunk_explodes_long_text_into_rows() {
     let r = engine.execute_pipeline(&doc(
         json!([
             node("s", "src.csv", json!({ "path": in_csv, "hasHeader": true })),
-            node("c", "xf.ai.chunk", json!({
-                "inputColumn": "text",
-                "outputColumn": "piece",
-                "chunkSize": 10,
-                "chunkOverlap": 0,
-                "mode": "explode",
-            })),
+            node(
+                "c",
+                "xf.ai.chunk",
+                json!({
+                    "inputColumn": "text",
+                    "outputColumn": "piece",
+                    "chunkSize": 10,
+                    "chunkOverlap": 0,
+                    "mode": "explode",
+                })
+            ),
             node("k", "snk.csv", json!({ "path": out, "hasHeader": true })),
         ]),
         json!([main_edge("e1", "s", "c"), main_edge("e2", "c", "k")]),
@@ -9305,20 +11009,20 @@ fn code_wasm_reverses_each_row_via_inline_module() {
     let wasm_b64 = B64.encode(&wasm_bytes);
 
     let tmp = tempfile::tempdir().unwrap();
-    let in_csv = write_file(
-        tmp.path(),
-        "in.csv",
-        "id,text\n1,hello\n2,duckle\n3,abc\n",
-    );
+    let in_csv = write_file(tmp.path(), "in.csv", "id,text\n1,hello\n2,duckle\n3,abc\n");
     let out = out_path(tmp.path(), "out.csv");
     let r = engine.execute_pipeline(&doc(
         json!([
             node("s", "src.csv", json!({ "path": in_csv, "hasHeader": true })),
-            node("w", "code.wasm", json!({
-                "wasmB64": wasm_b64,
-                "inputColumn": "text",
-                "outputColumn": "reversed",
-            })),
+            node(
+                "w",
+                "code.wasm",
+                json!({
+                    "wasmB64": wasm_b64,
+                    "inputColumn": "text",
+                    "outputColumn": "reversed",
+                })
+            ),
             node("k", "snk.csv", json!({ "path": out, "hasHeader": true })),
         ]),
         json!([main_edge("e1", "s", "w"), main_edge("e2", "w", "k")]),
@@ -9407,14 +11111,18 @@ fn xf_ai_embed_calls_openai_compatible_endpoint() {
     let r = engine.execute_pipeline(&doc(
         json!([
             node("s", "src.csv", json!({ "path": in_csv, "hasHeader": true })),
-            node("e", "xf.ai.embed", json!({
-                "inputColumn": "text",
-                "outputColumn": "vec",
-                "model": "mock",
-                "apiKey": "sk-test",
-                "baseUrl": base_url,
-                "batchSize": 100,
-            })),
+            node(
+                "e",
+                "xf.ai.embed",
+                json!({
+                    "inputColumn": "text",
+                    "outputColumn": "vec",
+                    "model": "mock",
+                    "apiKey": "sk-test",
+                    "baseUrl": base_url,
+                    "batchSize": 100,
+                })
+            ),
             node("k", "snk.csv", json!({ "path": out, "hasHeader": true })),
         ]),
         json!([main_edge("e1", "s", "e"), main_edge("e2", "e", "k")]),
@@ -9439,14 +11147,21 @@ fn xf_ai_embed_calls_openai_compatible_endpoint() {
     );
     assert!(req.contains("\"hello\""), "expected hello in request body");
     assert!(req.contains("\"world\""), "expected world in request body");
-    assert!(req.contains("\"duckle\""), "expected duckle in request body");
+    assert!(
+        req.contains("\"duckle\""),
+        "expected duckle in request body"
+    );
     // Verify the embedding column came back. The CSV writer renders
     // the vec column as a list literal like '[0.1,0.2,0.3]'.
     let v1 = scalar_string(&format!(
         "SELECT vec FROM read_csv_auto('{}') WHERE id = 1",
         out
     ));
-    assert!(v1.contains("0.1"), "expected first row vec to contain 0.1: {}", v1);
+    assert!(
+        v1.contains("0.1"),
+        "expected first row vec to contain 0.1: {}",
+        v1
+    );
 }
 
 /// src.clipboard: write known payloads to the clipboard and verify
@@ -9486,7 +11201,11 @@ fn src_clipboard_reads_json_array_and_plain_text() {
         ]),
         json!([main_edge("e", "c", "k")]),
     ));
-    assert_eq!(r1.status, "ok", "src.clipboard (json) failed: {:?}", r1.error);
+    assert_eq!(
+        r1.status, "ok",
+        "src.clipboard (json) failed: {:?}",
+        r1.error
+    );
     assert_eq!(
         count(&format!("read_csv_auto('{}')", out1)),
         3,
@@ -9510,7 +11229,11 @@ fn src_clipboard_reads_json_array_and_plain_text() {
         ]),
         json!([main_edge("e", "c", "k")]),
     ));
-    assert_eq!(r2.status, "ok", "src.clipboard (text) failed: {:?}", r2.error);
+    assert_eq!(
+        r2.status, "ok",
+        "src.clipboard (text) failed: {:?}",
+        r2.error
+    );
     assert_eq!(count(&format!("read_csv_auto('{}')", out2)), 1);
     let len = scalar_string(&format!(
         "SELECT length FROM read_csv_auto('{}') LIMIT 1",
@@ -9559,13 +11282,17 @@ fn snk_email_sends_messages_via_real_smtp() {
     let r = engine.execute_pipeline(&doc(
         json!([
             node("s", "src.csv", json!({ "path": in_csv, "hasHeader": true })),
-            node("k", "snk.email", json!({
-                "host": host,
-                "port": port,
-                "user": user,
-                "password": password,
-                "fromAddress": from,
-            })),
+            node(
+                "k",
+                "snk.email",
+                json!({
+                    "host": host,
+                    "port": port,
+                    "user": user,
+                    "password": password,
+                    "fromAddress": from,
+                })
+            ),
         ]),
         json!([main_edge("e", "s", "k")]),
     ));
@@ -9601,14 +11328,18 @@ fn src_email_fetches_messages_via_real_imap() {
     let out = out_path(tmp.path(), "mail.csv");
     let r = engine.execute_pipeline(&doc(
         json!([
-            node("m", "src.email", json!({
-                "host": host,
-                "port": port,
-                "user": user,
-                "password": password,
-                "mailbox": mailbox,
-                "maxMessages": 5,
-            })),
+            node(
+                "m",
+                "src.email",
+                json!({
+                    "host": host,
+                    "port": port,
+                    "user": user,
+                    "password": password,
+                    "mailbox": mailbox,
+                    "maxMessages": 5,
+                })
+            ),
             node("k", "snk.csv", json!({ "path": out, "hasHeader": true })),
         ]),
         json!([main_edge("e", "m", "k")]),
@@ -9643,14 +11374,18 @@ fn src_ftp_lists_and_downloads_files_via_real_url() {
     let out = out_path(tmp.path(), "files.csv");
     let r = engine.execute_pipeline(&doc(
         json!([
-            node("f", "src.ftp", json!({
-                "host": host,
-                "port": port,
-                "user": user,
-                "password": password,
-                "directory": directory,
-                "maxFiles": 10,
-            })),
+            node(
+                "f",
+                "src.ftp",
+                json!({
+                    "host": host,
+                    "port": port,
+                    "user": user,
+                    "password": password,
+                    "directory": directory,
+                    "maxFiles": 10,
+                })
+            ),
             node("k", "snk.csv", json!({ "path": out, "hasHeader": true })),
         ]),
         json!([main_edge("e", "f", "k")]),
@@ -9663,7 +11398,10 @@ fn src_ftp_lists_and_downloads_files_via_real_url() {
         "SELECT count(*) FROM read_csv_auto('{}') WHERE length(content_b64) = 0",
         out
     ));
-    assert_eq!(any_empty, "0", "every file should have non-empty content_b64");
+    assert_eq!(
+        any_empty, "0",
+        "every file should have non-empty content_b64"
+    );
 }
 
 /// src.git mode=files: list the tracked tree at HEAD and verify each
@@ -9706,10 +11444,14 @@ fn src_git_files_lists_tracked_tree() {
     let out = out_path(tmp.path(), "files.csv");
     let r = engine.execute_pipeline(&doc(
         json!([
-            node("g", "src.git", json!({
-                "repo": &repo,
-                "mode": "files",
-            })),
+            node(
+                "g",
+                "src.git",
+                json!({
+                    "repo": &repo,
+                    "mode": "files",
+                })
+            ),
             node("k", "snk.csv", json!({ "path": out, "hasHeader": true })),
         ]),
         json!([main_edge("e", "g", "k")]),
@@ -9874,6 +11616,140 @@ fn code_shell_captures_stdout_and_exit_code() {
     );
 }
 
+/// code.shell: the frontend shell form stores the textarea as `code`.
+/// Runtime accepts that as a fallback to the lower-level `command` prop.
+#[test]
+fn code_shell_accepts_frontend_code_prop() {
+    let engine = engine_or_skip!();
+    let tmp = tempfile::tempdir().unwrap();
+    let out = out_path(tmp.path(), "out.csv");
+    let r = engine.execute_pipeline(&doc(
+        json!([
+            node("s", "code.shell", json!({ "code": "echo hello" })),
+            node("k", "snk.csv", json!({ "path": out, "hasHeader": true })),
+        ]),
+        json!([main_edge("e1", "s", "k")]),
+    ));
+    assert_eq!(
+        r.status, "ok",
+        "code.shell frontend code prop failed: {:?}",
+        r.error
+    );
+    let stdout = scalar_string(&format!(
+        "SELECT stdout FROM read_csv_auto('{}') LIMIT 1",
+        out
+    ));
+    assert!(
+        stdout.contains("hello"),
+        "stdout missing 'hello': {:?}",
+        stdout
+    );
+}
+
+/// code.shell: when the browser runner sets DUCKLE_WORKSPACE, runtime
+/// materialization temp files should live under the workspace rather than
+/// process /tmp, so packaged/sandboxed DuckDB binaries can read them.
+#[test]
+fn code_shell_uses_workspace_tmp_for_materialization() {
+    let engine = engine_or_skip!();
+    let tmp = tempfile::tempdir().unwrap();
+    let workspace = tmp.path().join("workspace");
+    std::fs::create_dir_all(&workspace).unwrap();
+    std::env::set_var("DUCKLE_WORKSPACE", &workspace);
+    let out = out_path(tmp.path(), "out.csv");
+    let r = engine.execute_pipeline(&doc(
+        json!([
+            node("s", "code.shell", json!({ "code": "echo hello" })),
+            node("k", "snk.csv", json!({ "path": out, "hasHeader": true })),
+        ]),
+        json!([main_edge("e1", "s", "k")]),
+    ));
+    std::env::remove_var("DUCKLE_WORKSPACE");
+    assert_eq!(
+        r.status, "ok",
+        "code.shell workspace tmp materialization failed: {:?}",
+        r.error
+    );
+    assert!(
+        workspace.join(".stitchly/tmp/runtime").exists(),
+        "expected workspace runtime tmp dir to be created"
+    );
+}
+
+/// code.shell: when a main upstream relation is connected, runtime exposes
+/// those rows as newline-delimited JSON through DUCKLE_INPUT_* env vars.
+#[test]
+fn code_shell_receives_upstream_rows_as_jsonl() {
+    let engine = engine_or_skip!();
+    let tmp = tempfile::tempdir().unwrap();
+    let out = out_path(tmp.path(), "out.csv");
+    let command = if cfg!(windows) {
+        "echo table=%DUCKLE_INPUT_TABLE% format=%DUCKLE_INPUT_FORMAT% rows=%DUCKLE_INPUT_ROW_COUNT% & type \"%DUCKLE_INPUT_PATH%\""
+    } else {
+        "printf 'table=%s format=%s rows=%s\\n' \"$DUCKLE_INPUT_TABLE\" \"$DUCKLE_INPUT_FORMAT\" \"$DUCKLE_INPUT_ROW_COUNT\"; cat \"$DUCKLE_INPUT_PATH\""
+    };
+    let r = engine.execute_pipeline(&doc(
+        json!([
+            node(
+                "cfg",
+                "code.sql",
+                json!({
+                    "sql": "select 'rates' as repo_key, 'master' as branch"
+                })
+            ),
+            node("s", "code.shell", json!({ "code": command })),
+            node("k", "snk.csv", json!({ "path": out, "hasHeader": true })),
+        ]),
+        json!([main_edge("e1", "cfg", "s"), main_edge("e2", "s", "k"),]),
+    ));
+    assert_eq!(
+        r.status, "ok",
+        "code.shell upstream input failed: {:?}",
+        r.error
+    );
+    let preview = r
+        .preview
+        .iter()
+        .find(|p| p.node_id == "s")
+        .expect("preview for code.shell node");
+    let row = preview
+        .rows
+        .first()
+        .and_then(|row| row.as_object())
+        .expect("code.shell summary row");
+    let stdout = row.get("stdout").and_then(|v| v.as_str()).unwrap_or("");
+    assert!(
+        stdout.contains("table=cfg"),
+        "stdout missing input table: {:?}",
+        stdout
+    );
+    assert!(
+        stdout.contains("format=jsonl"),
+        "stdout missing input format: {:?}",
+        stdout
+    );
+    assert!(
+        stdout.contains("rows=1"),
+        "stdout missing row count: {:?}",
+        stdout
+    );
+    assert!(
+        stdout.contains("\"repo_key\":\"rates\""),
+        "stdout missing upstream repo key: {:?}",
+        stdout
+    );
+    assert!(
+        stdout.contains("\"branch\":\"master\""),
+        "stdout missing upstream branch: {:?}",
+        stdout
+    );
+    assert_eq!(
+        row.get("input_format").and_then(|v| v.as_str()),
+        Some("jsonl")
+    );
+    assert_eq!(row.get("input_row_count").and_then(|v| v.as_i64()), Some(1));
+}
+
 /// code.shell regression: a command emitting more than the ~64 KiB OS
 /// pipe buffer used to deadlock - the runner drained stdout/stderr only
 /// after the child exited, so the child blocked writing while the engine
@@ -9893,18 +11769,30 @@ fn code_shell_large_output_does_not_deadlock() {
     // (Avoids quoting a path that may contain spaces - cmd.exe mangles the
     // backslash-escaped quotes Rust emits, which is a separate issue.)
     // `type` on cmd.exe, `cat` on /bin/sh.
-    let command = if cfg!(windows) { "type payload.txt" } else { "cat payload.txt" };
+    let command = if cfg!(windows) {
+        "type payload.txt"
+    } else {
+        "cat payload.txt"
+    };
     let r = engine.execute_pipeline(&doc(
         json!([
-            node("s", "code.shell", json!({
-                "command": command,
-                "workingDir": tmp.path().to_string_lossy(),
-            })),
+            node(
+                "s",
+                "code.shell",
+                json!({
+                    "command": command,
+                    "workingDir": tmp.path().to_string_lossy(),
+                })
+            ),
             node("k", "snk.csv", json!({ "path": out, "hasHeader": true })),
         ]),
         json!([main_edge("e1", "s", "k")]),
     ));
-    assert_eq!(r.status, "ok", "code.shell large output hung/failed: {:?}", r.error);
+    assert_eq!(
+        r.status, "ok",
+        "code.shell large output hung/failed: {:?}",
+        r.error
+    );
     // Assert on the node preview rather than reading a 200 KiB single-field
     // CSV back (which trips DuckDB's line-size limit). The captured stdout
     // must be intact - proves the runner drained the pipe instead of
@@ -9996,12 +11884,16 @@ fn src_soap_parses_xml_response_and_emits_rows() {
 </soap:Envelope>"#;
     let r = engine.execute_pipeline(&doc(
         json!([
-            node("s", "src.soap", json!({
-                "url": url,
-                "body": envelope,
-                "soapAction": "GetUsers",
-                "responsePath": "Envelope/Body/GetUsersResponse/Users/User",
-            })),
+            node(
+                "s",
+                "src.soap",
+                json!({
+                    "url": url,
+                    "body": envelope,
+                    "soapAction": "GetUsers",
+                    "responsePath": "Envelope/Body/GetUsersResponse/Users/User",
+                })
+            ),
             node("k", "snk.csv", json!({ "path": out, "hasHeader": true })),
         ]),
         json!([main_edge("e1", "s", "k")]),
@@ -10058,10 +11950,14 @@ fn code_shell_timeout_kills_long_running_child() {
     let started = std::time::Instant::now();
     let r = engine.execute_pipeline(&doc(
         json!([
-            node("s", "code.shell", json!({
-                "command": cmd,
-                "timeoutMs": 500,
-            })),
+            node(
+                "s",
+                "code.shell",
+                json!({
+                    "command": cmd,
+                    "timeoutMs": 500,
+                })
+            ),
             node("k", "snk.csv", json!({ "path": out, "hasHeader": true })),
         ]),
         json!([main_edge("e1", "s", "k")]),
@@ -10189,7 +12085,11 @@ fn incremental_load_advances_watermark_across_runs() {
     let pipeline = json!([
         node("s", "src.csv", json!({ "path": csv, "hasHeader": true })),
         node("inc", "xf.incremental", json!({ "column": "id" })),
-        node("k", "snk.csv", json!({ "path": out, "hasHeader": true, "mode": "overwrite" })),
+        node(
+            "k",
+            "snk.csv",
+            json!({ "path": out, "hasHeader": true, "mode": "overwrite" })
+        ),
     ]);
     let edges = json!([main_edge("e1", "s", "inc"), main_edge("e2", "inc", "k")]);
 
@@ -10201,7 +12101,10 @@ fn incremental_load_advances_watermark_across_runs() {
     assert_eq!(r1.status, "ok", "run1 failed: {:?}", r1.error);
     assert_eq!(count(&format!("read_csv_auto('{}')", out)), 3);
 
-    let state = std::path::Path::new(ws).join("state").join("IncTest").join("inc.json");
+    let state = std::path::Path::new(ws)
+        .join("state")
+        .join("IncTest")
+        .join("inc.json");
     let s1 = std::fs::read_to_string(&state).expect("state not written");
     assert!(s1.contains("\"value\": \"3\""), "watermark not 3: {}", s1);
 
@@ -10216,7 +12119,11 @@ fn incremental_load_advances_watermark_across_runs() {
         "second run should load only the 2 new rows"
     );
     let s2 = std::fs::read_to_string(&state).unwrap();
-    assert!(s2.contains("\"value\": \"5\""), "watermark not advanced to 5: {}", s2);
+    assert!(
+        s2.contains("\"value\": \"5\""),
+        "watermark not advanced to 5: {}",
+        s2
+    );
 }
 
 #[test]
@@ -10234,13 +12141,20 @@ fn partial_run_does_not_persist_incremental_watermark() {
     let pipeline = json!([
         node("s", "src.csv", json!({ "path": csv, "hasHeader": true })),
         node("inc", "xf.incremental", json!({ "column": "id" })),
-        node("k", "snk.csv", json!({ "path": out, "hasHeader": true, "mode": "overwrite" })),
+        node(
+            "k",
+            "snk.csv",
+            json!({ "path": out, "hasHeader": true, "mode": "overwrite" })
+        ),
     ]);
     let edges = json!([main_edge("e1", "s", "inc"), main_edge("e2", "inc", "k")]);
     std::env::set_var("DUCKLE_WORKSPACE", ws);
     std::fs::write(&csv, "id\n1\n2\n3\n").unwrap();
 
-    let state = std::path::Path::new(ws).join("state").join("PartialInc").join("inc.json");
+    let state = std::path::Path::new(ws)
+        .join("state")
+        .join("PartialInc")
+        .join("inc.json");
 
     // Partial run up to (and including) the incremental node - no sink.
     let rp = engine.execute_pipeline_with_events(
@@ -10284,12 +12198,20 @@ fn batched_view_row_error_is_attributed_to_the_view_not_the_sink() {
     let r = engine.execute_pipeline(&doc(
         json!([
             node("s", "src.csv", json!({ "path": csv, "hasHeader": true })),
-            node("c", "xf.addcol", json!({ "name": "n", "expression": "CAST(\"s\" AS INTEGER)" })),
+            node(
+                "c",
+                "xf.addcol",
+                json!({ "name": "n", "expression": "CAST(\"s\" AS INTEGER)" })
+            ),
             node("k", "snk.csv", json!({ "path": out, "hasHeader": true })),
         ]),
         json!([main_edge("e1", "s", "c"), main_edge("e2", "c", "k")]),
     ));
-    assert_eq!(r.status, "error", "the failing CAST must fail the run: {:?}", r.error);
+    assert_eq!(
+        r.status, "error",
+        "the failing CAST must fail the run: {:?}",
+        r.error
+    );
     assert_eq!(
         r.nodes.get("c").map(|n| n.status.as_str()),
         Some("error"),
@@ -10317,7 +12239,10 @@ fn ducklake_cdc_reads_incremental_changes() {
     let tmp = tempfile::tempdir().unwrap();
     let ws = tmp.path();
     std::env::set_var("DUCKLE_WORKSPACE", ws);
-    let cat = ws.join("lake.ducklake").to_string_lossy().replace('\\', "/");
+    let cat = ws
+        .join("lake.ducklake")
+        .to_string_lossy()
+        .replace('\\', "/");
     let out = out_path(ws, "cdc1.csv");
     let out2 = out_path(ws, "cdc2.csv");
 
@@ -10351,8 +12276,16 @@ fn ducklake_cdc_reads_incremental_changes() {
     let pipe = |o: &str| {
         doc(
             json!([
-                node("c", "src.ducklake.changes", json!({ "path": cat, "table": "t" })),
-                node("k", "snk.csv", json!({ "path": o, "hasHeader": true, "mode": "overwrite" })),
+                node(
+                    "c",
+                    "src.ducklake.changes",
+                    json!({ "path": cat, "table": "t" })
+                ),
+                node(
+                    "k",
+                    "snk.csv",
+                    json!({ "path": o, "hasHeader": true, "mode": "overwrite" })
+                ),
             ]),
             json!([main_edge("e", "c", "k")]),
         )
@@ -10361,15 +12294,26 @@ fn ducklake_cdc_reads_incremental_changes() {
     // Run 1: all changes so far -> two insert rows.
     let r1 = engine.execute_pipeline_named(&pipe(&out), "LakeCDC");
     assert_eq!(r1.status, "ok", "cdc run1 failed: {:?}", r1.error);
-    assert_eq!(count(&format!("read_csv_auto('{}')", out)), 2, "run1 should see 2 inserts");
+    assert_eq!(
+        count(&format!("read_csv_auto('{}')", out)),
+        2,
+        "run1 should see 2 inserts"
+    );
 
     // New commit, then run 2: only the new delta (id=3 insert).
     cli(&format!("{}INSERT INTO lake.t VALUES (3,'c');", attach));
     let r2 = engine.execute_pipeline_named(&pipe(&out2), "LakeCDC");
     std::env::remove_var("DUCKLE_WORKSPACE");
     assert_eq!(r2.status, "ok", "cdc run2 failed: {:?}", r2.error);
-    assert_eq!(count(&format!("read_csv_auto('{}')", out2)), 1, "run2 should see only the new row");
-    let n = scalar_string(&format!("SELECT name FROM read_csv_auto('{}') WHERE id = 3", out2));
+    assert_eq!(
+        count(&format!("read_csv_auto('{}')", out2)),
+        1,
+        "run2 should see only the new row"
+    );
+    let n = scalar_string(&format!(
+        "SELECT name FROM read_csv_auto('{}') WHERE id = 3",
+        out2
+    ));
     assert_eq!(n, "c", "run2 should carry the new id=3 change, got {}", n);
 }
 
@@ -10399,10 +12343,26 @@ fn run_log_writes_per_pipeline_ndjson() {
     let log_file = logdir.join("Daily Load").join("runtime.log");
     let body = std::fs::read_to_string(&log_file)
         .unwrap_or_else(|e| panic!("run log {} not written: {}", log_file.display(), e));
-    assert!(body.contains("\"event\":\"run_started\""), "no run_started line: {}", body);
-    assert!(body.contains("\"event\":\"stage_finished\""), "no stage_finished line: {}", body);
-    assert!(body.contains("saw 2 rows"), "ctl.log message missing: {}", body);
-    assert!(body.contains("\"component\":\"ctl.log\""), "component name missing: {}", body);
+    assert!(
+        body.contains("\"event\":\"run_started\""),
+        "no run_started line: {}",
+        body
+    );
+    assert!(
+        body.contains("\"event\":\"stage_finished\""),
+        "no stage_finished line: {}",
+        body
+    );
+    assert!(
+        body.contains("saw 2 rows"),
+        "ctl.log message missing: {}",
+        body
+    );
+    assert!(
+        body.contains("\"component\":\"ctl.log\""),
+        "component name missing: {}",
+        body
+    );
     // Every non-empty line must be valid JSON (NDJSON contract).
     for line in body.lines().filter(|l| !l.trim().is_empty()) {
         serde_json::from_str::<serde_json::Value>(line)
@@ -10421,7 +12381,11 @@ fn ctl_log_passes_through_rows() {
     let d = doc(
         json!([
             node("s", "src.csv", json!({ "path": csv, "hasHeader": true })),
-            node("lg", "ctl.log", json!({ "message": "processed {rows} rows" })),
+            node(
+                "lg",
+                "ctl.log",
+                json!({ "message": "processed {rows} rows" })
+            ),
             node("k", "snk.csv", json!({ "path": out, "hasHeader": true })),
         ]),
         json!([main_edge("e1", "s", "lg"), main_edge("e2", "lg", "k")]),
@@ -10440,7 +12404,11 @@ fn ctl_die_always_fails_the_run() {
     let d = doc(
         json!([
             node("s", "src.csv", json!({ "path": csv, "hasHeader": true })),
-            node("die", "ctl.die", json!({ "message": "halt", "condition": "always" })),
+            node(
+                "die",
+                "ctl.die",
+                json!({ "message": "halt", "condition": "always" })
+            ),
         ]),
         json!([main_edge("e1", "s", "die")]),
     );
@@ -10464,7 +12432,11 @@ fn ctl_die_has_rows_guards_a_reject_branch() {
         json!([
             node("s", "src.csv", json!({ "path": csv, "hasHeader": true })),
             node("nn", "qa.notnull", json!({ "columns": ["v"] })),
-            node("die", "ctl.die", json!({ "message": "rejects present", "condition": "has-rows" })),
+            node(
+                "die",
+                "ctl.die",
+                json!({ "message": "rejects present", "condition": "has-rows" })
+            ),
         ]),
         json!([
             main_edge("e1", "s", "nn"),
@@ -10505,7 +12477,11 @@ fn parallelize_runs_independent_branches() {
         ]),
     );
     let result = engine.execute_pipeline(&d);
-    assert_eq!(result.status, "ok", "parallelize failed: {:?}", result.error);
+    assert_eq!(
+        result.status, "ok",
+        "parallelize failed: {:?}",
+        result.error
+    );
     assert!(Path::new(&out1).exists(), "branch 1 output missing");
     assert!(Path::new(&out2).exists(), "branch 2 output missing");
     assert_eq!(count(&format!("read_csv_auto('{}')", out1)), 3);
@@ -10527,7 +12503,9 @@ fn src_rest_single_object_response_yields_one_row() {
     let body = br#"{"latitude":52.52,"longitude":13.41,"current_weather":{"temperature":11.3,"windspeed":9.2}}"#;
     let handle = std::thread::spawn(move || {
         if let Some(Ok(mut stream)) = listener.incoming().next() {
-            stream.set_read_timeout(Some(Duration::from_millis(250))).ok();
+            stream
+                .set_read_timeout(Some(Duration::from_millis(250)))
+                .ok();
             stream.set_nodelay(true).ok();
             let mut chunk = [0u8; 4096];
             for _ in 0..16 {
@@ -10577,18 +12555,50 @@ fn scd3_keeps_previous_value_live() {
         json!([
             node("c", "src.csv", json!({ "path": cur, "hasHeader": true })),
             node("p", "src.csv", json!({ "path": prev, "hasHeader": true })),
-            node("h", "xf.cdc.scd3", json!({ "keyColumns": ["id"], "trackColumns": ["v"] })),
+            node(
+                "h",
+                "xf.cdc.scd3",
+                json!({ "keyColumns": ["id"], "trackColumns": ["v"] })
+            ),
             node("k", "snk.csv", json!({ "path": out, "hasHeader": true })),
         ]),
-        json!([main_edge("e1", "c", "h"), lookup_edge("e2", "p", "h"), main_edge("e3", "h", "k")]),
+        json!([
+            main_edge("e1", "c", "h"),
+            lookup_edge("e2", "p", "h"),
+            main_edge("e3", "h", "k")
+        ]),
     );
     let result = engine.execute_pipeline(&d);
     assert_eq!(result.status, "ok", "scd3 failed: {:?}", result.error);
     assert_eq!(count(&format!("read_csv_auto('{}')", out)), 3);
-    assert_eq!(scalar_string(&format!("SELECT v FROM read_csv_auto('{}') WHERE id = 2", out)), "b2");
-    assert_eq!(scalar_string(&format!("SELECT previous_v FROM read_csv_auto('{}') WHERE id = 2", out)), "b");
-    assert_eq!(scalar_string(&format!("SELECT previous_v FROM read_csv_auto('{}') WHERE id = 1", out)), "a");
-    assert_eq!(count(&format!("read_csv_auto('{}') WHERE id = 3 AND previous_v IS NULL", out)), 1);
+    assert_eq!(
+        scalar_string(&format!(
+            "SELECT v FROM read_csv_auto('{}') WHERE id = 2",
+            out
+        )),
+        "b2"
+    );
+    assert_eq!(
+        scalar_string(&format!(
+            "SELECT previous_v FROM read_csv_auto('{}') WHERE id = 2",
+            out
+        )),
+        "b"
+    );
+    assert_eq!(
+        scalar_string(&format!(
+            "SELECT previous_v FROM read_csv_auto('{}') WHERE id = 1",
+            out
+        )),
+        "a"
+    );
+    assert_eq!(
+        count(&format!(
+            "read_csv_auto('{}') WHERE id = 3 AND previous_v IS NULL",
+            out
+        )),
+        1
+    );
 }
 
 /// qa.outlier IQR: the lone 1000 routes to reject, normals + NULL pass.
@@ -10596,23 +12606,41 @@ fn scd3_keeps_previous_value_live() {
 fn quality_outlier_iqr_splits_pass_and_reject() {
     let engine = engine_or_skip!();
     let tmp = tempfile::tempdir().unwrap();
-    let csv = write_file(tmp.path(), "in.csv", "id,amount\n1,10\n2,11\n3,12\n4,13\n5,1000\n6,\n");
+    let csv = write_file(
+        tmp.path(),
+        "in.csv",
+        "id,amount\n1,10\n2,11\n3,12\n4,13\n5,1000\n6,\n",
+    );
     let pass = out_path(tmp.path(), "pass.csv");
     let rej = out_path(tmp.path(), "reject.csv");
     let d = doc(
         json!([
             node("s1", "src.csv", json!({ "path": csv, "hasHeader": true })),
-            node("v1", "qa.outlier", json!({ "column": "amount", "method": "iqr" })),
+            node(
+                "v1",
+                "qa.outlier",
+                json!({ "column": "amount", "method": "iqr" })
+            ),
             node("kp", "snk.csv", json!({ "path": pass, "hasHeader": true })),
             node("kr", "snk.csv", json!({ "path": rej, "hasHeader": true })),
         ]),
-        json!([main_edge("e1", "s1", "v1"), port_edge("e2", "v1", "main", "kp"), port_edge("e3", "v1", "reject", "kr")]),
+        json!([
+            main_edge("e1", "s1", "v1"),
+            port_edge("e2", "v1", "main", "kp"),
+            port_edge("e3", "v1", "reject", "kr")
+        ]),
     );
     let result = engine.execute_pipeline(&d);
     assert_eq!(result.status, "ok", "run failed: {:?}", result.error);
     assert_eq!(count(&format!("read_csv_auto('{}')", pass)), 5);
     assert_eq!(count(&format!("read_csv_auto('{}')", rej)), 1);
-    assert_eq!(scalar_string(&format!("SELECT CAST(amount AS VARCHAR) FROM read_csv_auto('{}')", rej)), "1000");
+    assert_eq!(
+        scalar_string(&format!(
+            "SELECT CAST(amount AS VARCHAR) FROM read_csv_auto('{}')",
+            rej
+        )),
+        "1000"
+    );
 }
 
 /// qa.outlier z-score: the extreme value beyond 3 sigma routes to reject.
@@ -10631,17 +12659,31 @@ fn quality_outlier_zscore_splits_pass_and_reject() {
     let d = doc(
         json!([
             node("s1", "src.csv", json!({ "path": csv, "hasHeader": true })),
-            node("v1", "qa.outlier", json!({ "column": "amount", "method": "zscore", "sensitivity": 3 })),
+            node(
+                "v1",
+                "qa.outlier",
+                json!({ "column": "amount", "method": "zscore", "sensitivity": 3 })
+            ),
             node("kp", "snk.csv", json!({ "path": pass, "hasHeader": true })),
             node("kr", "snk.csv", json!({ "path": rej, "hasHeader": true })),
         ]),
-        json!([main_edge("e1", "s1", "v1"), port_edge("e2", "v1", "main", "kp"), port_edge("e3", "v1", "reject", "kr")]),
+        json!([
+            main_edge("e1", "s1", "v1"),
+            port_edge("e2", "v1", "main", "kp"),
+            port_edge("e3", "v1", "reject", "kr")
+        ]),
     );
     let result = engine.execute_pipeline(&d);
     assert_eq!(result.status, "ok", "run failed: {:?}", result.error);
     assert_eq!(count(&format!("read_csv_auto('{}')", rej)), 1);
     assert_eq!(count(&format!("read_csv_auto('{}')", pass)), 21);
-    assert_eq!(scalar_string(&format!("SELECT CAST(amount AS VARCHAR) FROM read_csv_auto('{}')", rej)), "1000");
+    assert_eq!(
+        scalar_string(&format!(
+            "SELECT CAST(amount AS VARCHAR) FROM read_csv_auto('{}')",
+            rej
+        )),
+        "1000"
+    );
 }
 
 /// xf.sessionize: events within the gap share a session; a gap over the
@@ -10688,8 +12730,16 @@ fn freshness_gate_and_report() {
     let d = doc(
         json!([
             node("s", "src.parquet", json!({ "path": fresh })),
-            node("g", "qa.freshness", json!({ "column": "ts", "maxAge": 24, "maxAgeUnit": "hours", "mode": "gate" })),
-            node("k", "snk.csv", json!({ "path": out_pass, "hasHeader": true })),
+            node(
+                "g",
+                "qa.freshness",
+                json!({ "column": "ts", "maxAge": 24, "maxAgeUnit": "hours", "mode": "gate" })
+            ),
+            node(
+                "k",
+                "snk.csv",
+                json!({ "path": out_pass, "hasHeader": true })
+            ),
         ]),
         json!([main_edge("e1", "s", "g"), main_edge("e2", "g", "k")]),
     );
@@ -10699,26 +12749,52 @@ fn freshness_gate_and_report() {
     let d2 = doc(
         json!([
             node("s", "src.parquet", json!({ "path": stale })),
-            node("g", "qa.freshness", json!({ "column": "ts", "maxAge": 24, "maxAgeUnit": "hours", "mode": "gate" })),
-            node("k", "snk.csv", json!({ "path": out_path(tmp.path(), "gate_fail.csv"), "hasHeader": true })),
+            node(
+                "g",
+                "qa.freshness",
+                json!({ "column": "ts", "maxAge": 24, "maxAgeUnit": "hours", "mode": "gate" })
+            ),
+            node(
+                "k",
+                "snk.csv",
+                json!({ "path": out_path(tmp.path(), "gate_fail.csv"), "hasHeader": true })
+            ),
         ]),
         json!([main_edge("e1", "s", "g"), main_edge("e2", "g", "k")]),
     );
     let r2 = engine.execute_pipeline(&d2);
     assert_eq!(r2.status, "error", "stale gate must fail the run");
-    assert!(r2.error.as_deref().unwrap_or("").contains("stale"), "error should name staleness, got {:?}", r2.error);
+    assert!(
+        r2.error.as_deref().unwrap_or("").contains("stale"),
+        "error should name staleness, got {:?}",
+        r2.error
+    );
 
     let out_rep = out_path(tmp.path(), "report.csv");
     let d3 = doc(
         json!([
             node("s", "src.parquet", json!({ "path": stale })),
-            node("g", "qa.freshness", json!({ "column": "ts", "maxAge": 2, "maxAgeUnit": "days", "mode": "report" })),
-            node("k", "snk.csv", json!({ "path": out_rep, "hasHeader": true })),
+            node(
+                "g",
+                "qa.freshness",
+                json!({ "column": "ts", "maxAge": 2, "maxAgeUnit": "days", "mode": "report" })
+            ),
+            node(
+                "k",
+                "snk.csv",
+                json!({ "path": out_rep, "hasHeader": true })
+            ),
         ]),
         json!([main_edge("e1", "s", "g"), main_edge("e2", "g", "k")]),
     );
     assert_eq!(engine.execute_pipeline(&d3).status, "ok");
-    assert_eq!(scalar_string(&format!("SELECT is_fresh FROM read_csv_auto('{}')", out_rep)), "false");
+    assert_eq!(
+        scalar_string(&format!(
+            "SELECT is_fresh FROM read_csv_auto('{}')",
+            out_rep
+        )),
+        "false"
+    );
 }
 
 /// #76 case 3 (live): two duckdb-file sources in one pipeline each become a live
@@ -10730,14 +12806,28 @@ fn two_duck_sources_coexist_live() {
     let tmp = tempfile::tempdir().unwrap();
     let a_db = out_path(tmp.path(), "a.duckdb");
     let b_db = out_path(tmp.path(), "b.duckdb");
-    duckdb_exec(&a_db, "CREATE TABLE t1 AS SELECT * FROM (VALUES (1,'x'),(2,'y'),(3,'z')) v(id,name)");
-    duckdb_exec(&b_db, "CREATE TABLE t2 AS SELECT * FROM (VALUES (10,'p'),(20,'q')) v(id,tag)");
+    duckdb_exec(
+        &a_db,
+        "CREATE TABLE t1 AS SELECT * FROM (VALUES (1,'x'),(2,'y'),(3,'z')) v(id,name)",
+    );
+    duckdb_exec(
+        &b_db,
+        "CREATE TABLE t2 AS SELECT * FROM (VALUES (10,'p'),(20,'q')) v(id,tag)",
+    );
     let out_a = out_path(tmp.path(), "a.csv");
     let out_b = out_path(tmp.path(), "b.csv");
     let d = doc(
         json!([
-            node("s1", "src.duckdb", json!({ "database": a_db, "tableName": "t1" })),
-            node("s2", "src.duckdb", json!({ "database": b_db, "tableName": "t2" })),
+            node(
+                "s1",
+                "src.duckdb",
+                json!({ "database": a_db, "tableName": "t1" })
+            ),
+            node(
+                "s2",
+                "src.duckdb",
+                json!({ "database": b_db, "tableName": "t2" })
+            ),
             node("k1", "snk.csv", json!({ "path": out_a, "hasHeader": true })),
             node("k2", "snk.csv", json!({ "path": out_b, "hasHeader": true })),
         ]),
@@ -10745,8 +12835,28 @@ fn two_duck_sources_coexist_live() {
     );
     let r = engine.execute_pipeline(&d);
     assert_eq!(r.status, "ok", "two duck sources must run: {:?}", r.error);
-    assert_eq!(count(&format!("read_csv_auto('{}')", out_a)), 3, "source A all rows");
-    assert_eq!(count(&format!("read_csv_auto('{}')", out_b)), 2, "source B all rows");
-    assert_eq!(scalar_string(&format!("SELECT name FROM read_csv_auto('{}') WHERE id=2", out_a)), "y");
-    assert_eq!(scalar_string(&format!("SELECT tag FROM read_csv_auto('{}') WHERE id=20", out_b)), "q");
+    assert_eq!(
+        count(&format!("read_csv_auto('{}')", out_a)),
+        3,
+        "source A all rows"
+    );
+    assert_eq!(
+        count(&format!("read_csv_auto('{}')", out_b)),
+        2,
+        "source B all rows"
+    );
+    assert_eq!(
+        scalar_string(&format!(
+            "SELECT name FROM read_csv_auto('{}') WHERE id=2",
+            out_a
+        )),
+        "y"
+    );
+    assert_eq!(
+        scalar_string(&format!(
+            "SELECT tag FROM read_csv_auto('{}') WHERE id=20",
+            out_b
+        )),
+        "q"
+    );
 }

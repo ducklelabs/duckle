@@ -1,0 +1,110 @@
+[
+  {
+    "at": "2026-06-23T08:16:35.871485380+00:00",
+    "status": "error",
+    "duration_ms": 21211,
+    "rows": 0,
+    "node_count": 1,
+    "trigger": "manual",
+    "error": "Shell Command: query: rest source materialize failed: IO Error: No files found that match the pattern \"/tmp/duckle-rest-n_mqqdcogh_vqiem-257094-501024524-ThreadId22.json\"\n",
+    "category": "network"
+  },
+  {
+    "at": "2026-06-23T08:29:58.311173403+00:00",
+    "status": "ok",
+    "duration_ms": 2112,
+    "rows": 0,
+    "node_count": 1,
+    "trigger": "manual"
+  },
+  {
+    "at": "2026-06-23T08:32:59.854399559+00:00",
+    "status": "ok",
+    "duration_ms": 959,
+    "rows": 0,
+    "node_count": 1,
+    "trigger": "manual"
+  },
+  {
+    "at": "2026-06-23T08:35:08.763849248+00:00",
+    "status": "ok",
+    "duration_ms": 5356,
+    "rows": 0,
+    "node_count": 1,
+    "trigger": "manual"
+  },
+  {
+    "at": "2026-06-23T08:39:57.417486315+00:00",
+    "status": "ok",
+    "duration_ms": 5308,
+    "rows": 0,
+    "node_count": 1,
+    "trigger": "manual"
+  },
+  {
+    "at": "2026-06-23T08:40:44.726359765+00:00",
+    "status": "ok",
+    "duration_ms": 5102,
+    "rows": 0,
+    "node_count": 1,
+    "trigger": "manual"
+  },
+  {
+    "at": "2026-06-23T08:41:43.741803377+00:00",
+    "status": "ok",
+    "duration_ms": 5659,
+    "rows": 0,
+    "node_count": 1,
+    "trigger": "manual"
+  },
+  {
+    "at": "2026-06-23T08:44:05.473071252+00:00",
+    "status": "ok",
+    "duration_ms": 6213,
+    "rows": 0,
+    "node_count": 1,
+    "trigger": "manual"
+  },
+  {
+    "at": "2026-06-23T09:29:55.208201160+00:00",
+    "status": "ok",
+    "duration_ms": 8539,
+    "rows": 0,
+    "node_count": 2,
+    "trigger": "manual"
+  },
+  {
+    "at": "2026-06-23T09:43:57.208587435+00:00",
+    "status": "ok",
+    "duration_ms": 7365,
+    "rows": 0,
+    "node_count": 2,
+    "trigger": "manual"
+  },
+  {
+    "at": "2026-06-23T09:49:30.395034533+00:00",
+    "status": "error",
+    "duration_ms": 7850,
+    "rows": 0,
+    "node_count": 3,
+    "trigger": "manual",
+    "error": "parse_sync_result: query: Parser Error: syntax error at or near \"with\"\nLINE 1: ... AS (SELECT * FROM \"n_mqqdcogh_vqiem\") with raw as (\n                                                  ^",
+    "category": "syntax"
+  },
+  {
+    "at": "2026-06-23T09:52:00.927376938+00:00",
+    "status": "ok",
+    "duration_ms": 8090,
+    "rows": 0,
+    "node_count": 3,
+    "trigger": "manual"
+  },
+  {
+    "at": "2026-06-23T09:54:08.717009369+00:00",
+    "status": "ok",
+    "duration_ms": 8801,
+    "rows": 0,
+    "node_count": 3,
+    "trigger": "manual"
+  }
+]

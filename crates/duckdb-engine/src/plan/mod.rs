@@ -91,19 +91,31 @@ pub enum RuntimeSpec {
         vars: Vec<(String, String)>,
     },
     InstallFallback(String),
-    Iterate { path: String, count: u64 },
+    Iterate {
+        path: String,
+        count: u64,
+    },
     /// Run `path` once per upstream row. `concurrency` > 1 runs the per-row
     /// children in bounded concurrent waves (each in its own temp DB); 1 is
     /// the default sequential behaviour.
-    Foreach { path: String, concurrency: usize },
+    Foreach {
+        path: String,
+        concurrency: usize,
+    },
     Parallelize(ParallelizeSpec),
     /// ctl.log / ctl.warn: emit a log line at `level` ("info" / "warn")
     /// then pass the upstream through. `{rows}` in the message is replaced
     /// with the upstream row count.
-    Log { level: String, message: String },
+    Log {
+        level: String,
+        message: String,
+    },
     /// ctl.die: fail the run with `message` when `condition` holds against
     /// the upstream row count ("always" / "has-rows" / "no-rows").
-    Die { message: String, condition: String },
+    Die {
+        message: String,
+        condition: String,
+    },
     /// xf.incremental: watermark-based incremental load (see IncrementalSpec).
     Incremental(IncrementalSpec),
     /// src.ducklake.changes: DuckLake change-data-feed source (see DuckLakeCdcSpec).
@@ -214,7 +226,11 @@ pub fn compile_partial(
     keep.insert(target_id.to_string());
     let mut frontier = vec![target_id.to_string()];
     while let Some(id) = frontier.pop() {
-        for edge in pipeline.edges.iter().filter(|e| is_data_edge(e) && e.target == id) {
+        for edge in pipeline
+            .edges
+            .iter()
+            .filter(|e| is_data_edge(e) && e.target == id)
+        {
             if keep.insert(edge.source.clone()) {
                 frontier.push(edge.source.clone());
             }
@@ -259,17 +275,11 @@ const ATTACH_PARQUET_SOURCES: &[&str] = &[
 ];
 
 pub fn compile(pipeline: &PipelineDoc) -> Result<CompiledPipeline, EngineError> {
-    let node_index: HashMap<&str, &PipelineNode> = pipeline
-        .nodes
-        .iter()
-        .map(|n| (n.id.as_str(), n))
-        .collect();
+    let node_index: HashMap<&str, &PipelineNode> =
+        pipeline.nodes.iter().map(|n| (n.id.as_str(), n)).collect();
 
-    let data_edges: Vec<&PipelineEdge> = pipeline
-        .edges
-        .iter()
-        .filter(|e| is_data_edge(e))
-        .collect();
+    let data_edges: Vec<&PipelineEdge> =
+        pipeline.edges.iter().filter(|e| is_data_edge(e)).collect();
 
     let order = topological_sort(&pipeline.nodes, &data_edges)?;
 
@@ -291,7 +301,10 @@ pub fn compile(pipeline: &PipelineDoc) -> Result<CompiledPipeline, EngineError> 
     // read_json_auto) is scanned once instead of re-evaluated for each side.
     let mut reject_wired: std::collections::HashSet<&str> = std::collections::HashSet::new();
     for edge in &data_edges {
-        if matches!(edge.source_handle.as_deref(), Some("reject") | Some("filter")) {
+        if matches!(
+            edge.source_handle.as_deref(),
+            Some("reject") | Some("filter")
+        ) {
             reject_wired.insert(edge.source.as_str());
         }
     }
@@ -305,16 +318,15 @@ pub fn compile(pipeline: &PipelineDoc) -> Result<CompiledPipeline, EngineError> 
     // source and a merge sink leaves the sink's own schema empty).
     let mut main_input: HashMap<String, String> = HashMap::new();
     for edge in &data_edges {
-        let port = edge
-            .target_handle
-            .as_deref()
-            .unwrap_or("main");
+        let port = edge.target_handle.as_deref().unwrap_or("main");
         let port_key = canonical_port(port);
         if port_key == "main" {
             if reject_wired.contains(edge.target.as_str()) {
                 feeds_reject.insert(edge.source.clone());
             }
-            main_input.entry(edge.target.clone()).or_insert_with(|| edge.source.clone());
+            main_input
+                .entry(edge.target.clone())
+                .or_insert_with(|| edge.source.clone());
         }
         // Resolve which materialized table this edge actually reads, based
         // on the SOURCE node's output handle (main vs reject).
@@ -412,16 +424,12 @@ pub fn compile(pipeline: &PipelineDoc) -> Result<CompiledPipeline, EngineError> 
         let node = node_index
             .get(node_id.as_str())
             .ok_or_else(|| EngineError::Config(format!("Unknown node: {}", node_id)))?;
-        let component_id = node
-            .data
-            .component_id
-            .as_deref()
-            .ok_or_else(|| {
-                EngineError::Config(format!(
-                    "Node '{}' has no componentId; can't execute",
-                    node_id
-                ))
-            })?;
+        let component_id = node.data.component_id.as_deref().ok_or_else(|| {
+            EngineError::Config(format!(
+                "Node '{}' has no componentId; can't execute",
+                node_id
+            ))
+        })?;
         if node.data.disabled.unwrap_or(false) {
             continue;
         }
@@ -440,13 +448,14 @@ pub fn compile(pipeline: &PipelineDoc) -> Result<CompiledPipeline, EngineError> 
             .map(strip_reject_suffix)
             .and_then(|src| known_columns.get(src).and_then(|x| x.as_ref()));
         if let Some(cols) = upstream_cols {
-            validate_column_refs(component_id, node.data.properties.as_ref(), cols)
-                .map_err(|msg| {
+            validate_column_refs(component_id, node.data.properties.as_ref(), cols).map_err(
+                |msg| {
                     EngineError::Config(format!(
                         "{} ({} / {}): {}",
                         node.data.label, component_id, node.id, msg
                     ))
-                })?;
+                },
+            )?;
         }
         // Fail loud on fan-in to a single input port. Every component
         // except Union / set ops reads its primary input via .main()
@@ -506,7 +515,14 @@ pub fn compile(pipeline: &PipelineDoc) -> Result<CompiledPipeline, EngineError> 
             }
             found
         };
-        let mut stage = build_stage(node, component_id, node_inputs, &consumer_count, &feeds_reject, &upstream_cols)?;
+        let mut stage = build_stage(
+            node,
+            component_id,
+            node_inputs,
+            &consumer_count,
+            &feeds_reject,
+            &upstream_cols,
+        )?;
         if let Some(spec) = parallelize_specs.remove(node_id) {
             stage.runtime = Some(RuntimeSpec::Parallelize(spec));
         }
@@ -532,8 +548,8 @@ pub fn compile(pipeline: &PipelineDoc) -> Result<CompiledPipeline, EngineError> 
         // sees a pure-SQL stage and takes the single-session path too).
         let would_batch = stages.len() >= 2
             && stages.iter().all(|s| {
-                let upgradeable = s.attach_view
-                    && matches!(s.runtime, Some(RuntimeSpec::AttachParquetSource(_)));
+                let upgradeable =
+                    s.attach_view && matches!(s.runtime, Some(RuntimeSpec::AttachParquetSource(_)));
                 (s.is_pure_sql() || upgradeable)
                     && s.retry_attempts <= 1
                     && s.wait_ms.is_none()
@@ -548,8 +564,10 @@ pub fn compile(pipeline: &PipelineDoc) -> Result<CompiledPipeline, EngineError> 
                 // TABLE -> VIEW so the consumer inlines it and pushes predicates
                 // into the ducklake / duckdb / postgres scan.
                 if let Some(p) = s.sql.find("CREATE OR REPLACE TABLE ") {
-                    s.sql
-                        .replace_range(p..p + "CREATE OR REPLACE TABLE ".len(), "CREATE OR REPLACE VIEW ");
+                    s.sql.replace_range(
+                        p..p + "CREATE OR REPLACE TABLE ".len(),
+                        "CREATE OR REPLACE VIEW ",
+                    );
                 }
                 // Keep the alias ATTACHed for the downstream stage: drop the
                 // trailing "DETACH duckle_src_<node>;" the source appended, or the
@@ -627,9 +645,19 @@ fn delete_value_from(props: &JsonValue) -> String {
 fn alias_suffix(node_id: &str) -> String {
     let s: String = node_id
         .chars()
-        .map(|c| if c.is_ascii_alphanumeric() || c == '_' { c } else { '_' })
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '_' {
+                c
+            } else {
+                '_'
+            }
+        })
         .collect();
-    if s.is_empty() { "src".to_string() } else { s }
+    if s.is_empty() {
+        "src".to_string()
+    } else {
+        s
+    }
 }
 
 /// Replace every token-boundaried occurrence of `from` in `sql` with `to`. A
@@ -794,11 +822,18 @@ fn build_stage(
         let url = string_prop(&props, "url")
             .or_else(|| string_prop(&props, "endpoint"))
             .filter(|s| !s.is_empty())
-            .ok_or_else(|| EngineError::Config(format!("{}: url required (GraphQL endpoint)", component_id)))?;
+            .ok_or_else(|| {
+                EngineError::Config(format!("{}: url required (GraphQL endpoint)", component_id))
+            })?;
         let mutation = string_prop(&props, "mutation")
             .or_else(|| string_prop(&props, "query"))
             .filter(|s| !s.trim().is_empty())
-            .ok_or_else(|| EngineError::Config(format!("{}: mutation (GraphQL document) required", component_id)))?;
+            .ok_or_else(|| {
+                EngineError::Config(format!(
+                    "{}: mutation (GraphQL document) required",
+                    component_id
+                ))
+            })?;
         let mut headers = headers_from_props(&props);
         push_rest_auth(&mut headers, &props);
         // body_extras puts the mutation alongside the variables (batch
@@ -818,9 +853,7 @@ fn build_stage(
         // HTTP sink. Stage SQL stays empty; the executor materializes
         // the upstream view, then dispatches one ureq request per row
         // (body_shape='row') or one batched request (body_shape='batch').
-        let from_view = inputs
-            .main()
-            .ok_or_else(|| missing_input(node, "main"))?;
+        let from_view = inputs.main().ok_or_else(|| missing_input(node, "main"))?;
         let url = string_prop(&props, "url")
             .filter(|s| !s.is_empty())
             .ok_or_else(|| EngineError::Config(format!("{}: url required", component_id)))?;
@@ -838,7 +871,13 @@ fn build_stage(
                     _ => "row".into(),
                 })
             })
-            .unwrap_or_else(|| if component_id == "snk.webhook" { "row".into() } else { "batch".into() });
+            .unwrap_or_else(|| {
+                if component_id == "snk.webhook" {
+                    "row".into()
+                } else {
+                    "batch".into()
+                }
+            });
         let mut headers = headers_from_props(&props);
         // Translate the form's authType + authToken into a header so
         // the executor doesn't need to know about auth shapes.
@@ -863,9 +902,17 @@ fn build_stage(
         let from_view = inputs.main().ok_or_else(|| missing_input(node, "main"))?;
         let host = string_prop(&props, "indexHost")
             .filter(|s| !s.is_empty())
-            .ok_or_else(|| EngineError::Config(format!("{}: indexHost required (e.g. 'idx-abc123.svc.us-east1-gcp.pinecone.io')", component_id)))?;
+            .ok_or_else(|| {
+                EngineError::Config(format!(
+                    "{}: indexHost required (e.g. 'idx-abc123.svc.us-east1-gcp.pinecone.io')",
+                    component_id
+                ))
+            })?;
         let api_key = string_prop(&props, "apiKey").unwrap_or_default();
-        let url = format!("https://{}/vectors/upsert", host.trim_start_matches("https://"));
+        let url = format!(
+            "https://{}/vectors/upsert",
+            host.trim_start_matches("https://")
+        );
         let mut headers = headers_from_props(&props);
         if !api_key.is_empty() {
             headers.push(("Api-Key".into(), api_key));
@@ -922,7 +969,12 @@ fn build_stage(
         let from_view = inputs.main().ok_or_else(|| missing_input(node, "main"))?;
         let endpoint = string_prop(&props, "endpoint")
             .filter(|s| !s.is_empty())
-            .ok_or_else(|| EngineError::Config(format!("{}: endpoint required (e.g. 'https://my-cluster.weaviate.network')", component_id)))?;
+            .ok_or_else(|| {
+                EngineError::Config(format!(
+                    "{}: endpoint required (e.g. 'https://my-cluster.weaviate.network')",
+                    component_id
+                ))
+            })?;
         let api_key = string_prop(&props, "apiKey").unwrap_or_default();
         let url = format!("{}/v1/batch/objects", endpoint.trim_end_matches('/'));
         let mut headers = headers_from_props(&props);
@@ -979,13 +1031,25 @@ fn build_stage(
         let from_view = inputs.main().ok_or_else(|| missing_input(node, "main"))?;
         let workspace = string_prop(&props, "workspace")
             .filter(|s| !s.is_empty())
-            .ok_or_else(|| EngineError::Config(format!("{}: workspace required (e.g. 'dbc-xxxx.cloud.databricks.com')", component_id)))?;
+            .ok_or_else(|| {
+                EngineError::Config(format!(
+                    "{}: workspace required (e.g. 'dbc-xxxx.cloud.databricks.com')",
+                    component_id
+                ))
+            })?;
         let pat = string_prop(&props, "pat")
             .filter(|s| !s.is_empty())
-            .ok_or_else(|| EngineError::Config(format!("{}: pat (Personal Access Token) required", component_id)))?;
+            .ok_or_else(|| {
+                EngineError::Config(format!(
+                    "{}: pat (Personal Access Token) required",
+                    component_id
+                ))
+            })?;
         let warehouse_id = string_prop(&props, "warehouseId")
             .filter(|s| !s.is_empty())
-            .ok_or_else(|| EngineError::Config(format!("{}: warehouseId required", component_id)))?;
+            .ok_or_else(|| {
+                EngineError::Config(format!("{}: warehouseId required", component_id))
+            })?;
         let table = string_prop(&props, "tableName")
             .or_else(|| string_prop(&props, "table"))
             .filter(|s| !s.is_empty())
@@ -1019,7 +1083,12 @@ fn build_stage(
         let connect = string_prop(&props, "connect")
             .or_else(|| string_prop(&props, "connectionString"))
             .filter(|s| !s.is_empty())
-            .ok_or_else(|| EngineError::Config(format!("{}: connect required (host:port/service_name)", component_id)))?;
+            .ok_or_else(|| {
+                EngineError::Config(format!(
+                    "{}: connect required (host:port/service_name)",
+                    component_id
+                ))
+            })?;
         let user = string_prop(&props, "user")
             .filter(|s| !s.is_empty())
             .ok_or_else(|| EngineError::Config(format!("{}: user required", component_id)))?;
@@ -1035,7 +1104,11 @@ fn build_stage(
             password,
             schema: string_prop(&props, "schema").filter(|s| !s.is_empty()),
             table,
-            batch_size: props.get("batchSize").and_then(|v| v.as_u64()).filter(|n| *n > 0).unwrap_or(1000) as usize,
+            batch_size: props
+                .get("batchSize")
+                .and_then(|v| v.as_u64())
+                .filter(|n| *n > 0)
+                .unwrap_or(1000) as usize,
             upsert_keys: upsert_keys_from(&props),
             delete_column: delete_column_from(&props),
             delete_value: delete_value_from(&props),
@@ -1050,7 +1123,12 @@ fn build_stage(
         let url = string_prop(&props, "url")
             .or_else(|| string_prop(&props, "connectionString"))
             .filter(|s| !s.is_empty())
-            .ok_or_else(|| EngineError::Config(format!("{}: url required (e.g. redis://default:pass@host:6379/0)", component_id)))?;
+            .ok_or_else(|| {
+                EngineError::Config(format!(
+                    "{}: url required (e.g. redis://default:pass@host:6379/0)",
+                    component_id
+                ))
+            })?;
         let key_column = string_prop(&props, "keyColumn")
             .filter(|s| !s.is_empty())
             .ok_or_else(|| EngineError::Config(format!("{}: keyColumn required", component_id)))?;
@@ -1059,7 +1137,10 @@ fn build_stage(
             url,
             key_column,
             value_column: string_prop(&props, "valueColumn").unwrap_or_default(),
-            ttl_seconds: props.get("ttlSeconds").and_then(|v| v.as_u64()).unwrap_or(0),
+            ttl_seconds: props
+                .get("ttlSeconds")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(0),
             batch_size: props
                 .get("batchSize")
                 .and_then(|v| v.as_u64())
@@ -1072,7 +1153,12 @@ fn build_stage(
         let from_view = inputs.main().ok_or_else(|| missing_input(node, "main"))?;
         let contact_points = string_prop(&props, "contactPoints")
             .filter(|s| !s.is_empty())
-            .ok_or_else(|| EngineError::Config(format!("{}: contactPoints required (comma-separated host:port)", component_id)))?;
+            .ok_or_else(|| {
+                EngineError::Config(format!(
+                    "{}: contactPoints required (comma-separated host:port)",
+                    component_id
+                ))
+            })?;
         let keyspace = string_prop(&props, "keyspace")
             .filter(|s| !s.is_empty())
             .ok_or_else(|| EngineError::Config(format!("{}: keyspace required", component_id)))?;
@@ -1087,7 +1173,11 @@ fn build_stage(
             password: string_prop(&props, "password").filter(|s| !s.is_empty()),
             keyspace,
             table,
-            batch_size: props.get("batchSize").and_then(|v| v.as_u64()).filter(|n| *n > 0).unwrap_or(1000) as usize,
+            batch_size: props
+                .get("batchSize")
+                .and_then(|v| v.as_u64())
+                .filter(|n| *n > 0)
+                .unwrap_or(1000) as usize,
         });
         (String::new(), StageKind::Sink, Some(from_view.to_string()))
     } else if (component_id == "snk.sqlserver" || component_id == "snk.synapse")
@@ -1130,8 +1220,15 @@ fn build_stage(
             database,
             schema: string_prop(&props, "schema").unwrap_or_else(|| "dbo".into()),
             table,
-            batch_size: props.get("batchSize").and_then(|v| v.as_u64()).filter(|n| *n > 0).unwrap_or(1000) as usize,
-            trust_cert: props.get("trustCert").and_then(|v| v.as_bool()).unwrap_or(false),
+            batch_size: props
+                .get("batchSize")
+                .and_then(|v| v.as_u64())
+                .filter(|n| *n > 0)
+                .unwrap_or(1000) as usize,
+            trust_cert: props
+                .get("trustCert")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false),
             upsert_keys: upsert_keys_from(&props),
             delete_column: delete_column_from(&props),
             delete_value: delete_value_from(&props),
@@ -1141,7 +1238,12 @@ fn build_stage(
         let from_view = inputs.main().ok_or_else(|| missing_input(node, "main"))?;
         let endpoint = string_prop(&props, "endpoint")
             .filter(|s| !s.is_empty())
-            .ok_or_else(|| EngineError::Config(format!("{}: endpoint required (e.g. 'http://localhost:8123')", component_id)))?;
+            .ok_or_else(|| {
+                EngineError::Config(format!(
+                    "{}: endpoint required (e.g. 'http://localhost:8123')",
+                    component_id
+                ))
+            })?;
         let table = string_prop(&props, "tableName")
             .or_else(|| string_prop(&props, "table"))
             .filter(|s| !s.is_empty())
@@ -1165,7 +1267,9 @@ fn build_stage(
         let uri = string_prop(&props, "uri")
             .or_else(|| string_prop(&props, "connectionString"))
             .filter(|s| !s.is_empty())
-            .ok_or_else(|| EngineError::Config(format!("{}: uri required (mongodb://...)", component_id)))?;
+            .ok_or_else(|| {
+                EngineError::Config(format!("{}: uri required (mongodb://...)", component_id))
+            })?;
         let database = string_prop(&props, "database")
             .filter(|s| !s.is_empty())
             .ok_or_else(|| EngineError::Config(format!("{}: database required", component_id)))?;
@@ -1195,13 +1299,20 @@ fn build_stage(
         let from_view = inputs.main().ok_or_else(|| missing_input(node, "main"))?;
         let account = string_prop(&props, "account")
             .filter(|s| !s.is_empty())
-            .ok_or_else(|| EngineError::Config(format!("{}: account required (e.g. 'xy12345.us-east-1')", component_id)))?;
+            .ok_or_else(|| {
+                EngineError::Config(format!(
+                    "{}: account required (e.g. 'xy12345.us-east-1')",
+                    component_id
+                ))
+            })?;
         let auth_type = string_prop(&props, "authType").unwrap_or_else(|| "pat".into());
         let auth = match auth_type.as_str() {
             "jwt" => {
                 let user = string_prop(&props, "user")
                     .filter(|s| !s.is_empty())
-                    .ok_or_else(|| EngineError::Config(format!("{}: user required for JWT auth", component_id)))?;
+                    .ok_or_else(|| {
+                        EngineError::Config(format!("{}: user required for JWT auth", component_id))
+                    })?;
                 let pem = string_prop(&props, "privateKeyPem")
                     .filter(|s| !s.is_empty())
                     .or_else(|| {
@@ -1209,13 +1320,26 @@ fn build_stage(
                             .filter(|s| !s.is_empty())
                             .and_then(|p| std::fs::read_to_string(&p).ok())
                     })
-                    .ok_or_else(|| EngineError::Config(format!("{}: privateKeyPem or privateKeyPath required for JWT auth", component_id)))?;
-                SnowflakeAuth::Jwt { user, private_key_pem: pem }
+                    .ok_or_else(|| {
+                        EngineError::Config(format!(
+                            "{}: privateKeyPem or privateKeyPath required for JWT auth",
+                            component_id
+                        ))
+                    })?;
+                SnowflakeAuth::Jwt {
+                    user,
+                    private_key_pem: pem,
+                }
             }
             _ => {
                 let token = string_prop(&props, "pat")
                     .filter(|s| !s.is_empty())
-                    .ok_or_else(|| EngineError::Config(format!("{}: pat (Personal Access Token) required for PAT auth", component_id)))?;
+                    .ok_or_else(|| {
+                        EngineError::Config(format!(
+                            "{}: pat (Personal Access Token) required for PAT auth",
+                            component_id
+                        ))
+                    })?;
                 SnowflakeAuth::Pat { token }
             }
         };
@@ -1269,7 +1393,10 @@ fn build_stage(
             headers.push(("Authorization".into(), format!("ApiKey {}", api_key)));
         }
         // index action template: {"index": {"_index": "<index>"}}
-        let action_line = format!("{{\"index\":{{\"_index\":\"{}\"}}}}", index.replace('"', "\\\""));
+        let action_line = format!(
+            "{{\"index\":{{\"_index\":\"{}\"}}}}",
+            index.replace('"', "\\\"")
+        );
         webhook = Some(WebhookSpec {
             from_view: from_view.to_string(),
             url,
@@ -1292,7 +1419,9 @@ fn build_stage(
             .ok_or_else(|| EngineError::Config(format!("{}: host required", component_id)))?;
         let from_address = string_prop(&props, "fromAddress")
             .filter(|s| !s.is_empty())
-            .ok_or_else(|| EngineError::Config(format!("{}: fromAddress required", component_id)))?;
+            .ok_or_else(|| {
+                EngineError::Config(format!("{}: fromAddress required", component_id))
+            })?;
         email_sink = Some(EmailSinkSpec {
             from_view: from_view.to_string(),
             host,
@@ -1332,7 +1461,11 @@ fn build_stage(
             url,
             exchange: string_prop(&props, "exchange").unwrap_or_default(),
             routing_key,
-            batch_size: props.get("batchSize").and_then(|v| v.as_u64()).filter(|n| *n > 0).unwrap_or(500) as usize,
+            batch_size: props
+                .get("batchSize")
+                .and_then(|v| v.as_u64())
+                .filter(|n| *n > 0)
+                .unwrap_or(500) as usize,
         });
         (String::new(), StageKind::Sink, Some(from_view.to_string()))
     } else if component_id == "snk.xml" {
@@ -1372,9 +1505,7 @@ fn build_stage(
             .filter(|s| !s.is_empty());
         let remote_path = string_prop(&props, "remotePath")
             .filter(|s| !s.is_empty())
-            .ok_or_else(|| {
-                EngineError::Config(format!("{}: remotePath required", component_id))
-            })?;
+            .ok_or_else(|| EngineError::Config(format!("{}: remotePath required", component_id)))?;
         let format = string_prop(&props, "format")
             .filter(|s| !s.is_empty())
             .unwrap_or_else(|| "csv".into())
@@ -1412,7 +1543,10 @@ fn build_stage(
                 user: user.unwrap_or_else(|| "anonymous".into()),
                 password: string_prop(&props, "password").unwrap_or_else(|| "anonymous@".into()),
                 secure: protocol == "ftps"
-                    || props.get("secure").and_then(|v| v.as_bool()).unwrap_or(false),
+                    || props
+                        .get("secure")
+                        .and_then(|v| v.as_bool())
+                        .unwrap_or(false),
                 remote_path,
                 format,
             });
@@ -1444,7 +1578,12 @@ fn build_stage(
         let urls = string_prop(&props, "urls")
             .or_else(|| string_prop(&props, "servers"))
             .filter(|s| !s.is_empty())
-            .ok_or_else(|| EngineError::Config(format!("{}: urls required (nats://host:port,...)", component_id)))?;
+            .ok_or_else(|| {
+                EngineError::Config(format!(
+                    "{}: urls required (nats://host:port,...)",
+                    component_id
+                ))
+            })?;
         let subject = string_prop(&props, "subject")
             .filter(|s| !s.is_empty())
             .ok_or_else(|| EngineError::Config(format!("{}: subject required", component_id)))?;
@@ -1453,7 +1592,11 @@ fn build_stage(
             urls,
             subject,
             subject_suffix_column: string_prop(&props, "subjectSuffixColumn").unwrap_or_default(),
-            batch_size: props.get("batchSize").and_then(|v| v.as_u64()).filter(|n| *n > 0).unwrap_or(500) as usize,
+            batch_size: props
+                .get("batchSize")
+                .and_then(|v| v.as_u64())
+                .filter(|n| *n > 0)
+                .unwrap_or(500) as usize,
         });
         (String::new(), StageKind::Sink, Some(from_view.to_string()))
     } else if component_id == "snk.pubsub" {
@@ -1475,7 +1618,11 @@ fn build_stage(
             project,
             topic,
             access_token,
-            batch_size: props.get("batchSize").and_then(|v| v.as_u64()).filter(|n| *n > 0).unwrap_or(100) as usize,
+            batch_size: props
+                .get("batchSize")
+                .and_then(|v| v.as_u64())
+                .filter(|n| *n > 0)
+                .unwrap_or(100) as usize,
         });
         (String::new(), StageKind::Sink, Some(from_view.to_string()))
     } else if matches!(component_id, "snk.kafka" | "snk.redpanda") {
@@ -1487,7 +1634,12 @@ fn build_stage(
         let bootstrap = string_prop(&props, "brokers")
             .or_else(|| string_prop(&props, "bootstrapServers"))
             .filter(|s| !s.is_empty())
-            .ok_or_else(|| EngineError::Config(format!("{}: brokers required (comma-separated host:port)", component_id)))?;
+            .ok_or_else(|| {
+                EngineError::Config(format!(
+                    "{}: brokers required (comma-separated host:port)",
+                    component_id
+                ))
+            })?;
         let topic = string_prop(&props, "topic")
             .filter(|s| !s.is_empty())
             .ok_or_else(|| EngineError::Config(format!("{}: topic required", component_id)))?;
@@ -1495,7 +1647,10 @@ fn build_stage(
             from_view: from_view.to_string(),
             bootstrap_servers: bootstrap,
             topic,
-            partition_id: props.get("partitionId").and_then(|v| v.as_i64()).unwrap_or(0) as i32,
+            partition_id: props
+                .get("partitionId")
+                .and_then(|v| v.as_i64())
+                .unwrap_or(0) as i32,
             key_column: string_prop(&props, "keyColumn").unwrap_or_default(),
             batch_size: props
                 .get("batchSize")
@@ -1526,9 +1681,7 @@ fn build_stage(
         });
         (String::new(), StageKind::Sink, Some(from_view.to_string()))
     } else if component_id.starts_with("snk.") {
-        let from_view = inputs
-            .main()
-            .ok_or_else(|| missing_input(node, "main"))?;
+        let from_view = inputs.main().ok_or_else(|| missing_input(node, "main"))?;
         sink_path = string_prop(&props, "path").filter(|s| !s.is_empty());
         sink_mode = string_prop(&props, "mode").filter(|s| !s.is_empty());
         // Relational DB upsert is the only sink mode whose SQL the
@@ -1554,12 +1707,8 @@ fn build_stage(
                     EngineError::Config(format!("{}: table name is required", component_id))
                 })?;
             let schema = string_prop(&props, "schemaName").filter(|s| !s.is_empty());
-            let target = relational_qualified(
-                "duckle_dst",
-                component_id,
-                schema.as_deref(),
-                &table,
-            );
+            let target =
+                relational_qualified("duckle_dst", component_id, schema.as_deref(), &table);
             let family = if component_id == "snk.postgres" || component_id == "snk.cockroach" {
                 UpsertFamily::Postgres
             } else {
@@ -1591,7 +1740,11 @@ fn build_stage(
                 // still gives the merge its input column list.
                 .unwrap_or_else(|| upstream_cols.to_vec());
             (
-                format!("{}{}", attach, build_sink_sql(component_id, &props, from_view, &sink_cols)?),
+                format!(
+                    "{}{}",
+                    attach,
+                    build_sink_sql(component_id, &props, from_view, &sink_cols)?
+                ),
                 StageKind::Sink,
                 Some(from_view.to_string()),
             )
@@ -1603,13 +1756,20 @@ fn build_stage(
         let path = string_prop(&props, "pipelineRef")
             .or_else(|| string_prop(&props, "iteratePipelineRef"))
             .filter(|s| !s.trim().is_empty())
-            .ok_or_else(|| EngineError::Config(format!("{}: pipelineRef required", component_id)))?;
+            .ok_or_else(|| {
+                EngineError::Config(format!("{}: pipelineRef required", component_id))
+            })?;
         let count = props
             .get("count")
             .or_else(|| props.get("iterations"))
             .and_then(|v| v.as_u64())
             .filter(|n| *n > 0)
-            .ok_or_else(|| EngineError::Config(format!("{}: count (positive integer) required", component_id)))?;
+            .ok_or_else(|| {
+                EngineError::Config(format!(
+                    "{}: count (positive integer) required",
+                    component_id
+                ))
+            })?;
         iterate_pipeline_path = Some(path);
         iterate_count = Some(count);
         let sql = match inputs.main() {
@@ -1626,7 +1786,9 @@ fn build_stage(
         let path = string_prop(&props, "pipelineRef")
             .or_else(|| string_prop(&props, "foreachPipelineRef"))
             .filter(|s| !s.trim().is_empty())
-            .ok_or_else(|| EngineError::Config(format!("{}: pipelineRef required", component_id)))?;
+            .ok_or_else(|| {
+                EngineError::Config(format!("{}: pipelineRef required", component_id))
+            })?;
         let from_view = inputs.main().ok_or_else(|| missing_input(node, "main"))?;
         foreach_pipeline_path = Some(path);
         // Optional: run the per-row children concurrently. Default 1 keeps the
@@ -1652,7 +1814,12 @@ fn build_stage(
         let path = string_prop(&props, "fallbackPipelineRef")
             .or_else(|| string_prop(&props, "fallbackPath"))
             .filter(|s| !s.trim().is_empty())
-            .ok_or_else(|| EngineError::Config(format!("{}: fallbackPipelineRef (path to a recovery pipeline) required", component_id)))?;
+            .ok_or_else(|| {
+                EngineError::Config(format!(
+                    "{}: fallbackPipelineRef (path to a recovery pipeline) required",
+                    component_id
+                ))
+            })?;
         install_fallback_path = Some(path);
         let sql = match inputs.main() {
             Some(from_view) => passthrough_view_sql(&node.id, from_view),
@@ -1676,7 +1843,12 @@ fn build_stage(
         let path = string_prop(&props, "pipelineRef")
             .or_else(|| string_prop(&props, "path"))
             .filter(|s| !s.trim().is_empty())
-            .ok_or_else(|| EngineError::Config(format!("{}: pipelineRef (path to a pipeline file) required", component_id)))?;
+            .ok_or_else(|| {
+                EngineError::Config(format!(
+                    "{}: pipelineRef (path to a pipeline file) required",
+                    component_id
+                ))
+            })?;
         let mut vars = kv_pairs(&props, "contextVariables");
         if vars.is_empty() {
             vars = kv_pairs(&props, "parameters");
@@ -1702,9 +1874,17 @@ fn build_stage(
         let message = string_prop(&props, "message")
             .filter(|s| !s.trim().is_empty())
             .unwrap_or_else(|| {
-                if component_id == "ctl.warn" { "warning".into() } else { "log".into() }
+                if component_id == "ctl.warn" {
+                    "warning".into()
+                } else {
+                    "log".into()
+                }
             });
-        let level = if component_id == "ctl.warn" { "warn" } else { "info" };
+        let level = if component_id == "ctl.warn" {
+            "warn"
+        } else {
+            "info"
+        };
         log_spec = Some((level.to_string(), message));
         // `from` carries the upstream view so the executor can count its rows.
         let (sql, from) = match inputs.main() {
@@ -1755,8 +1935,14 @@ fn build_stage(
             path,
             schema: string_prop(&props, "schema").filter(|s| !s.is_empty()),
             table,
-            initial_snapshot: props.get("initialSnapshot").and_then(|v| v.as_u64()).unwrap_or(0),
-            inserts_only: props.get("insertsOnly").and_then(|v| v.as_bool()).unwrap_or(false),
+            initial_snapshot: props
+                .get("initialSnapshot")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(0),
+            inserts_only: props
+                .get("insertsOnly")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false),
         });
         (
             passthrough_placeholder_sql(&node.id, "ducklake-cdc"),
@@ -1772,7 +1958,10 @@ fn build_stage(
         let column = string_prop(&props, "column")
             .filter(|s| !s.trim().is_empty())
             .ok_or_else(|| {
-                EngineError::Config(format!("{}: column required (the watermark column)", component_id))
+                EngineError::Config(format!(
+                    "{}: column required (the watermark column)",
+                    component_id
+                ))
             })?;
         let initial = string_prop(&props, "initialValue").filter(|s| !s.trim().is_empty());
         incremental = Some(IncrementalSpec {
@@ -1828,7 +2017,12 @@ fn build_stage(
         let path = string_prop(&props, "storage")
             .or_else(|| string_prop(&props, "path"))
             .filter(|s| !s.is_empty())
-            .ok_or_else(|| EngineError::Config(format!("{}: checkpoint storage path required", component_id)))?;
+            .ok_or_else(|| {
+                EngineError::Config(format!(
+                    "{}: checkpoint storage path required",
+                    component_id
+                ))
+            })?;
         // Pass-through as a view, then write the durable checkpoint
         // parquet directly from upstream. The view avoids copying every
         // row into an intermediate table before the COPY reads it again.
@@ -1847,7 +2041,12 @@ fn build_stage(
         let path = string_prop(&props, "destination")
             .or_else(|| string_prop(&props, "path"))
             .filter(|s| !s.is_empty())
-            .ok_or_else(|| EngineError::Config(format!("{}: dead letter destination required", component_id)))?;
+            .ok_or_else(|| {
+                EngineError::Config(format!(
+                    "{}: dead letter destination required",
+                    component_id
+                ))
+            })?;
         let format = string_prop(&props, "format").unwrap_or_else(|| "json".into());
         sink_path = Some(path.clone());
         sink_mode = string_prop(&props, "mode").filter(|s| !s.is_empty());
@@ -1878,7 +2077,8 @@ fn build_stage(
         let index = string_prop(&props, "index")
             .filter(|s| !s.is_empty())
             .ok_or_else(|| EngineError::Config(format!("{}: index required", component_id)))?;
-        let pagination_mode = string_prop(&props, "paginationMode").unwrap_or_else(|| "from_size".into());
+        let pagination_mode =
+            string_prop(&props, "paginationMode").unwrap_or_else(|| "from_size".into());
         let pagination = match pagination_mode.as_str() {
             "search_after" => {
                 let sort = string_prop(&props, "sort")
@@ -1931,7 +2131,9 @@ fn build_stage(
                 };
                 Some(format!("SELECT * FROM {}", qualified))
             })
-            .ok_or_else(|| EngineError::Config(format!("{}: query or tableName required", component_id)))?;
+            .ok_or_else(|| {
+                EngineError::Config(format!("{}: query or tableName required", component_id))
+            })?;
         oracle_source = Some(OracleSourceSpec {
             node_id: node.id.clone(),
             connect,
@@ -1947,7 +2149,9 @@ fn build_stage(
         let driver = string_prop(&props, "driver")
             .or_else(|| string_prop(&props, "driverPath"))
             .filter(|s| !s.is_empty())
-            .ok_or_else(|| EngineError::Config(format!("{}: driver (path or name) required", component_id)))?;
+            .ok_or_else(|| {
+                EngineError::Config(format!("{}: driver (path or name) required", component_id))
+            })?;
         let query = string_prop(&props, "query")
             .filter(|s| !s.trim().is_empty())
             .ok_or_else(|| EngineError::Config(format!("{}: query required", component_id)))?;
@@ -1997,8 +2201,15 @@ fn build_stage(
             node_id: node.id.clone(),
             urls,
             subject,
-            max_records: props.get("maxRecords").and_then(|v| v.as_u64()).filter(|n| *n > 0).unwrap_or(1000),
-            timeout_ms: props.get("timeoutMs").and_then(|v| v.as_u64()).unwrap_or(5000),
+            max_records: props
+                .get("maxRecords")
+                .and_then(|v| v.as_u64())
+                .filter(|n| *n > 0)
+                .unwrap_or(1000),
+            timeout_ms: props
+                .get("timeoutMs")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(5000),
         });
         (String::new(), StageKind::View, None)
     } else if component_id == "src.pubsub" {
@@ -2010,16 +2221,27 @@ fn build_stage(
             .ok_or_else(|| EngineError::Config(format!("{}: project required", component_id)))?;
         let subscription = string_prop(&props, "subscription")
             .filter(|s| !s.is_empty())
-            .ok_or_else(|| EngineError::Config(format!("{}: subscription required", component_id)))?;
+            .ok_or_else(|| {
+                EngineError::Config(format!("{}: subscription required", component_id))
+            })?;
         let access_token = string_prop(&props, "accessToken")
             .filter(|s| !s.is_empty())
-            .ok_or_else(|| EngineError::Config(format!("{}: accessToken required (OAuth2 Bearer)", component_id)))?;
+            .ok_or_else(|| {
+                EngineError::Config(format!(
+                    "{}: accessToken required (OAuth2 Bearer)",
+                    component_id
+                ))
+            })?;
         pubsub_source = Some(PubSubSourceSpec {
             node_id: node.id.clone(),
             project,
             subscription,
             access_token,
-            max_messages: props.get("maxMessages").and_then(|v| v.as_u64()).filter(|n| *n > 0).unwrap_or(100),
+            max_messages: props
+                .get("maxMessages")
+                .and_then(|v| v.as_u64())
+                .filter(|n| *n > 0)
+                .unwrap_or(100),
         });
         (String::new(), StageKind::View, None)
     } else if matches!(component_id, "src.kafka" | "src.redpanda") {
@@ -2038,7 +2260,10 @@ fn build_stage(
             node_id: node.id.clone(),
             bootstrap_servers: bootstrap,
             topic,
-            partition_id: props.get("partitionId").and_then(|v| v.as_i64()).unwrap_or(0) as i32,
+            partition_id: props
+                .get("partitionId")
+                .and_then(|v| v.as_i64())
+                .unwrap_or(0) as i32,
             // The UI exposes `offset` = latest/earliest, not a numeric
             // startOffset. Map it onto the sentinel run_kafka_source reads:
             // -2 = latest tip (only new messages), -1 = earliest, >=0 = that
@@ -2053,7 +2278,11 @@ fn build_stage(
                     Some("latest") => -2,
                     _ => -1,
                 }),
-            max_records: props.get("maxRecords").and_then(|v| v.as_u64()).filter(|n| *n > 0).unwrap_or(1000),
+            max_records: props
+                .get("maxRecords")
+                .and_then(|v| v.as_u64())
+                .filter(|n| *n > 0)
+                .unwrap_or(1000),
         });
         (String::new(), StageKind::View, None)
     } else if component_id == "src.rabbit" {
@@ -2062,7 +2291,9 @@ fn build_stage(
         // until timeout_ms elapses.
         let url = string_prop(&props, "url")
             .filter(|s| !s.is_empty())
-            .ok_or_else(|| EngineError::Config(format!("{}: url required (amqp://...)", component_id)))?;
+            .ok_or_else(|| {
+                EngineError::Config(format!("{}: url required (amqp://...)", component_id))
+            })?;
         let queue = string_prop(&props, "queue")
             .filter(|s| !s.is_empty())
             .ok_or_else(|| EngineError::Config(format!("{}: queue required", component_id)))?;
@@ -2070,8 +2301,15 @@ fn build_stage(
             node_id: node.id.clone(),
             url,
             queue,
-            max_messages: props.get("maxMessages").and_then(|v| v.as_u64()).filter(|n| *n > 0).unwrap_or(1000),
-            timeout_ms: props.get("timeoutMs").and_then(|v| v.as_u64()).unwrap_or(5000),
+            max_messages: props
+                .get("maxMessages")
+                .and_then(|v| v.as_u64())
+                .filter(|n| *n > 0)
+                .unwrap_or(1000),
+            timeout_ms: props
+                .get("timeoutMs")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(5000),
         });
         (String::new(), StageKind::View, None)
     } else if component_id == "src.git" {
@@ -2079,7 +2317,12 @@ fn build_stage(
         // walks `git ls-tree -r`. Both shell out to the system `git`.
         let repo = string_prop(&props, "repo")
             .filter(|s| !s.is_empty())
-            .ok_or_else(|| EngineError::Config(format!("{}: repo required (path to local clone)", component_id)))?;
+            .ok_or_else(|| {
+                EngineError::Config(format!(
+                    "{}: repo required (path to local clone)",
+                    component_id
+                ))
+            })?;
         git_source = Some(GitSourceSpec {
             node_id: node.id.clone(),
             repo,
@@ -2103,6 +2346,7 @@ fn build_stage(
         // branch on success / parse output. Shell defaults to the
         // platform interpreter; pass `shell` to override.
         let command = string_prop(&props, "command")
+            .or_else(|| string_prop(&props, "code"))
             .filter(|s| !s.is_empty())
             .ok_or_else(|| EngineError::Config(format!("{}: command required", component_id)))?;
         shell = Some(ShellSpec {
@@ -2110,6 +2354,7 @@ fn build_stage(
             command,
             shell: string_prop(&props, "shell").filter(|s| !s.is_empty()),
             working_dir: string_prop(&props, "workingDir").filter(|s| !s.is_empty()),
+            from_view: inputs.main().map(|s| s.to_string()),
             timeout_ms: props
                 .get("timeoutMs")
                 .and_then(|v| v.as_u64())
@@ -2148,8 +2393,11 @@ fn build_stage(
                     None
                 }
             });
-        let from_views: Vec<String> =
-            inputs.all_main_ports().iter().map(|s| s.to_string()).collect();
+        let from_views: Vec<String> = inputs
+            .all_main_ports()
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
         let from = from_views.first().cloned();
         dbt = Some(DbtSpec {
             node_id: node.id.clone(),
@@ -2182,10 +2430,14 @@ fn build_stage(
             .ok_or_else(|| EngineError::Config(format!("{}: region required", component_id)))?;
         let access_key_id = string_prop(&props, "accessKeyId")
             .filter(|s| !s.is_empty())
-            .ok_or_else(|| EngineError::Config(format!("{}: accessKeyId required", component_id)))?;
+            .ok_or_else(|| {
+                EngineError::Config(format!("{}: accessKeyId required", component_id))
+            })?;
         let secret_access_key = string_prop(&props, "secretAccessKey")
             .filter(|s| !s.is_empty())
-            .ok_or_else(|| EngineError::Config(format!("{}: secretAccessKey required", component_id)))?;
+            .ok_or_else(|| {
+                EngineError::Config(format!("{}: secretAccessKey required", component_id))
+            })?;
         let stream_name = string_prop(&props, "streamName")
             .filter(|s| !s.is_empty())
             .ok_or_else(|| EngineError::Config(format!("{}: streamName required", component_id)))?;
@@ -2217,13 +2469,22 @@ fn build_stage(
         // (env-var lookup is a follow-up via the credentials store).
         let region = string_prop(&props, "region")
             .filter(|s| !s.is_empty())
-            .ok_or_else(|| EngineError::Config(format!("{}: region required (e.g. us-east-1)", component_id)))?;
+            .ok_or_else(|| {
+                EngineError::Config(format!(
+                    "{}: region required (e.g. us-east-1)",
+                    component_id
+                ))
+            })?;
         let access_key_id = string_prop(&props, "accessKeyId")
             .filter(|s| !s.is_empty())
-            .ok_or_else(|| EngineError::Config(format!("{}: accessKeyId required", component_id)))?;
+            .ok_or_else(|| {
+                EngineError::Config(format!("{}: accessKeyId required", component_id))
+            })?;
         let secret_access_key = string_prop(&props, "secretAccessKey")
             .filter(|s| !s.is_empty())
-            .ok_or_else(|| EngineError::Config(format!("{}: secretAccessKey required", component_id)))?;
+            .ok_or_else(|| {
+                EngineError::Config(format!("{}: secretAccessKey required", component_id))
+            })?;
         let table_name = string_prop(&props, "tableName")
             .filter(|s| !s.is_empty())
             .ok_or_else(|| EngineError::Config(format!("{}: tableName required", component_id)))?;
@@ -2372,7 +2633,10 @@ fn build_stage(
                 user: user.unwrap_or_else(|| "anonymous".into()),
                 password: string_prop(&props, "password").unwrap_or_else(|| "anonymous@".into()),
                 secure: protocol == "ftps"
-                    || props.get("secure").and_then(|v| v.as_bool()).unwrap_or(false),
+                    || props
+                        .get("secure")
+                        .and_then(|v| v.as_bool())
+                        .unwrap_or(false),
                 directory: directory.unwrap_or_else(|| "/".into()),
                 pattern,
                 max_files,
@@ -2432,7 +2696,12 @@ fn build_stage(
         // big - users usually want metadata for ETL).
         let cluster = string_prop(&props, "clusterUrl")
             .filter(|s| !s.is_empty())
-            .ok_or_else(|| EngineError::Config(format!("{}: clusterUrl required (e.g. https://xyz.cloud.qdrant.io:6333)", component_id)))?;
+            .ok_or_else(|| {
+                EngineError::Config(format!(
+                    "{}: clusterUrl required (e.g. https://xyz.cloud.qdrant.io:6333)",
+                    component_id
+                ))
+            })?;
         let collection = string_prop(&props, "collection")
             .filter(|s| !s.is_empty())
             .ok_or_else(|| EngineError::Config(format!("{}: collection required", component_id)))?;
@@ -2441,16 +2710,32 @@ fn build_stage(
             cluster_url: cluster,
             collection,
             api_key: string_prop(&props, "apiKey").unwrap_or_default(),
-            page_size: props.get("pageSize").and_then(|v| v.as_u64()).filter(|n| *n > 0).unwrap_or(100),
-            max_pages: props.get("maxPages").and_then(|v| v.as_u64()).filter(|n| *n > 0).unwrap_or(100),
-            with_vector: props.get("withVector").and_then(|v| v.as_bool()).unwrap_or(false),
+            page_size: props
+                .get("pageSize")
+                .and_then(|v| v.as_u64())
+                .filter(|n| *n > 0)
+                .unwrap_or(100),
+            max_pages: props
+                .get("maxPages")
+                .and_then(|v| v.as_u64())
+                .filter(|n| *n > 0)
+                .unwrap_or(100),
+            with_vector: props
+                .get("withVector")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false),
         });
         (String::new(), StageKind::View, None)
     } else if component_id == "src.weaviate" {
         // Weaviate object list source. endpoint + class + optional apiKey.
         let endpoint = string_prop(&props, "endpoint")
             .filter(|s| !s.is_empty())
-            .ok_or_else(|| EngineError::Config(format!("{}: endpoint required (e.g. https://my-cluster.weaviate.network)", component_id)))?;
+            .ok_or_else(|| {
+                EngineError::Config(format!(
+                    "{}: endpoint required (e.g. https://my-cluster.weaviate.network)",
+                    component_id
+                ))
+            })?;
         let class = string_prop(&props, "class")
             .filter(|s| !s.is_empty())
             .ok_or_else(|| EngineError::Config(format!("{}: class required", component_id)))?;
@@ -2459,9 +2744,20 @@ fn build_stage(
             endpoint,
             class,
             api_key: string_prop(&props, "apiKey").unwrap_or_default(),
-            page_size: props.get("pageSize").and_then(|v| v.as_u64()).filter(|n| *n > 0).unwrap_or(100),
-            max_pages: props.get("maxPages").and_then(|v| v.as_u64()).filter(|n| *n > 0).unwrap_or(100),
-            with_vector: props.get("withVector").and_then(|v| v.as_bool()).unwrap_or(false),
+            page_size: props
+                .get("pageSize")
+                .and_then(|v| v.as_u64())
+                .filter(|n| *n > 0)
+                .unwrap_or(100),
+            max_pages: props
+                .get("maxPages")
+                .and_then(|v| v.as_u64())
+                .filter(|n| *n > 0)
+                .unwrap_or(100),
+            with_vector: props
+                .get("withVector")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false),
         });
         (String::new(), StageKind::View, None)
     } else if component_id == "src.milvus" {
@@ -2475,17 +2771,32 @@ fn build_stage(
             .filter(|s| !s.is_empty())
             .ok_or_else(|| EngineError::Config(format!("{}: collection required", component_id)))?;
         let output_fields = string_prop(&props, "outputFields")
-            .map(|s| s.split(',').map(|p| p.trim().to_string()).filter(|p| !p.is_empty()).collect::<Vec<_>>())
+            .map(|s| {
+                s.split(',')
+                    .map(|p| p.trim().to_string())
+                    .filter(|p| !p.is_empty())
+                    .collect::<Vec<_>>()
+            })
             .unwrap_or_default();
         milvus_source = Some(MilvusSourceSpec {
             node_id: node.id.clone(),
             endpoint,
             collection,
             api_key: string_prop(&props, "apiKey").unwrap_or_default(),
-            filter: string_prop(&props, "filter").filter(|s| !s.trim().is_empty()).unwrap_or_else(|| "id > 0".into()),
+            filter: string_prop(&props, "filter")
+                .filter(|s| !s.trim().is_empty())
+                .unwrap_or_else(|| "id > 0".into()),
             output_fields,
-            page_size: props.get("pageSize").and_then(|v| v.as_u64()).filter(|n| *n > 0).unwrap_or(100),
-            max_pages: props.get("maxPages").and_then(|v| v.as_u64()).filter(|n| *n > 0).unwrap_or(100),
+            page_size: props
+                .get("pageSize")
+                .and_then(|v| v.as_u64())
+                .filter(|n| *n > 0)
+                .unwrap_or(100),
+            max_pages: props
+                .get("maxPages")
+                .and_then(|v| v.as_u64())
+                .filter(|n| *n > 0)
+                .unwrap_or(100),
         });
         (String::new(), StageKind::View, None)
     } else if component_id == "src.redis" {
@@ -2504,13 +2815,19 @@ fn build_stage(
             key_pattern: string_prop(&props, "keyPattern")
                 .filter(|s| !s.is_empty())
                 .unwrap_or_else(|| "*".into()),
-            limit: props.get("limit").and_then(|v| v.as_u64()).filter(|n| *n > 0).unwrap_or(10_000),
+            limit: props
+                .get("limit")
+                .and_then(|v| v.as_u64())
+                .filter(|n| *n > 0)
+                .unwrap_or(10_000),
         });
         (String::new(), StageKind::View, None)
     } else if component_id == "src.cassandra" || component_id == "src.scylla" {
         let contact_points = string_prop(&props, "contactPoints")
             .filter(|s| !s.is_empty())
-            .ok_or_else(|| EngineError::Config(format!("{}: contactPoints required", component_id)))?;
+            .ok_or_else(|| {
+                EngineError::Config(format!("{}: contactPoints required", component_id))
+            })?;
         let keyspace = string_prop(&props, "keyspace").filter(|s| !s.is_empty());
         let query = string_prop(&props, "query")
             .filter(|s| !s.trim().is_empty())
@@ -2519,7 +2836,12 @@ fn build_stage(
                 let ks = keyspace.clone()?;
                 Some(format!("SELECT * FROM {}.{}", ks, table))
             })
-            .ok_or_else(|| EngineError::Config(format!("{}: query or (keyspace+tableName) required", component_id)))?;
+            .ok_or_else(|| {
+                EngineError::Config(format!(
+                    "{}: query or (keyspace+tableName) required",
+                    component_id
+                ))
+            })?;
         cassandra_source = Some(CassandraSourceSpec {
             node_id: node.id.clone(),
             contact_points,
@@ -2546,7 +2868,9 @@ fn build_stage(
                 let schema = string_prop(&props, "schema").unwrap_or_else(|| "dbo".into());
                 Some(format!("SELECT * FROM [{}].[{}]", schema, table))
             })
-            .ok_or_else(|| EngineError::Config(format!("{}: query or tableName required", component_id)))?;
+            .ok_or_else(|| {
+                EngineError::Config(format!("{}: query or tableName required", component_id))
+            })?;
         sqlserver_source = Some(SqlServerSourceSpec {
             node_id: node.id.clone(),
             host,
@@ -2562,7 +2886,10 @@ fn build_stage(
             password: string_prop(&props, "password").unwrap_or_default(),
             database,
             query,
-            trust_cert: props.get("trustCert").and_then(|v| v.as_bool()).unwrap_or(false),
+            trust_cert: props
+                .get("trustCert")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false),
         });
         (String::new(), StageKind::View, None)
     } else if component_id == "src.clickhouse" {
@@ -2580,7 +2907,9 @@ fn build_stage(
                 };
                 Some(format!("SELECT * FROM {}", qualified))
             })
-            .ok_or_else(|| EngineError::Config(format!("{}: query or tableName required", component_id)))?;
+            .ok_or_else(|| {
+                EngineError::Config(format!("{}: query or tableName required", component_id))
+            })?;
         clickhouse_source = Some(ClickHouseSourceSpec {
             node_id: node.id.clone(),
             endpoint,
@@ -2608,7 +2937,10 @@ fn build_stage(
             collection,
             filter: string_prop(&props, "filter").filter(|s| !s.trim().is_empty()),
             projection: string_prop(&props, "projection").filter(|s| !s.trim().is_empty()),
-            limit: props.get("limit").and_then(|v| v.as_i64()).filter(|n| *n > 0),
+            limit: props
+                .get("limit")
+                .and_then(|v| v.as_i64())
+                .filter(|n| *n > 0),
         });
         (String::new(), StageKind::View, None)
     } else if matches!(component_id, "src.graphql" | "src.linear" | "src.monday") {
@@ -2758,7 +3090,10 @@ fn build_stage(
                 let next_path = string_prop(&props, "cursorNextPath").filter(|s| !s.is_empty());
                 let param = string_prop(&props, "cursorParam").filter(|s| !s.is_empty());
                 match (next_path, param) {
-                    (Some(n), Some(p)) => RestPagination::Cursor { next_path: n, param: p },
+                    (Some(n), Some(p)) => RestPagination::Cursor {
+                        next_path: n,
+                        param: p,
+                    },
                     _ => RestPagination::None,
                 }
             }
@@ -2774,18 +3109,28 @@ fn build_stage(
                 let total_path = string_prop(&props, "totalCountPath")
                     .map(|s| s.trim().to_string())
                     .filter(|s| !s.is_empty())
-                    .map(|s| if s.starts_with('/') { s } else { format!("/{}", s) });
-                RestPagination::Offset { offset_param: param, page_size, total_path }
+                    .map(|s| {
+                        if s.starts_with('/') {
+                            s
+                        } else {
+                            format!("/{}", s)
+                        }
+                    });
+                RestPagination::Offset {
+                    offset_param: param,
+                    page_size,
+                    total_path,
+                }
             }
             "page" => {
                 let param = string_prop(&props, "pageParam")
                     .filter(|s| !s.is_empty())
                     .unwrap_or_else(|| "page".into());
-                let start_page = props
-                    .get("startPage")
-                    .and_then(|v| v.as_u64())
-                    .unwrap_or(1);
-                RestPagination::Page { page_param: param, start_page }
+                let start_page = props.get("startPage").and_then(|v| v.as_u64()).unwrap_or(1);
+                RestPagination::Page {
+                    page_param: param,
+                    start_page,
+                }
             }
             "link" => RestPagination::Link,
             "nextUrl" => {
@@ -2805,7 +3150,10 @@ fn build_stage(
                 let next_path = string_prop(&props, "cursorNextPath").filter(|s| !s.is_empty());
                 let param = string_prop(&props, "cursorParam").filter(|s| !s.is_empty());
                 match (next_path, param) {
-                    (Some(n), Some(p)) => RestPagination::Cursor { next_path: n, param: p },
+                    (Some(n), Some(p)) => RestPagination::Cursor {
+                        next_path: n,
+                        param: p,
+                    },
                     _ => RestPagination::None,
                 }
             }
@@ -2840,7 +3188,9 @@ fn build_stage(
             "jwt" => {
                 let user = string_prop(&props, "user")
                     .filter(|s| !s.is_empty())
-                    .ok_or_else(|| EngineError::Config(format!("{}: user required for JWT auth", component_id)))?;
+                    .ok_or_else(|| {
+                        EngineError::Config(format!("{}: user required for JWT auth", component_id))
+                    })?;
                 let pem = string_prop(&props, "privateKeyPem")
                     .filter(|s| !s.is_empty())
                     .or_else(|| {
@@ -2848,13 +3198,23 @@ fn build_stage(
                             .filter(|s| !s.is_empty())
                             .and_then(|p| std::fs::read_to_string(&p).ok())
                     })
-                    .ok_or_else(|| EngineError::Config(format!("{}: privateKeyPem or privateKeyPath required for JWT auth", component_id)))?;
-                SnowflakeAuth::Jwt { user, private_key_pem: pem }
+                    .ok_or_else(|| {
+                        EngineError::Config(format!(
+                            "{}: privateKeyPem or privateKeyPath required for JWT auth",
+                            component_id
+                        ))
+                    })?;
+                SnowflakeAuth::Jwt {
+                    user,
+                    private_key_pem: pem,
+                }
             }
             _ => {
                 let token = string_prop(&props, "pat")
                     .filter(|s| !s.is_empty())
-                    .ok_or_else(|| EngineError::Config(format!("{}: pat required for PAT auth", component_id)))?;
+                    .ok_or_else(|| {
+                        EngineError::Config(format!("{}: pat required for PAT auth", component_id))
+                    })?;
                 SnowflakeAuth::Pat { token }
             }
         };
@@ -2871,7 +3231,12 @@ fn build_stage(
                     db, sch, table
                 ))
             })
-            .ok_or_else(|| EngineError::Config(format!("{}: query or (database+schema+tableName) required", component_id)))?;
+            .ok_or_else(|| {
+                EngineError::Config(format!(
+                    "{}: query or (database+schema+tableName) required",
+                    component_id
+                ))
+            })?;
         snowflake_source = Some(SnowflakeSourceSpec {
             node_id: node.id.clone(),
             account,
@@ -2894,7 +3259,9 @@ fn build_stage(
             .ok_or_else(|| EngineError::Config(format!("{}: pat required", component_id)))?;
         let warehouse_id = string_prop(&props, "warehouseId")
             .filter(|s| !s.is_empty())
-            .ok_or_else(|| EngineError::Config(format!("{}: warehouseId required", component_id)))?;
+            .ok_or_else(|| {
+                EngineError::Config(format!("{}: warehouseId required", component_id))
+            })?;
         let catalog = string_prop(&props, "catalog").filter(|s| !s.is_empty());
         let schema = string_prop(&props, "schema").filter(|s| !s.is_empty());
         let query = string_prop(&props, "query")
@@ -2908,7 +3275,12 @@ fn build_stage(
                 };
                 Some(format!("SELECT * FROM {}", qualified))
             })
-            .ok_or_else(|| EngineError::Config(format!("{}: query or (catalog+schema+tableName) required", component_id)))?;
+            .ok_or_else(|| {
+                EngineError::Config(format!(
+                    "{}: query or (catalog+schema+tableName) required",
+                    component_id
+                ))
+            })?;
         databricks_source = Some(DatabricksSourceSpec {
             node_id: node.id.clone(),
             workspace,
@@ -2930,7 +3302,10 @@ fn build_stage(
         // main output table, so the count_rows fallback in the executor
         // (which would target node.id) just returns None for it.
         let sql = build_switch(&node.id, inputs, &props, consumer_count).map_err(|e| {
-            EngineError::Config(format!("{} ({} / {}): {}", node.data.label, component_id, node.id, e))
+            EngineError::Config(format!(
+                "{} ({} / {}): {}",
+                node.data.label, component_id, node.id, e
+            ))
         })?;
         (format!("{}{}", attach, sql), StageKind::View, None)
     } else if component_id == "xf.ai.text_search" {
@@ -2938,7 +3313,10 @@ fn build_stage(
         // v1.5 fts PRAGMA can't see tables created in the same -c
         // invocation). The planner records the spec; sql stays empty.
         let spec = build_text_search_spec(&node.id, inputs, &props).map_err(|e| {
-            EngineError::Config(format!("{} ({} / {}): {}", node.data.label, component_id, node.id, e))
+            EngineError::Config(format!(
+                "{} ({} / {}): {}",
+                node.data.label, component_id, node.id, e
+            ))
         })?;
         text_search = Some(spec);
         (String::new(), StageKind::View, None)
@@ -2946,9 +3324,9 @@ fn build_stage(
         // Per-row JS transform. Script must define a `transform`
         // function (named or assigned) that takes a row object and
         // returns one. No persistent state across rows.
-        let from_view = inputs
-            .main()
-            .ok_or_else(|| EngineError::Config(format!("{}: upstream input required", component_id)))?;
+        let from_view = inputs.main().ok_or_else(|| {
+            EngineError::Config(format!("{}: upstream input required", component_id))
+        })?;
         let script = string_prop(&props, "script")
             .filter(|s| !s.is_empty())
             .ok_or_else(|| EngineError::Config(format!("{}: script required", component_id)))?;
@@ -2964,18 +3342,20 @@ fn build_stage(
         // .wasm file. Module contract: must export `memory` and a
         // function with signature (i32, i32) -> i64 packing
         // (out_ptr << 32) | out_len.
-        let from_view = inputs
-            .main()
-            .ok_or_else(|| EngineError::Config(format!("{}: upstream input required", component_id)))?;
+        let from_view = inputs.main().ok_or_else(|| {
+            EngineError::Config(format!("{}: upstream input required", component_id))
+        })?;
         let wasm_bytes = if let Some(b64) = string_prop(&props, "wasmB64").filter(|s| !s.is_empty())
         {
             use base64::engine::general_purpose::STANDARD as B64;
             use base64::Engine as _;
-            B64.decode(&b64)
-                .map_err(|e| EngineError::Config(format!("{}: wasmB64 decode: {}", component_id, e)))?
+            B64.decode(&b64).map_err(|e| {
+                EngineError::Config(format!("{}: wasmB64 decode: {}", component_id, e))
+            })?
         } else if let Some(path) = string_prop(&props, "path").filter(|s| !s.is_empty()) {
-            std::fs::read(&path)
-                .map_err(|e| EngineError::Config(format!("{}: read {}: {}", component_id, path, e)))?
+            std::fs::read(&path).map_err(|e| {
+                EngineError::Config(format!("{}: read {}: {}", component_id, path, e))
+            })?
         } else {
             return Err(EngineError::Config(format!(
                 "{}: either wasmB64 or path required",
@@ -3004,9 +3384,9 @@ fn build_stage(
     } else if component_id == "xf.ai.pii" {
         // Regex-based PII redaction. `types` is a comma-separated
         // subset of email,phone,ssn,credit_card; empty = all.
-        let from_view = inputs
-            .main()
-            .ok_or_else(|| EngineError::Config(format!("{}: upstream input required", component_id)))?;
+        let from_view = inputs.main().ok_or_else(|| {
+            EngineError::Config(format!("{}: upstream input required", component_id))
+        })?;
         let input_column = string_prop(&props, "inputColumn")
             .filter(|s| !s.is_empty())
             .unwrap_or_else(|| "text".into());
@@ -3033,9 +3413,9 @@ fn build_stage(
         // Text splitter. Local string ops only - no API. Default to
         // explode mode (one row per chunk) which is what RAG pipelines
         // typically want before feeding into xf.ai.embed.
-        let from_view = inputs
-            .main()
-            .ok_or_else(|| EngineError::Config(format!("{}: upstream input required", component_id)))?;
+        let from_view = inputs.main().ok_or_else(|| {
+            EngineError::Config(format!("{}: upstream input required", component_id))
+        })?;
         ai_chunk = Some(AiChunkSpec {
             node_id: node.id.clone(),
             from_view: from_view.to_string(),
@@ -3060,9 +3440,9 @@ fn build_stage(
         });
         (String::new(), StageKind::View, None)
     } else if component_id == "xf.ai.dedupe" {
-        let from_view = inputs
-            .main()
-            .ok_or_else(|| EngineError::Config(format!("{}: upstream input required", component_id)))?;
+        let from_view = inputs.main().ok_or_else(|| {
+            EngineError::Config(format!("{}: upstream input required", component_id))
+        })?;
         ai_dedupe = Some(AiDedupeSpec {
             node_id: node.id.clone(),
             from_view: from_view.to_string(),
@@ -3076,9 +3456,9 @@ fn build_stage(
         });
         (String::new(), StageKind::View, None)
     } else if component_id == "xf.ai.classify" {
-        let from_view = inputs
-            .main()
-            .ok_or_else(|| EngineError::Config(format!("{}: upstream input required", component_id)))?;
+        let from_view = inputs.main().ok_or_else(|| {
+            EngineError::Config(format!("{}: upstream input required", component_id))
+        })?;
         let api_key = string_prop(&props, "apiKey")
             .filter(|s| !s.is_empty())
             .ok_or_else(|| EngineError::Config(format!("{}: apiKey required", component_id)))?;
@@ -3119,9 +3499,9 @@ fn build_stage(
     } else if component_id == "xf.ai.llm" {
         // Per-row LLM call. Renders promptTemplate with {col} subst.
         // Same credential pattern as xf.ai.embed.
-        let from_view = inputs
-            .main()
-            .ok_or_else(|| EngineError::Config(format!("{}: upstream input required", component_id)))?;
+        let from_view = inputs.main().ok_or_else(|| {
+            EngineError::Config(format!("{}: upstream input required", component_id))
+        })?;
         let api_key = string_prop(&props, "apiKey")
             .filter(|s| !s.is_empty())
             .ok_or_else(|| EngineError::Config(format!("{}: apiKey required", component_id)))?;
@@ -3154,12 +3534,17 @@ fn build_stage(
         // resolves the upstream view name (the stage reads from it
         // during execution) and pins the API config. apiKey is
         // required - this stage will not run with an empty key.
-        let from_view = inputs
-            .main()
-            .ok_or_else(|| EngineError::Config(format!("{}: upstream input required", component_id)))?;
+        let from_view = inputs.main().ok_or_else(|| {
+            EngineError::Config(format!("{}: upstream input required", component_id))
+        })?;
         let api_key = string_prop(&props, "apiKey")
             .filter(|s| !s.is_empty())
-            .ok_or_else(|| EngineError::Config(format!("{}: apiKey required (OpenAI / compatible)", component_id)))?;
+            .ok_or_else(|| {
+                EngineError::Config(format!(
+                    "{}: apiKey required (OpenAI / compatible)",
+                    component_id
+                ))
+            })?;
         ai_embed = Some(AiEmbedSpec {
             node_id: node.id.clone(),
             from_view: from_view.to_string(),
@@ -3195,8 +3580,12 @@ fn build_stage(
             inputs,
             node.data.schema.as_deref(),
             reject_consumers >= 1,
-        ).map_err(|e| {
-            EngineError::Config(format!("{} ({} / {}): {}", node.data.label, component_id, node.id, e))
+        )
+        .map_err(|e| {
+            EngineError::Config(format!(
+                "{} ({} / {}): {}",
+                node.data.label, component_id, node.id, e
+            ))
         })?;
         // Pick TABLE vs VIEW based on consumer count.
         //
@@ -3221,9 +3610,14 @@ fn build_stage(
         // otherwise materialized the whole rejected set to disk for nothing
         // (a 10M -> 2M filter wrote 8M rejected rows, ~12s of pure waste).
         let reject_sql = if reject_consumers >= 1 {
-            build_reject_sql(component_id, &props, inputs, node.data.schema.as_deref()).map_err(|e| {
-                EngineError::Config(format!("{} ({} / {}): {}", node.data.label, component_id, node.id, e))
-            })?
+            build_reject_sql(component_id, &props, inputs, node.data.schema.as_deref()).map_err(
+                |e| {
+                    EngineError::Config(format!(
+                        "{} ({} / {}): {}",
+                        node.data.label, component_id, node.id, e
+                    ))
+                },
+            )?
         } else {
             None
         };
@@ -3233,8 +3627,7 @@ fn build_stage(
         // the data cannot be used in views." Force TABLE materialization
         // for components whose body uses dynamic PIVOT so they don't
         // hit that limit when the consumer-count path picks VIEW.
-        let uses_dynamic_pivot =
-            matches!(component_id, "xf.transpose" | "xf.pivot" | "xf.zip");
+        let uses_dynamic_pivot = matches!(component_id, "xf.transpose" | "xf.pivot" | "xf.zip");
         // DUCKLE_FORCE_VIEWS=1 makes every eligible step a VIEW even when
         // multiple downstream nodes consume it (issue #5). The default
         // (single-consumer => VIEW, multi-consumer => TABLE) balances
@@ -3280,15 +3673,21 @@ fn build_stage(
             .and_then(|v| v.as_str())
             .unwrap_or("auto");
         let forced_view = force_views || materialize == "view";
-        let forced_table =
-            matches!(materialize, "table" | "memory" | "disk" | "duckdb" | "duckdbfile");
+        let forced_table = matches!(
+            materialize,
+            "table" | "memory" | "disk" | "duckdb" | "duckdbfile"
+        );
         let view_ok = |consumers: usize| {
             !uses_dynamic_pivot
                 && !attach_backed
                 && !forced_table
                 && (forced_view || consumers <= 1)
         };
-        let main_kw = if view_ok(main_consumers) { "VIEW" } else { "TABLE" };
+        let main_kw = if view_ok(main_consumers) {
+            "VIEW"
+        } else {
+            "TABLE"
+        };
         // Remote / catalog sources that exactly one stage consumes: COPY the
         // already-typed rows to a temp parquet once and expose a read_parquet
         // VIEW instead of inserting them into the on-disk run-db table. The
@@ -3409,7 +3808,11 @@ fn build_stage(
         // consumers, same as any other output.
         if let Some(reject_body) = reject_sql {
             let reject_table = format!("{}{}", node.id, REJECT_SUFFIX);
-            let reject_kw = if view_ok(reject_consumers) { "VIEW" } else { "TABLE" };
+            let reject_kw = if view_ok(reject_consumers) {
+                "VIEW"
+            } else {
+                "TABLE"
+            };
             sql.push_str(&format!(
                 "; CREATE OR REPLACE {} {} AS {}",
                 reject_kw,
@@ -3426,10 +3829,18 @@ fn build_stage(
         .or_else(|| text_search.map(RuntimeSpec::TextSearch))
         .or_else(|| run_job.map(|(path, vars)| RuntimeSpec::RunJob { path, vars }))
         .or_else(|| install_fallback_path.map(RuntimeSpec::InstallFallback))
-        .or_else(|| iterate_pipeline_path
-            .map(|path| RuntimeSpec::Iterate { path, count: iterate_count.unwrap_or(0) }))
-        .or_else(|| foreach_pipeline_path
-            .map(|path| RuntimeSpec::Foreach { path, concurrency: foreach_concurrency }))
+        .or_else(|| {
+            iterate_pipeline_path.map(|path| RuntimeSpec::Iterate {
+                path,
+                count: iterate_count.unwrap_or(0),
+            })
+        })
+        .or_else(|| {
+            foreach_pipeline_path.map(|path| RuntimeSpec::Foreach {
+                path,
+                concurrency: foreach_concurrency,
+            })
+        })
         .or_else(|| log_spec.map(|(level, message)| RuntimeSpec::Log { level, message }))
         .or_else(|| die_spec.map(|(message, condition)| RuntimeSpec::Die { message, condition }))
         .or_else(|| incremental.map(RuntimeSpec::Incremental))
@@ -3493,8 +3904,7 @@ fn build_stage(
         .or_else(|| ai_pii.map(RuntimeSpec::AiPii))
         .or_else(|| ai_llm.map(RuntimeSpec::AiLlm))
         .or_else(|| ai_classify.map(RuntimeSpec::AiClassify))
-        .or_else(|| ai_dedupe.map(RuntimeSpec::AiDedupe))
-        ;
+        .or_else(|| ai_dedupe.map(RuntimeSpec::AiDedupe));
     // Free the ATTACH alias so the next batched stage can re-ATTACH it (see
     // attach_alias above). Only stages that embed the ATTACH in their own SQL
     // qualify - the sql starts with the prelude. Runtime-spec sources/sinks

@@ -25,7 +25,10 @@ fn cell_to_json(row: &oracle::Row, i: usize) -> Value {
             }
             Value::Null
         }
-        OracleType::Number(_, _) | OracleType::Float(_) | OracleType::BinaryDouble | OracleType::BinaryFloat => {
+        OracleType::Number(_, _)
+        | OracleType::Float(_)
+        | OracleType::BinaryDouble
+        | OracleType::BinaryFloat => {
             if let Ok(Some(s)) = row.get::<usize, Option<String>>(i) {
                 if let Ok(n) = s.parse::<f64>() {
                     if let Some(num) = serde_json::Number::from_f64(n) {
@@ -36,10 +39,21 @@ fn cell_to_json(row: &oracle::Row, i: usize) -> Value {
             }
             Value::Null
         }
-        OracleType::Date | OracleType::Timestamp(_) | OracleType::TimestampTZ(_) | OracleType::TimestampLTZ(_) => {
-            row.get::<usize, Option<String>>(i).ok().flatten().map(Value::String).unwrap_or(Value::Null)
-        }
-        _ => row.get::<usize, Option<String>>(i).ok().flatten().map(Value::String).unwrap_or(Value::Null),
+        OracleType::Date
+        | OracleType::Timestamp(_)
+        | OracleType::TimestampTZ(_)
+        | OracleType::TimestampLTZ(_) => row
+            .get::<usize, Option<String>>(i)
+            .ok()
+            .flatten()
+            .map(Value::String)
+            .unwrap_or(Value::Null),
+        _ => row
+            .get::<usize, Option<String>>(i)
+            .ok()
+            .flatten()
+            .map(Value::String)
+            .unwrap_or(Value::Null),
     }
 }
 
@@ -57,9 +71,17 @@ fn main() {
     for n in [10usize, 100, 1000, 10500] {
         let q = format!("SELECT * FROM {} WHERE rownum <= {}", table, n);
         let t0 = std::time::Instant::now();
-        let mut stmt = c.statement(&q).prefetch_rows(1000).build().expect("prepare");
+        let mut stmt = c
+            .statement(&q)
+            .prefetch_rows(1000)
+            .build()
+            .expect("prepare");
         let rs = stmt.query(&[]).expect("query");
-        let cols: Vec<String> = rs.column_info().iter().map(|c| c.name().to_string()).collect();
+        let cols: Vec<String> = rs
+            .column_info()
+            .iter()
+            .map(|c| c.name().to_string())
+            .collect();
         let path = format!("ora_repro_{}.ndjson", n);
         let mut buf = String::new();
         let mut rows = 0usize;
@@ -77,7 +99,10 @@ fn main() {
         let fetch_ms = t0.elapsed().as_millis();
         if n == 100 {
             // Show the real serialized shape (esp. the DATE format).
-            eprintln!("first NDJSON line (N=100): {}", buf.lines().next().unwrap_or(""));
+            eprintln!(
+                "first NDJSON line (N=100): {}",
+                buf.lines().next().unwrap_or("")
+            );
         }
         // Time DuckDB read_json_auto on the produced file.
         let t1 = std::time::Instant::now();
@@ -97,7 +122,10 @@ fn main() {
             n, fetch_ms, read_ms, status, rows
         );
         if !out.status.success() {
-            eprintln!("  duckdb stderr: {}", String::from_utf8_lossy(&out.stderr).trim());
+            eprintln!(
+                "  duckdb stderr: {}",
+                String::from_utf8_lossy(&out.stderr).trim()
+            );
         }
         let _ = std::fs::remove_file(&path);
     }

@@ -70,7 +70,9 @@ pub struct TextSearchSpec {
 /// fingerprint, and signs Snowflake-shaped claims (iss/sub/iat/exp).
 #[derive(Debug, Clone)]
 pub enum SnowflakeAuth {
-    Pat { token: String },
+    Pat {
+        token: String,
+    },
     Jwt {
         user: String,
         private_key_pem: String,
@@ -510,7 +512,9 @@ pub struct GitSourceSpec {
 /// code.shell: run a single shell command and emit one row with
 /// {stdout, stderr, exit_code, duration_ms}. Uses the platform's
 /// default interpreter (cmd.exe /C on Windows, /bin/sh -c on Unix);
-/// override with `shell` if needed. Cancellation kills the child.
+/// override with `shell` if needed. If `from_view` is set, upstream rows
+/// are exposed to the child as newline-delimited JSON. Cancellation kills
+/// the child.
 #[derive(Debug, Clone)]
 pub struct ShellSpec {
     pub node_id: String,
@@ -518,6 +522,7 @@ pub struct ShellSpec {
     pub shell: Option<String>,
     pub working_dir: Option<String>,
     pub timeout_ms: Option<u64>,
+    pub from_view: Option<String>,
 }
 
 /// xf.dbt: run a dbt Core project through the dbt-duckdb adapter. The
@@ -1055,7 +1060,11 @@ pub enum RestPagination {
     /// `/total_count`), also stop once `offset + page_size >= total`, since
     /// such APIs return HTTP 200 with an empty array past the end and the
     /// status code cannot signal the end (issue #41).
-    Offset { offset_param: String, page_size: u64, total_path: Option<String> },
+    Offset {
+        offset_param: String,
+        page_size: u64,
+        total_path: Option<String>,
+    },
     /// Increment `?<page_param>=N` starting at `start_page` (default 1)
     /// until a page returns 0 rows.
     Page { page_param: String, start_page: u64 },

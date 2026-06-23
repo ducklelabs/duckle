@@ -59,10 +59,10 @@ Control nodes mostly pass rows through while adding orchestration side effects.
 
 | Nodes | Runtime | Input | Output | Notes |
 |---|---|---|---|---|
-| `code.sql` | DuckDB SQL | Main as `input` | SQL query result | Best custom escape hatch. Must produce a valid SELECT-like result. |
-| `code.sqltemplate` | DuckDB SQL with substitution | Main as `input` plus context variables | SQL query result | Use for parameterized routines. |
+| `code.sql` | DuckDB SQL | Optional main as `input` | SQL query result | Best custom escape hatch. Can start a graph with a literal `SELECT`. |
+| `code.sqltemplate` | DuckDB SQL with substitution | Optional main as `input` plus context variables | SQL query result | Use for parameterized routines. Can start a graph with a literal `SELECT`. |
 | `code.javascript` | Rust Boa runtime | Main rows | Per-row transformed objects | Script must define `transform(row)` and return an object. No fetch/fs/DOM. |
-| `code.shell` | System shell runtime | None required | Single row `{stdout, stderr, exit_code, duration_ms}` | Runs arbitrary command. Defaults to platform shell. Optional working dir and timeout. |
+| `code.shell` | System shell runtime | Optional main | Single row `{stdout, stderr, exit_code, duration_ms}` plus input metadata when connected | Runs arbitrary command. Defaults to platform shell. Optional working dir and timeout. When connected, upstream rows are materialized to JSONL and exposed to the shell. |
 | `code.wasm` | Rust wasmi runtime | Main rows | Per-row transformed output column | Module must export `memory` and transform function contract. |
 | `code.python`, `code.rust` | Planned | N/A | N/A | Palette entries exist but should not be used as runtime dependencies. |
 
@@ -84,7 +84,7 @@ Control nodes mostly pass rows through while adding orchestration side effects.
 | Debug row count | Any branch -> `xf.count` -> `ctl.log` |
 | Guard reject branch | Validator reject -> `xf.count` -> `ctl.die` with `has-rows` |
 | Dead-letter rejects | Validator reject -> `ctl.deadletter` |
-| Run bootstrap/setup | `code.shell` -> downstream parse/assert/log |
+| Run bootstrap/setup with config | `code.sql config -> code.shell -> downstream parse/assert/log` |
 | Master job | `ctl.runjob` -> `ctl.runjob` -> `ctl.runjob` |
 | Per-item orchestration | Source rows -> `ctl.foreach` child pipeline |
 | Durable checkpoint | Any branch -> `ctl.checkpoint` -> continue |
@@ -93,6 +93,8 @@ Control nodes mostly pass rows through while adding orchestration side effects.
 ## Runtime and Safety Notes
 
 - `code.shell` is powerful and should be treated as an escape hatch. It can mutate the local machine or call external tools.
+- When `code.shell` has an upstream main input, the runtime sets `DUCKLE_INPUT_PATH`, `DUCKLE_INPUT_FORMAT=jsonl`, `DUCKLE_INPUT_TABLE`, `DUCKLE_INPUT_ROW_COUNT`, and `DUCKLE_DUCKDB_DATABASE`.
+- Treat `code.shell` upstream handoff as a control/config interface, not a bulk data transport. For large data movement, use DuckDB SQL, parquet sinks, or connector nodes.
 - `ctl.runpipeline`, `ctl.runjob`, `ctl.iterate`, and `ctl.foreach` are side-effect oriented. Do not expect child outputs to appear as parent rows.
 - `ctl.try` runs fallback on failure but does not resume the failed branch as a full block-scoped try/catch.
 - `ctl.parallelize` snapshots upstream once and runs isolated branch sub-pipelines. Shared external side effects still need careful design.
@@ -104,6 +106,7 @@ Control nodes mostly pass rows through while adding orchestration side effects.
 - Use control nodes to make workflow intent explicit: logging, gating, dead-lettering, orchestration, checkpointing.
 - Prefer `code.sql` before `code.shell` when the work is data-local and can run inside DuckDB.
 - Prefer built-in source/sink nodes before shelling out to external CLIs.
+- Use `code.sql` to create literal config rows before `code.shell` when a CLI step needs workflow-local parameters.
 - Use `code.shell` for bootstrap/migration tasks that are inherently CLI-driven, such as Dolt setup or local project scaffolding.
 - Keep child-pipeline orchestration separate from data-transform composition until the DAG/block model changes.
 - Verify exact prop names in `plan/mod.rs` before generating raw workflow JSON.

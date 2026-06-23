@@ -34,7 +34,12 @@ pub fn categorize_error(msg: &str) -> &'static str {
     ]) {
         return "oom";
     }
-    if has(&["no space left", "disk full", "too many open files", "quota exceeded"]) {
+    if has(&[
+        "no space left",
+        "disk full",
+        "too many open files",
+        "quota exceeded",
+    ]) {
         return "disk";
     }
     if has(&[
@@ -123,10 +128,16 @@ mod tests {
             ("Out of Memory Error: failed to allocate block", "oom"),
             ("IO Error: No space left on device", "disk"),
             ("snowflake: JWT token is invalid (390144)", "auth"),
-            ("ORA-01017: invalid username/password; logon denied. authentication failed", "auth"),
+            (
+                "ORA-01017: invalid username/password; logon denied. authentication failed",
+                "auth",
+            ),
             ("Binder Error: column \"order_id\" not found", "schema"),
             ("Catalog Error: Table 'orders' does not exist", "schema"),
-            ("Conversion Error: Could not convert string 'abc' to INT64", "schema"),
+            (
+                "Conversion Error: Could not convert string 'abc' to INT64",
+                "schema",
+            ),
             ("Parser Error: syntax error at or near \"SELEC\"", "syntax"),
             ("run was cancelled", "cancelled"),
             ("something inexplicable happened", "other"),

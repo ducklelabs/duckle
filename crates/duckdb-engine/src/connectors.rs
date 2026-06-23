@@ -177,10 +177,7 @@ impl DuckdbEngine {
                 let body = if spec.body_wrap.is_some() || !spec.body_extras.is_empty() {
                     let mut obj = serde_json::Map::new();
                     if let Some(wrap_key) = &spec.body_wrap {
-                        obj.insert(
-                            wrap_key.clone(),
-                            serde_json::Value::Array(rows.clone()),
-                        );
+                        obj.insert(wrap_key.clone(), serde_json::Value::Array(rows.clone()));
                     }
                     for (k, v) in &spec.body_extras {
                         obj.insert(k.clone(), v.clone());
@@ -191,16 +188,17 @@ impl DuckdbEngine {
                     serde_json::to_string(&rows).unwrap_or_else(|_| "[]".into())
                 };
                 dispatch(body, "application/json")?;
-                Ok(format!("sent 1 batch ({} rows) to {}", rows.len(), spec.url))
+                Ok(format!(
+                    "sent 1 batch ({} rows) to {}",
+                    rows.len(),
+                    spec.url
+                ))
             }
             "ndjson_bulk" => {
                 // Each row produces TWO lines: an action then the doc.
                 // The action template lives in spec.bulk_action (set by
                 // snk.elastic / snk.opensearch with the index name baked in).
-                let action = spec
-                    .bulk_action
-                    .as_deref()
-                    .unwrap_or("{\"index\":{}}");
+                let action = spec.bulk_action.as_deref().unwrap_or("{\"index\":{}}");
                 let mut body = String::new();
                 for row in &rows {
                     body.push_str(action);
@@ -247,7 +245,11 @@ impl DuckdbEngine {
         // preserves the SELECT order, which is the upstream view's order).
         let cols: Vec<String> = match rows[0].as_object() {
             Some(o) => o.keys().cloned().collect(),
-            None => return Err(EngineError::Query("snowflake: upstream rows aren't JSON objects".into())),
+            None => {
+                return Err(EngineError::Query(
+                    "snowflake: upstream rows aren't JSON objects".into(),
+                ))
+            }
         };
         let schema_name = spec.schema.as_deref().unwrap_or("PUBLIC");
         let qualified = format!(
@@ -336,9 +338,10 @@ impl DuckdbEngine {
             if let Some(role) = &spec.role {
                 body_obj.insert("role".into(), JsonValue::String(role.clone()));
             }
-            let body = serde_json::to_string(&JsonValue::Object(body_obj))
-                .unwrap_or_else(|_| "{}".into());
-            let mut req = crate::tls::http_agent().post(&url)
+            let body =
+                serde_json::to_string(&JsonValue::Object(body_obj)).unwrap_or_else(|_| "{}".into());
+            let mut req = crate::tls::http_agent()
+                .post(&url)
                 .set("Authorization", &auth_header)
                 .set("Content-Type", "application/json")
                 .set("Accept", "application/json");
@@ -358,11 +361,9 @@ impl DuckdbEngine {
                     // async: the body carries a statementHandle and no `data`.
                     // Poll it to completion so a still-running (or later failed)
                     // write isn't counted as a successful insert.
-                    let parsed: JsonValue =
-                        serde_json::from_str(&txt).unwrap_or(JsonValue::Null);
+                    let parsed: JsonValue = serde_json::from_str(&txt).unwrap_or(JsonValue::Null);
                     if parsed.get("data").is_none() {
-                        if let Some(handle) =
-                            parsed.get("statementHandle").and_then(|v| v.as_str())
+                        if let Some(handle) = parsed.get("statementHandle").and_then(|v| v.as_str())
                         {
                             poll_snowflake_until_done(&url, &auth_header, is_jwt, handle)?;
                         }
@@ -389,18 +390,26 @@ impl DuckdbEngine {
         // Oracle sinks), inferring types from the upstream view. A no-op when
         // the table already exists.
         let col_types: std::collections::HashMap<String, String> =
-            describe_columns(self, db, &spec.from_view).into_iter().collect();
+            describe_columns(self, db, &spec.from_view)
+                .into_iter()
+                .collect();
         let col_defs = data_cols
             .iter()
             .map(|c| {
                 let ty = duckdb_type_to_snowflake(
-                    col_types.get(c.as_str()).map(|s| s.as_str()).unwrap_or("VARCHAR"),
+                    col_types
+                        .get(c.as_str())
+                        .map(|s| s.as_str())
+                        .unwrap_or("VARCHAR"),
                 );
                 format!("{} {}", sf_quote_ident(c), ty)
             })
             .collect::<Vec<_>>()
             .join(", ");
-        post_stmt(format!("CREATE TABLE IF NOT EXISTS {} ({})", qualified, col_defs))?;
+        post_stmt(format!(
+            "CREATE TABLE IF NOT EXISTS {} ({})",
+            qualified, col_defs
+        ))?;
 
         let mut total_inserted = 0_usize;
         for chunk in rows.chunks(spec.batch_size) {
@@ -412,9 +421,7 @@ impl DuckdbEngine {
                     let vals: Vec<String> = cols
                         .iter()
                         .map(|c| {
-                            let v = row_obj
-                                .and_then(|o| o.get(c))
-                                .unwrap_or(&JsonValue::Null);
+                            let v = row_obj.and_then(|o| o.get(c)).unwrap_or(&JsonValue::Null);
                             sql_literal(v, None, Dialect::JsonNative)
                         })
                         .collect();
@@ -473,7 +480,8 @@ impl DuckdbEngine {
         Ok(format!(
             "snowflake: {} {} rows into {}",
             if is_upsert { "merged" } else { "inserted" },
-            total_inserted, spec.table
+            total_inserted,
+            spec.table
         ))
     }
 
@@ -547,7 +555,10 @@ impl DuckdbEngine {
                 select_items.push(format!("strftime({}, '%Y-%m-%d') AS {}", qn, qn));
             } else if up.starts_with("TIMESTAMP") || up == "DATETIME" {
                 placeholders.push(format!("TO_TIMESTAMP(:{}, 'YYYY-MM-DD HH24:MI:SS.FF6')", n));
-                select_items.push(format!("strftime({}, '%Y-%m-%d %H:%M:%S.%f') AS {}", qn, qn));
+                select_items.push(format!(
+                    "strftime({}, '%Y-%m-%d %H:%M:%S.%f') AS {}",
+                    qn, qn
+                ));
             } else {
                 placeholders.push(format!(":{}", n));
                 select_items.push(qn);
@@ -673,8 +684,7 @@ impl DuckdbEngine {
                         let items: Vec<String> = cols
                             .iter()
                             .map(|c| {
-                                let v =
-                                    obj.and_then(|o| o.get(c)).unwrap_or(&JsonValue::Null);
+                                let v = obj.and_then(|o| o.get(c)).unwrap_or(&JsonValue::Null);
                                 let lit = sql_literal(
                                     v,
                                     col_types.get(c).map(|s| s.as_str()),
@@ -757,8 +767,10 @@ impl DuckdbEngine {
                         Some(other) => Some(other.to_string()),
                     })
                     .collect();
-                let refs: Vec<&dyn oracle::sql_type::ToSql> =
-                    binds.iter().map(|b| b as &dyn oracle::sql_type::ToSql).collect();
+                let refs: Vec<&dyn oracle::sql_type::ToSql> = binds
+                    .iter()
+                    .map(|b| b as &dyn oracle::sql_type::ToSql)
+                    .collect();
                 batch
                     .append_row(&refs)
                     .map_err(|e| EngineError::Query(format!("oracle insert: {}", e)))?;
@@ -778,7 +790,10 @@ impl DuckdbEngine {
                 .map_err(|e| EngineError::Query(format!("oracle insert: {}", e)))?;
             conn.commit()
                 .map_err(|e| EngineError::Query(format!("oracle commit: {}", e)))?;
-            return Ok(format!("oracle: inserted {} rows into {}", total, qualified));
+            return Ok(format!(
+                "oracle: inserted {} rows into {}",
+                total, qualified
+            ));
         }
 
         // Fallback path (time-zone / BLOB / nested types): per-literal INSERT
@@ -825,7 +840,10 @@ impl DuckdbEngine {
             conn.commit()
                 .map_err(|e| EngineError::Query(format!("oracle commit: {}", e)))?;
         }
-        Ok(format!("oracle: inserted {} rows into {}", total, qualified))
+        Ok(format!(
+            "oracle: inserted {} rows into {}",
+            total, qualified
+        ))
     }
 
     #[cfg(not(feature = "oracle"))]
@@ -920,7 +938,10 @@ impl DuckdbEngine {
             .iter()
             .map(|c| c.name().to_string())
             .collect();
-        mark(&format!("query open; {} columns; streaming rows", cols.len()));
+        mark(&format!(
+            "query open; {} columns; streaming rows",
+            cols.len()
+        ));
 
         // Stream rows straight to the NDJSON temp file. The previous
         // Vec<JsonValue> collector held the entire result set in RAM
@@ -1108,10 +1129,12 @@ impl DuckdbEngine {
         }
         .map_err(|e| EngineError::Query(format!("adbc: load driver '{}': {}", spec.driver, e)))?;
 
-        let opts = spec
-            .options
-            .iter()
-            .map(|(k, v)| (OptionDatabase::from(k.as_str()), OptionValue::String(v.clone())));
+        let opts = spec.options.iter().map(|(k, v)| {
+            (
+                OptionDatabase::from(k.as_str()),
+                OptionValue::String(v.clone()),
+            )
+        });
         let mut database = driver
             .new_database_with_opts(opts)
             .map_err(|e| EngineError::Query(format!("adbc: open database: {}", e)))?;
@@ -1136,7 +1159,13 @@ impl DuckdbEngine {
         let safe_node: String = spec
             .node_id
             .chars()
-            .map(|c| if c.is_ascii_alphanumeric() || c == '_' || c == '-' { c } else { '_' })
+            .map(|c| {
+                if c.is_ascii_alphanumeric() || c == '_' || c == '-' {
+                    c
+                } else {
+                    '_'
+                }
+            })
             .collect();
         let db_name = db
             .file_name()
@@ -1181,7 +1210,8 @@ impl DuckdbEngine {
         // surface that error from the join below.
         for batch in reader {
             self.check_cancelled()?;
-            let batch = batch.map_err(|e| EngineError::Query(format!("adbc: read batch: {}", e)))?;
+            let batch =
+                batch.map_err(|e| EngineError::Query(format!("adbc: read batch: {}", e)))?;
             if tx.send(batch).is_err() {
                 break;
             }
@@ -1202,7 +1232,11 @@ impl DuckdbEngine {
         // TempDbGuard sweeps all sibling *.adbc-*.parquet at run end. 2+
         // consumers: materialize a TABLE so the parquet is decoded once, then
         // drop the temp file right away.
-        let kw = if spec.single_consumer { "VIEW" } else { "TABLE" };
+        let kw = if spec.single_consumer {
+            "VIEW"
+        } else {
+            "TABLE"
+        };
         let create = format!(
             "CREATE OR REPLACE {} {} AS SELECT * FROM read_parquet('{}')",
             kw,
@@ -1213,7 +1247,10 @@ impl DuckdbEngine {
         if !spec.single_consumer {
             let _ = std::fs::remove_file(&parquet_path);
         }
-        Ok(format!("adbc: materialized {} rows into {}", count, spec.node_id))
+        Ok(format!(
+            "adbc: materialized {} rows into {}",
+            count, spec.node_id
+        ))
     }
 
     /// Single-consumer network-DB source (postgres / mysql / ...): COPY the
@@ -1232,7 +1269,13 @@ impl DuckdbEngine {
         let safe_node: String = spec
             .node_id
             .chars()
-            .map(|c| if c.is_ascii_alphanumeric() || c == '_' || c == '-' { c } else { '_' })
+            .map(|c| {
+                if c.is_ascii_alphanumeric() || c == '_' || c == '-' {
+                    c
+                } else {
+                    '_'
+                }
+            })
             .collect();
         let db_name = db
             .file_name()
@@ -1269,7 +1312,13 @@ impl DuckdbEngine {
         let safe_node: String = spec
             .node_id
             .chars()
-            .map(|c| if c.is_ascii_alphanumeric() || c == '_' || c == '-' { c } else { '_' })
+            .map(|c| {
+                if c.is_ascii_alphanumeric() || c == '_' || c == '-' {
+                    c
+                } else {
+                    '_'
+                }
+            })
             .collect();
         let db_name = db
             .file_name()
@@ -1369,9 +1418,11 @@ impl DuckdbEngine {
             | ColumnType::Floatn
             | ColumnType::Money
             | ColumnType::Money4 => {
-                let v = row.try_get::<f64, _>(i).ok().flatten().or_else(|| {
-                    row.try_get::<f32, _>(i).ok().flatten().map(|x| x as f64)
-                });
+                let v = row
+                    .try_get::<f64, _>(i)
+                    .ok()
+                    .flatten()
+                    .or_else(|| row.try_get::<f32, _>(i).ok().flatten().map(|x| x as f64));
                 v.and_then(|x| serde_json::Number::from_f64(x).map(JsonValue::Number))
                     .unwrap_or(JsonValue::Null)
             }
@@ -1518,7 +1569,12 @@ impl DuckdbEngine {
         let total = rt
             .block_on(async {
                 let mut builder = scylla::SessionBuilder::new();
-                for cp in spec.contact_points.split(',').map(|s| s.trim()).filter(|s| !s.is_empty()) {
+                for cp in spec
+                    .contact_points
+                    .split(',')
+                    .map(|s| s.trim())
+                    .filter(|s| !s.is_empty())
+                {
                     builder = builder.known_node(cp);
                 }
                 if let (Some(u), Some(p)) = (&spec.user, &spec.password) {
@@ -1537,9 +1593,7 @@ impl DuckdbEngine {
                     let vals: Vec<String> = cols
                         .iter()
                         .map(|c| {
-                            let v = row_obj
-                                .and_then(|o| o.get(c))
-                                .unwrap_or(&JsonValue::Null);
+                            let v = row_obj.and_then(|o| o.get(c)).unwrap_or(&JsonValue::Null);
                             sql_literal(v, None, Dialect::Cassandra)
                         })
                         .collect();
@@ -1557,10 +1611,12 @@ impl DuckdbEngine {
                 }
                 Ok::<usize, String>(total)
             })
-            .map_err(|e| if e == "cancelled" {
-                EngineError::Cancelled
-            } else {
-                EngineError::Query(format!("cassandra sink: {}", e))
+            .map_err(|e| {
+                if e == "cancelled" {
+                    EngineError::Cancelled
+                } else {
+                    EngineError::Query(format!("cassandra sink: {}", e))
+                }
             })?;
         Ok(format!(
             "cassandra: inserted {} rows into {}.{}",
@@ -1583,7 +1639,12 @@ impl DuckdbEngine {
         let rows: Vec<JsonValue> = rt
             .block_on(async {
                 let mut builder = scylla::SessionBuilder::new();
-                for cp in spec.contact_points.split(',').map(|s| s.trim()).filter(|s| !s.is_empty()) {
+                for cp in spec
+                    .contact_points
+                    .split(',')
+                    .map(|s| s.trim())
+                    .filter(|s| !s.is_empty())
+                {
                     builder = builder.known_node(cp);
                 }
                 if let (Some(u), Some(p)) = (&spec.user, &spec.password) {
@@ -1600,11 +1661,7 @@ impl DuckdbEngine {
                     .query(spec.query.clone(), &[])
                     .await
                     .map_err(|e| format!("query: {}", e))?;
-                let cols: Vec<String> = result
-                    .col_specs
-                    .iter()
-                    .map(|c| c.name.clone())
-                    .collect();
+                let cols: Vec<String> = result.col_specs.iter().map(|c| c.name.clone()).collect();
                 let rows = result.rows.unwrap_or_default();
                 let mut out = Vec::with_capacity(rows.len());
                 for row in rows {
@@ -1786,16 +1843,17 @@ impl DuckdbEngine {
             if let Some(off) = &next_offset {
                 body.insert("offset".into(), off.clone());
             }
-            let mut req = crate::tls::http_agent().post(&url)
+            let mut req = crate::tls::http_agent()
+                .post(&url)
                 .set("Content-Type", "application/json")
                 .set("Accept", "application/json");
             if !spec.api_key.is_empty() {
                 req = req.set("api-key", &spec.api_key);
             }
             let resp = match req.send_string(&serde_json::to_string(&body).unwrap_or_default()) {
-                Ok(r) => r.into_json::<JsonValue>().map_err(|e| {
-                    EngineError::Query(format!("qdrant: response not JSON: {}", e))
-                })?,
+                Ok(r) => r
+                    .into_json::<JsonValue>()
+                    .map_err(|e| EngineError::Query(format!("qdrant: response not JSON: {}", e)))?,
                 Err(ureq::Error::Status(code, r)) => {
                     let body = r.into_string().unwrap_or_default();
                     return Err(EngineError::Query(format!(
@@ -1885,7 +1943,9 @@ impl DuckdbEngine {
             if let Some(a) = &after {
                 url.push_str(&format!("&after={}", urlencode_simple(a)));
             }
-            let mut req = crate::tls::http_agent().get(&url).set("Accept", "application/json");
+            let mut req = crate::tls::http_agent()
+                .get(&url)
+                .set("Accept", "application/json");
             if !spec.api_key.is_empty() {
                 req = req.set("Authorization", &format!("Bearer {}", spec.api_key));
             }
@@ -1997,16 +2057,17 @@ impl DuckdbEngine {
             }
             body.insert("limit".into(), JsonValue::from(spec.page_size));
             body.insert("offset".into(), JsonValue::from(offset));
-            let mut req = crate::tls::http_agent().post(&url)
+            let mut req = crate::tls::http_agent()
+                .post(&url)
                 .set("Content-Type", "application/json")
                 .set("Accept", "application/json");
             if !spec.api_key.is_empty() {
                 req = req.set("Authorization", &format!("Bearer {}", spec.api_key));
             }
             let resp = match req.send_string(&serde_json::to_string(&body).unwrap_or_default()) {
-                Ok(r) => r.into_json::<JsonValue>().map_err(|e| {
-                    EngineError::Query(format!("milvus: response not JSON: {}", e))
-                })?,
+                Ok(r) => r
+                    .into_json::<JsonValue>()
+                    .map_err(|e| EngineError::Query(format!("milvus: response not JSON: {}", e)))?,
                 Err(ureq::Error::Status(code, r)) => {
                     let body = r.into_string().unwrap_or_default();
                     return Err(EngineError::Query(format!(
@@ -2066,19 +2127,19 @@ impl DuckdbEngine {
         spec: &FormatFileSourceSpec,
     ) -> Result<String, EngineError> {
         let raw = std::fs::read_to_string(&spec.path).map_err(|e| {
-            EngineError::Query(format!("{:?} source: read {}: {}", spec.format, spec.path, e))
+            EngineError::Query(format!(
+                "{:?} source: read {}: {}",
+                spec.format, spec.path, e
+            ))
         })?;
         let val: JsonValue = match spec.format {
-            FormatKind::Yaml => serde_yaml::from_str(&raw).map_err(|e| {
-                EngineError::Query(format!("yaml parse {}: {}", spec.path, e))
-            })?,
+            FormatKind::Yaml => serde_yaml::from_str(&raw)
+                .map_err(|e| EngineError::Query(format!("yaml parse {}: {}", spec.path, e)))?,
             FormatKind::Toml => {
-                let t: toml::Value = toml::from_str(&raw).map_err(|e| {
-                    EngineError::Query(format!("toml parse {}: {}", spec.path, e))
-                })?;
-                serde_json::to_value(t).map_err(|e| {
-                    EngineError::Query(format!("toml -> json {}: {}", spec.path, e))
-                })?
+                let t: toml::Value = toml::from_str(&raw)
+                    .map_err(|e| EngineError::Query(format!("toml parse {}: {}", spec.path, e)))?;
+                serde_json::to_value(t)
+                    .map_err(|e| EngineError::Query(format!("toml -> json {}: {}", spec.path, e)))?
             }
         };
         let rows: Vec<JsonValue> = match val {
@@ -2107,21 +2168,22 @@ impl DuckdbEngine {
         let rows = self.run_rows(Some(db), &select)?;
         let payload = JsonValue::Array(rows.clone());
         let text = match spec.format {
-            FormatKind::Yaml => serde_yaml::to_string(&payload).map_err(|e| {
-                EngineError::Query(format!("yaml serialize: {}", e))
-            })?,
+            FormatKind::Yaml => serde_yaml::to_string(&payload)
+                .map_err(|e| EngineError::Query(format!("yaml serialize: {}", e)))?,
             FormatKind::Toml => {
                 // TOML doesn't allow a top-level array; wrap.
                 let mut wrap = serde_json::Map::new();
                 wrap.insert("rows".into(), payload);
                 let t = serde_json::to_value(JsonValue::Object(wrap)).unwrap_or(JsonValue::Null);
-                toml::to_string(&t).map_err(|e| {
-                    EngineError::Query(format!("toml serialize: {}", e))
-                })?
+                toml::to_string(&t)
+                    .map_err(|e| EngineError::Query(format!("toml serialize: {}", e)))?
             }
         };
         std::fs::write(&spec.path, text).map_err(|e| {
-            EngineError::Query(format!("{:?} sink: write {}: {}", spec.format, spec.path, e))
+            EngineError::Query(format!(
+                "{:?} sink: write {}: {}",
+                spec.format, spec.path, e
+            ))
         })?;
         Ok(format!(
             "{:?}: wrote {} rows to {}",
@@ -2144,13 +2206,13 @@ impl DuckdbEngine {
     ) -> Result<String, EngineError> {
         let file = std::fs::File::open(&spec.path)
             .map_err(|e| EngineError::Query(format!("avro: open {}: {}", spec.path, e)))?;
-        let reader = apache_avro::Reader::new(file)
-            .map_err(|e| EngineError::Query(format!("avro: open container {}: {}", spec.path, e)))?;
+        let reader = apache_avro::Reader::new(file).map_err(|e| {
+            EngineError::Query(format!("avro: open container {}: {}", spec.path, e))
+        })?;
         let mut rows: Vec<JsonValue> = Vec::new();
         for value in reader {
             self.check_cancelled()?;
-            let v = value
-                .map_err(|e| EngineError::Query(format!("avro: read record: {}", e)))?;
+            let v = value.map_err(|e| EngineError::Query(format!("avro: read record: {}", e)))?;
             let j: JsonValue = apache_avro::from_value(&v)
                 .map_err(|e| EngineError::Query(format!("avro: value -> json: {}", e)))?;
             rows.push(j);
@@ -2204,7 +2266,9 @@ impl DuckdbEngine {
         let mut writer = Writer::new_with_indent(&mut buf, b' ', 2);
         writer
             .write_event(Event::Decl(quick_xml::events::BytesDecl::new(
-                "1.0", Some("UTF-8"), None,
+                "1.0",
+                Some("UTF-8"),
+                None,
             )))
             .map_err(|e| EngineError::Query(format!("xml: write decl: {}", e)))?;
         writer
@@ -2233,7 +2297,9 @@ impl DuckdbEngine {
                         JsonValue::String(s) => {
                             writer
                                 .write_event(Event::Text(BytesText::new(s)))
-                                .map_err(|e| EngineError::Query(format!("xml: write text: {}", e)))?;
+                                .map_err(|e| {
+                                    EngineError::Query(format!("xml: write text: {}", e))
+                                })?;
                         }
                         JsonValue::Null => {}
                         JsonValue::Bool(b) => {
@@ -2243,12 +2309,16 @@ impl DuckdbEngine {
                                 } else {
                                     "false"
                                 })))
-                                .map_err(|e| EngineError::Query(format!("xml: write bool: {}", e)))?;
+                                .map_err(|e| {
+                                    EngineError::Query(format!("xml: write bool: {}", e))
+                                })?;
                         }
                         JsonValue::Number(n) => {
                             writer
                                 .write_event(Event::Text(BytesText::new(&n.to_string())))
-                                .map_err(|e| EngineError::Query(format!("xml: write num: {}", e)))?;
+                                .map_err(|e| {
+                                    EngineError::Query(format!("xml: write num: {}", e))
+                                })?;
                         }
                         JsonValue::Array(_) | JsonValue::Object(_) => {
                             // Round-trip complex shapes via JSON-in-CDATA. A
@@ -2259,7 +2329,9 @@ impl DuckdbEngine {
                             let safe = json.replace("]]>", "]]]]><![CDATA[>");
                             writer
                                 .write_event(Event::CData(BytesCData::new(safe)))
-                                .map_err(|e| EngineError::Query(format!("xml: write cdata: {}", e)))?;
+                                .map_err(|e| {
+                                    EngineError::Query(format!("xml: write cdata: {}", e))
+                                })?;
                         }
                     }
                     writer
@@ -2298,9 +2370,8 @@ impl DuckdbEngine {
             return Ok(format!("avro: 0 rows to write to {}", spec.path));
         }
         let schema = if !spec.schema_json.is_empty() {
-            apache_avro::Schema::parse_str(&spec.schema_json).map_err(|e| {
-                EngineError::Query(format!("avro: parse schemaJson: {}", e))
-            })?
+            apache_avro::Schema::parse_str(&spec.schema_json)
+                .map_err(|e| EngineError::Query(format!("avro: parse schemaJson: {}", e)))?
         } else {
             let Some(first) = rows[0].as_object() else {
                 return Err(EngineError::Query(
@@ -2324,9 +2395,8 @@ impl DuckdbEngine {
                 "name": spec.record_name,
                 "fields": fields,
             });
-            apache_avro::Schema::parse_str(&schema_json.to_string()).map_err(|e| {
-                EngineError::Query(format!("avro: parse inferred schema: {}", e))
-            })?
+            apache_avro::Schema::parse_str(&schema_json.to_string())
+                .map_err(|e| EngineError::Query(format!("avro: parse inferred schema: {}", e)))?
         };
         let file = std::fs::File::create(&spec.path)
             .map_err(|e| EngineError::Query(format!("avro: create {}: {}", spec.path, e)))?;
@@ -2434,7 +2504,10 @@ impl DuckdbEngine {
             Ok(total)
         });
         match total {
-            Ok(n) => Ok(format!("rabbit: published {} message(s) to {}", n, spec.routing_key)),
+            Ok(n) => Ok(format!(
+                "rabbit: published {} message(s) to {}",
+                n, spec.routing_key
+            )),
             Err(e) if e == "cancelled" => Err(EngineError::Cancelled),
             Err(e) => Err(EngineError::Query(format!("rabbit sink: {}", e))),
         }
@@ -2465,8 +2538,8 @@ impl DuckdbEngine {
                 .create_channel()
                 .await
                 .map_err(|e| format!("channel: {}", e))?;
-            let deadline = tokio::time::Instant::now()
-                + std::time::Duration::from_millis(spec.timeout_ms);
+            let deadline =
+                tokio::time::Instant::now() + std::time::Duration::from_millis(spec.timeout_ms);
             let mut out: Vec<JsonValue> = Vec::new();
             let mut tags: Vec<u64> = Vec::new();
             while (out.len() as u64) < spec.max_messages {
@@ -2515,9 +2588,7 @@ impl DuckdbEngine {
             // Now that the rows are written, ack each message. Ack failure is
             // non-fatal - an un-acked message simply redelivers next run.
             for tag in &tags {
-                let _ = channel
-                    .basic_ack(*tag, BasicAckOptions::default())
-                    .await;
+                let _ = channel.basic_ack(*tag, BasicAckOptions::default()).await;
             }
             Ok(out.len())
         });
@@ -2538,7 +2609,11 @@ impl DuckdbEngine {
     /// tracked-file tree at a revision as one row per file. NUL-record
     /// + TAB-field framing avoids the usual `|` / newline pitfalls in
     /// commit subjects.
-    pub(crate) fn run_git_source(&self, db: &Path, spec: &GitSourceSpec) -> Result<String, EngineError> {
+    pub(crate) fn run_git_source(
+        &self,
+        db: &Path,
+        spec: &GitSourceSpec,
+    ) -> Result<String, EngineError> {
         self.check_cancelled()?;
         let mode = spec.mode.as_str();
         let max = spec.max_rows.to_string();
@@ -2622,11 +2697,17 @@ impl DuckdbEngine {
     /// code.shell: run a single command and emit one row with the
     /// captured stdout/stderr/exit_code/duration_ms. Shell defaults to
     /// cmd.exe on Windows and /bin/sh on Unix; override per stage with
-    /// `shell`. Polls a kill-on-cancel loop every 100ms while the child
-    /// runs so a long-running command doesn't pin a cancelled pipeline.
+    /// `shell`. When connected to upstream input, writes those rows to a
+    /// JSONL temp file and passes the path via DUCKLE_INPUT_PATH. Polls a
+    /// kill-on-cancel loop every 100ms while the child runs so a long-running
+    /// command doesn't pin a cancelled pipeline.
     pub(crate) fn run_shell(&self, db: &Path, spec: &ShellSpec) -> Result<String, EngineError> {
         self.check_cancelled()?;
         let started = std::time::Instant::now();
+        let input = match spec.from_view.as_deref() {
+            Some(from_view) => Some(self.materialize_shell_input(db, &spec.node_id, from_view)?),
+            None => None,
+        };
         // Pick shell + argument form.
         let (shell_cmd, flag) = match spec.shell.as_deref() {
             Some(custom) => (custom.to_string(), "-c".to_string()),
@@ -2647,6 +2728,13 @@ impl DuckdbEngine {
         cmd.arg(&flag).arg(&spec.command);
         if let Some(dir) = &spec.working_dir {
             cmd.current_dir(dir);
+        }
+        cmd.env("DUCKLE_DUCKDB_DATABASE", db);
+        if let Some((path, row_count, from_view)) = &input {
+            cmd.env("DUCKLE_INPUT_PATH", path);
+            cmd.env("DUCKLE_INPUT_FORMAT", "jsonl");
+            cmd.env("DUCKLE_INPUT_TABLE", from_view);
+            cmd.env("DUCKLE_INPUT_ROW_COUNT", row_count.to_string());
         }
         cmd.stdout(std::process::Stdio::piped());
         cmd.stderr(std::process::Stdio::piped());
@@ -2738,11 +2826,55 @@ impl DuckdbEngine {
         );
         row.insert("exit_code".into(), JsonValue::from(exit_code));
         row.insert("duration_ms".into(), JsonValue::from(duration_ms));
+        if let Some((path, row_count, from_view)) = &input {
+            row.insert(
+                "input_path".into(),
+                JsonValue::String(path.to_string_lossy().into_owned()),
+            );
+            row.insert("input_format".into(), JsonValue::String("jsonl".into()));
+            row.insert("input_table".into(), JsonValue::String(from_view.clone()));
+            row.insert("input_row_count".into(), JsonValue::from(*row_count as i64));
+        }
         materialize_jsonobjects_as_table(&self.bin, db, &spec.node_id, &[JsonValue::Object(row)])?;
+        if let Some((path, _, _)) = &input {
+            let _ = std::fs::remove_file(path);
+        }
         Ok(format!(
             "shell: exit {} in {}ms -> {}",
             exit_code, duration_ms, spec.node_id
         ))
+    }
+
+    fn materialize_shell_input(
+        &self,
+        db: &Path,
+        node_id: &str,
+        from_view: &str,
+    ) -> Result<(PathBuf, usize, String), EngineError> {
+        use std::io::Write;
+        let path = unique_rest_tmp_path(&format!("{}-input", node_id));
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)
+                .map_err(|e| EngineError::Query(format!("shell input: create tmp dir: {}", e)))?;
+        }
+        let mut writer = std::io::BufWriter::with_capacity(
+            64 * 1024,
+            std::fs::File::create(&path)
+                .map_err(|e| EngineError::Query(format!("shell input: create tmp file: {}", e)))?,
+        );
+        let sql = format!("SELECT * FROM {}", plan::quote_ident(from_view));
+        let rows = self.run_rows(Some(db), &sql)?;
+        for row in &rows {
+            serde_json::to_writer(&mut writer, row)
+                .map_err(|e| EngineError::Query(format!("shell input: JSON encode: {}", e)))?;
+            writer
+                .write_all(b"\n")
+                .map_err(|e| EngineError::Query(format!("shell input: write tmp file: {}", e)))?;
+        }
+        writer
+            .flush()
+            .map_err(|e| EngineError::Query(format!("shell input: flush tmp file: {}", e)))?;
+        Ok((path, rows.len(), from_view.to_string()))
     }
 
     /// xf.dbt: run a dbt Core project (dbt-duckdb adapter) against the run's
@@ -2767,8 +2899,11 @@ impl DuckdbEngine {
                         "xf.dbt: inline mode needs model SQL (or set projectDir)".into(),
                     )
                 })?;
-                scaffolded = scaffold_inline_dbt_project(&spec.node_id, &spec.inline_model_name, model)
-                    .map_err(|e| EngineError::Query(format!("xf.dbt: scaffold inline project: {e}")))?;
+                scaffolded =
+                    scaffold_inline_dbt_project(&spec.node_id, &spec.inline_model_name, model)
+                        .map_err(|e| {
+                            EngineError::Query(format!("xf.dbt: scaffold inline project: {e}"))
+                        })?;
                 scaffolded.as_path()
             }
         };
@@ -2815,8 +2950,11 @@ impl DuckdbEngine {
         // Assemble: dbt <user command tokens> --project-dir .. --profiles-dir ..
         // The command is split on whitespace (documented; no shell quoting),
         // which avoids cmd.exe/sh quoting pitfalls entirely.
-        let mut args: Vec<String> =
-            spec.command.split_whitespace().map(|s| s.to_string()).collect();
+        let mut args: Vec<String> = spec
+            .command
+            .split_whitespace()
+            .map(|s| s.to_string())
+            .collect();
         if args.is_empty() {
             args.push("run".into());
         }
@@ -3023,8 +3161,7 @@ impl DuckdbEngine {
                     row.insert(
                         "message".into(),
                         JsonValue::String(
-                            "dbt exited 0; no run_results.json (command builds no models)"
-                                .into(),
+                            "dbt exited 0; no run_results.json (command builds no models)".into(),
                         ),
                     );
                     vec![JsonValue::Object(row)]
@@ -3047,7 +3184,11 @@ impl DuckdbEngine {
     /// encoded so the row stays JSON-clean for downstream stages /
     /// CSV sinks; downstream can use `from_base64()` in DuckDB if it
     /// needs raw bytes back.
-    pub(crate) fn run_ftp_source(&self, db: &Path, spec: &FtpSourceSpec) -> Result<String, EngineError> {
+    pub(crate) fn run_ftp_source(
+        &self,
+        db: &Path,
+        spec: &FtpSourceSpec,
+    ) -> Result<String, EngineError> {
         use base64::engine::general_purpose::STANDARD as B64;
         use base64::Engine as _;
         use suppaftp::FtpStream;
@@ -3109,12 +3250,7 @@ impl DuckdbEngine {
                 .map(|t| t.format("%Y-%m-%dT%H:%M:%SZ").to_string());
             let bytes = match ftp.retr_as_buffer(name) {
                 Ok(cur) => cur.into_inner(),
-                Err(e) => {
-                    return Err(EngineError::Query(format!(
-                        "ftp retr {}: {}",
-                        name, e
-                    )))
-                }
+                Err(e) => return Err(EngineError::Query(format!("ftp retr {}: {}", name, e))),
             };
             let mut row = serde_json::Map::new();
             row.insert("filename".into(), JsonValue::String(name.clone()));
@@ -3126,10 +3262,7 @@ impl DuckdbEngine {
                 "modified".into(),
                 modified.map(JsonValue::String).unwrap_or(JsonValue::Null),
             );
-            row.insert(
-                "content_b64".into(),
-                JsonValue::String(B64.encode(&bytes)),
-            );
+            row.insert("content_b64".into(), JsonValue::String(B64.encode(&bytes)));
             rows.push(JsonValue::Object(row));
         }
         let _ = ftp.quit();
@@ -3148,7 +3281,11 @@ impl DuckdbEngine {
     /// modified}. russh / russh-sftp are async (ring backend); we drive them
     /// on a private current-thread tokio runtime so the stage stays blocking
     /// like every other source.
-    pub(crate) fn run_sftp_source(&self, db: &Path, spec: &SftpSourceSpec) -> Result<String, EngineError> {
+    pub(crate) fn run_sftp_source(
+        &self,
+        db: &Path,
+        spec: &SftpSourceSpec,
+    ) -> Result<String, EngineError> {
         use base64::engine::general_purpose::STANDARD as B64;
         use base64::Engine as _;
         self.check_cancelled()?;
@@ -3349,7 +3486,11 @@ impl DuckdbEngine {
     /// `remote_path` via put_file, then remove the temp file. SFTP targets are
     /// rejected (a different protocol - use the SFTP option); FTPS is guarded
     /// the same way as the source until the TLS wrapper is wired.
-    pub(crate) fn run_ftp_sink(&self, db: &Path, spec: &FtpSinkSpec) -> Result<String, EngineError> {
+    pub(crate) fn run_ftp_sink(
+        &self,
+        db: &Path,
+        spec: &FtpSinkSpec,
+    ) -> Result<String, EngineError> {
         use suppaftp::FtpStream;
         self.check_cancelled()?;
         if is_sftp_target(&spec.host, spec.port) {
@@ -3368,8 +3509,9 @@ impl DuckdbEngine {
 
         let temp = self.ftp_copy_view_to_temp(db, &spec.from_view, &spec.format)?;
         let upload = (|| -> Result<u64, EngineError> {
-            let bytes = std::fs::read(&temp)
-                .map_err(|e| EngineError::Query(format!("ftp: read temp {}: {}", temp.display(), e)))?;
+            let bytes = std::fs::read(&temp).map_err(|e| {
+                EngineError::Query(format!("ftp: read temp {}: {}", temp.display(), e))
+            })?;
             let total = bytes.len() as u64;
             let mut ftp = FtpStream::connect(&addr)
                 .map_err(|e| EngineError::Query(format!("ftp connect {}: {}", addr, e)))?;
@@ -3399,7 +3541,11 @@ impl DuckdbEngine {
     /// fingerprint pin), authenticate (private key or password), then upload
     /// the file to `remote_path` via SftpSession::create + write_all. Removes
     /// the temp file afterwards. Connect/auth mirror run_sftp_source.
-    pub(crate) fn run_sftp_sink(&self, db: &Path, spec: &SftpSinkSpec) -> Result<String, EngineError> {
+    pub(crate) fn run_sftp_sink(
+        &self,
+        db: &Path,
+        spec: &SftpSinkSpec,
+    ) -> Result<String, EngineError> {
         self.check_cancelled()?;
 
         // Host-key verification. With a pinned fingerprint, refuse any other
@@ -3527,7 +3673,11 @@ impl DuckdbEngine {
     /// Establishes the AI credential pattern the other xf.ai.* tiles
     /// will follow: apiKey lives in stage props for now (revisable
     /// later if we add a secure keystore - just rewires this one read).
-    pub(crate) fn run_ai_embed(&self, db: &Path, spec: &AiEmbedSpec) -> Result<String, EngineError> {
+    pub(crate) fn run_ai_embed(
+        &self,
+        db: &Path,
+        spec: &AiEmbedSpec,
+    ) -> Result<String, EngineError> {
         self.check_cancelled()?;
         let rows = self.run_rows(
             Some(db),
@@ -3535,10 +3685,7 @@ impl DuckdbEngine {
         )?;
         if rows.is_empty() {
             materialize_jsonobjects_as_table(&self.bin, db, &spec.node_id, &[])?;
-            return Ok(format!(
-                "ai.embed: 0 upstream rows -> {}",
-                spec.node_id
-            ));
+            return Ok(format!("ai.embed: 0 upstream rows -> {}", spec.node_id));
         }
         let endpoint = format!("{}/v1/embeddings", spec.base_url.trim_end_matches('/'));
         let mut out: Vec<JsonValue> = Vec::with_capacity(rows.len());
@@ -3560,7 +3707,8 @@ impl DuckdbEngine {
                 "model": spec.model,
                 "input": inputs,
             });
-            let resp = crate::tls::http_agent().post(&endpoint)
+            let resp = crate::tls::http_agent()
+                .post(&endpoint)
                 .set("Authorization", &format!("Bearer {}", spec.api_key))
                 .set("Content-Type", "application/json")
                 .send_string(&body.to_string());
@@ -3575,12 +3723,7 @@ impl DuckdbEngine {
                         code, body
                     )));
                 }
-                Err(e) => {
-                    return Err(EngineError::Query(format!(
-                        "ai.embed transport: {}",
-                        e
-                    )))
-                }
+                Err(e) => return Err(EngineError::Query(format!("ai.embed transport: {}", e))),
             };
             // OpenAI shape: response.data is an array of {index, embedding: [...]}.
             // Order is guaranteed to match the input order per the API contract.
@@ -3654,7 +3797,8 @@ impl DuckdbEngine {
                 &spec.secret_access_key,
                 spec.session_token.as_deref(),
             );
-            let mut req = crate::tls::http_agent().post(&endpoint)
+            let mut req = crate::tls::http_agent()
+                .post(&endpoint)
                 .set("Host", &host)
                 .set("Content-Type", "application/x-amz-json-1.0")
                 .set("X-Amz-Date", &datetime)
@@ -3754,10 +3898,7 @@ impl DuckdbEngine {
                     _ => {
                         let mut row = serde_json::Map::new();
                         row.insert("partition_key".into(), JsonValue::String(partition_key));
-                        row.insert(
-                            "sequence_number".into(),
-                            JsonValue::String(sequence_number),
-                        );
+                        row.insert("sequence_number".into(), JsonValue::String(sequence_number));
                         row.insert("data".into(), JsonValue::String(decoded_str));
                         out.push(JsonValue::Object(row));
                     }
@@ -3836,7 +3977,8 @@ impl DuckdbEngine {
                 &spec.secret_access_key,
                 spec.session_token.as_deref(),
             );
-            let mut req = crate::tls::http_agent().post(&endpoint)
+            let mut req = crate::tls::http_agent()
+                .post(&endpoint)
                 .set("Host", &host)
                 .set("Content-Type", "application/x-amz-json-1.0")
                 .set("X-Amz-Date", &datetime)
@@ -3852,14 +3994,9 @@ impl DuckdbEngine {
                     .map_err(|e| EngineError::Query(format!("dynamodb parse: {}", e)))?,
                 Err(ureq::Error::Status(code, r)) => {
                     let b = r.into_string().unwrap_or_default();
-                    return Err(EngineError::Query(format!(
-                        "dynamodb HTTP {}: {}",
-                        code, b
-                    )));
+                    return Err(EngineError::Query(format!("dynamodb HTTP {}: {}", code, b)));
                 }
-                Err(e) => {
-                    return Err(EngineError::Query(format!("dynamodb transport: {}", e)))
-                }
+                Err(e) => return Err(EngineError::Query(format!("dynamodb transport: {}", e))),
             };
             // Items: array of {col: {S: "x"}, col2: {N: "5"}, ...}
             let items = response
@@ -3899,7 +4036,11 @@ impl DuckdbEngine {
     /// row, build an email from {to_column, subject_column,
     /// body_column}, send via SMTPS on `port` to `host`. Optional
     /// credentials (host doesn't always require auth for relay).
-    pub(crate) fn run_email_sink(&self, db: &Path, spec: &EmailSinkSpec) -> Result<String, EngineError> {
+    pub(crate) fn run_email_sink(
+        &self,
+        db: &Path,
+        spec: &EmailSinkSpec,
+    ) -> Result<String, EngineError> {
         use lettre::message::{header, Message};
         use lettre::transport::smtp::authentication::Credentials;
         use lettre::{SmtpTransport, Transport};
@@ -3916,10 +4057,8 @@ impl DuckdbEngine {
             .map_err(|e| EngineError::Query(format!("smtp relay setup: {}", e)))?
             .port(spec.port);
         if !spec.user.is_empty() {
-            builder = builder.credentials(Credentials::new(
-                spec.user.clone(),
-                spec.password.clone(),
-            ));
+            builder =
+                builder.credentials(Credentials::new(spec.user.clone(), spec.password.clone()));
         }
         let mailer = builder.build();
         let from_parsed: lettre::message::Mailbox = spec
@@ -4032,7 +4171,9 @@ impl DuckdbEngine {
             // Path filter: 404 anything that doesn't match.
             if let Some(prefix) = &spec.path_filter {
                 if !path.starts_with(prefix) {
-                    let _ = stream.write_all(b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
+                    let _ = stream.write_all(
+                        b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+                    );
                     let _ = stream.flush();
                     continue;
                 }
@@ -4128,7 +4269,9 @@ impl DuckdbEngine {
             ));
         }
         // Fetch the last N messages (by sequence). seqset is 1-based.
-        let from = total.saturating_sub(spec.max_messages.saturating_sub(1)).max(1);
+        let from = total
+            .saturating_sub(spec.max_messages.saturating_sub(1))
+            .max(1);
         let seqset = format!("{}:{}", from, total);
         let messages = session
             .fetch(&seqset, "(UID BODY[])")
@@ -4164,7 +4307,10 @@ impl DuckdbEngine {
                 .unwrap_or_default();
             let subject = parsed.subject().unwrap_or("").to_string();
             let date = parsed.date().map(|d| d.to_rfc3339()).unwrap_or_default();
-            let body_text = parsed.body_text(0).map(|s| s.into_owned()).unwrap_or_default();
+            let body_text = parsed
+                .body_text(0)
+                .map(|s| s.into_owned())
+                .unwrap_or_default();
             let mut row = serde_json::Map::new();
             row.insert("uid".into(), JsonValue::from(uid));
             row.insert("from".into(), JsonValue::String(from));
@@ -4242,9 +4388,11 @@ impl DuckdbEngine {
                     v.clone()
                 }
                 JsonValue::Array(a) => JsonValue::Array(a.iter().map(mark_bigints).collect()),
-                JsonValue::Object(m) => {
-                    JsonValue::Object(m.iter().map(|(k, val)| (k.clone(), mark_bigints(val))).collect())
-                }
+                JsonValue::Object(m) => JsonValue::Object(
+                    m.iter()
+                        .map(|(k, val)| (k.clone(), mark_bigints(val)))
+                        .collect(),
+                ),
                 _ => v.clone(),
             }
         }
@@ -4254,10 +4402,14 @@ impl DuckdbEngine {
                     .parse::<serde_json::Number>()
                     .map(JsonValue::Number)
                     .unwrap_or(JsonValue::String(s)),
-                JsonValue::Array(a) => JsonValue::Array(a.into_iter().map(unmark_bigints).collect()),
-                JsonValue::Object(m) => {
-                    JsonValue::Object(m.into_iter().map(|(k, val)| (k, unmark_bigints(val))).collect())
+                JsonValue::Array(a) => {
+                    JsonValue::Array(a.into_iter().map(unmark_bigints).collect())
                 }
+                JsonValue::Object(m) => JsonValue::Object(
+                    m.into_iter()
+                        .map(|(k, val)| (k, unmark_bigints(val)))
+                        .collect(),
+                ),
                 other => other,
             }
         }
@@ -4280,7 +4432,8 @@ impl DuckdbEngine {
         for row in rows.iter() {
             self.check_cancelled()?;
             // JSON -> JsValue: mark large ints, let JS parse them as BigInt.
-            let s = serde_json::to_string(&mark_bigints(row)).unwrap_or_else(|_| "null".to_string());
+            let s =
+                serde_json::to_string(&mark_bigints(row)).unwrap_or_else(|_| "null".to_string());
             let js_in = parse_fn
                 .as_callable()
                 .ok_or_else(|| EngineError::Query("js: marshaller missing".into()))?
@@ -4343,7 +4496,11 @@ impl DuckdbEngine {
     /// embedding column as a list of floats from each row. No API
     /// call - pure local math. O(N^2) per stage, so the input is
     /// capped at AI_DEDUPE_MAX_ROWS and exceeding it fails loud.
-    pub(crate) fn run_ai_dedupe(&self, db: &Path, spec: &AiDedupeSpec) -> Result<String, EngineError> {
+    pub(crate) fn run_ai_dedupe(
+        &self,
+        db: &Path,
+        spec: &AiDedupeSpec,
+    ) -> Result<String, EngineError> {
         self.check_cancelled()?;
         let rows = self.run_rows(
             Some(db),
@@ -4368,9 +4525,9 @@ impl DuckdbEngine {
             // upstream came through a CSV round-trip - DuckDB keeps
             // list literals as strings in CSV).
             let emb: Option<Vec<f64>> = raw.and_then(|v| match v {
-                JsonValue::Array(arr) => Some(
-                    arr.iter().filter_map(|x| x.as_f64()).collect::<Vec<_>>(),
-                ),
+                JsonValue::Array(arr) => {
+                    Some(arr.iter().filter_map(|x| x.as_f64()).collect::<Vec<_>>())
+                }
                 JsonValue::String(s) => serde_json::from_str::<JsonValue>(s)
                     .ok()
                     .and_then(|j| j.as_array().cloned())
@@ -4423,7 +4580,10 @@ impl DuckdbEngine {
             materialize_jsonobjects_as_table(&self.bin, db, &spec.node_id, &[])?;
             return Ok(format!("ai.classify: 0 upstream rows -> {}", spec.node_id));
         }
-        let endpoint = format!("{}/v1/chat/completions", spec.base_url.trim_end_matches('/'));
+        let endpoint = format!(
+            "{}/v1/chat/completions",
+            spec.base_url.trim_end_matches('/')
+        );
         let cat_list = spec.categories.join(", ");
         let system_prompt = format!(
             "You are a strict classifier. Pick exactly one of these categories: {}. \
@@ -4446,7 +4606,8 @@ impl DuckdbEngine {
                     {"role": "user", "content": text},
                 ],
             });
-            let resp = crate::tls::http_agent().post(&endpoint)
+            let resp = crate::tls::http_agent()
+                .post(&endpoint)
                 .set("Authorization", &format!("Bearer {}", spec.api_key))
                 .set("Content-Type", "application/json")
                 .send_string(&body.to_string());
@@ -4456,11 +4617,12 @@ impl DuckdbEngine {
                     .map_err(|e| EngineError::Query(format!("ai.classify parse: {}", e)))?,
                 Err(ureq::Error::Status(code, r)) => {
                     let b = r.into_string().unwrap_or_default();
-                    return Err(EngineError::Query(format!("ai.classify HTTP {}: {}", code, b)));
+                    return Err(EngineError::Query(format!(
+                        "ai.classify HTTP {}: {}",
+                        code, b
+                    )));
                 }
-                Err(e) => {
-                    return Err(EngineError::Query(format!("ai.classify transport: {}", e)))
-                }
+                Err(e) => return Err(EngineError::Query(format!("ai.classify transport: {}", e))),
             };
             let raw = response
                 .pointer("/choices/0/message/content")
@@ -4512,7 +4674,10 @@ impl DuckdbEngine {
             materialize_jsonobjects_as_table(&self.bin, db, &spec.node_id, &[])?;
             return Ok(format!("ai.llm: 0 upstream rows -> {}", spec.node_id));
         }
-        let endpoint = format!("{}/v1/chat/completions", spec.base_url.trim_end_matches('/'));
+        let endpoint = format!(
+            "{}/v1/chat/completions",
+            spec.base_url.trim_end_matches('/')
+        );
         let mut out: Vec<JsonValue> = Vec::with_capacity(rows.len());
         for row in rows.iter() {
             self.check_cancelled()?;
@@ -4534,7 +4699,8 @@ impl DuckdbEngine {
                 "messages": messages,
                 "temperature": spec.temperature,
             });
-            let resp = crate::tls::http_agent().post(&endpoint)
+            let resp = crate::tls::http_agent()
+                .post(&endpoint)
                 .set("Authorization", &format!("Bearer {}", spec.api_key))
                 .set("Content-Type", "application/json")
                 .send_string(&body.to_string());
@@ -4546,9 +4712,7 @@ impl DuckdbEngine {
                     let b = r.into_string().unwrap_or_default();
                     return Err(EngineError::Query(format!("ai.llm HTTP {}: {}", code, b)));
                 }
-                Err(e) => {
-                    return Err(EngineError::Query(format!("ai.llm transport: {}", e)))
-                }
+                Err(e) => return Err(EngineError::Query(format!("ai.llm transport: {}", e))),
             };
             let content = response
                 .pointer("/choices/0/message/content")
@@ -4620,7 +4784,11 @@ impl DuckdbEngine {
     /// (with chunk_index + chunk_count + the rest of the source row);
     /// mode="array" emits one row per source row with the chunks as
     /// a JSON array in `output_column`.
-    pub(crate) fn run_ai_chunk(&self, db: &Path, spec: &AiChunkSpec) -> Result<String, EngineError> {
+    pub(crate) fn run_ai_chunk(
+        &self,
+        db: &Path,
+        spec: &AiChunkSpec,
+    ) -> Result<String, EngineError> {
         self.check_cancelled()?;
         let rows = self.run_rows(
             Some(db),
@@ -4642,9 +4810,7 @@ impl DuckdbEngine {
                 let mut obj = base;
                 obj.insert(
                     spec.output_column.clone(),
-                    JsonValue::Array(
-                        chunks.into_iter().map(JsonValue::String).collect(),
-                    ),
+                    JsonValue::Array(chunks.into_iter().map(JsonValue::String).collect()),
                 );
                 out.push(JsonValue::Object(obj));
             } else {
@@ -4652,10 +4818,7 @@ impl DuckdbEngine {
                 let count = chunks.len() as i64;
                 for (idx, chunk) in chunks.into_iter().enumerate() {
                     let mut obj = base.clone();
-                    obj.insert(
-                        spec.output_column.clone(),
-                        JsonValue::String(chunk),
-                    );
+                    obj.insert(spec.output_column.clone(), JsonValue::String(chunk));
                     obj.insert("chunk_index".into(), JsonValue::from(idx as i64));
                     obj.insert("chunk_count".into(), JsonValue::from(count));
                     out.push(JsonValue::Object(obj));
@@ -4730,10 +4893,7 @@ impl DuckdbEngine {
                 JsonValue::Object(m) => m.clone(),
                 _ => serde_json::Map::new(),
             };
-            obj.insert(
-                spec.output_column.clone(),
-                JsonValue::String(result_text),
-            );
+            obj.insert(spec.output_column.clone(), JsonValue::String(result_text));
             out.push(JsonValue::Object(obj));
         }
         let count = out.len();
@@ -4810,16 +4970,14 @@ impl DuckdbEngine {
         let out_end = (out_ptr as usize)
             .checked_add(out_len as usize)
             .ok_or_else(|| EngineError::Query("wasm: out ptr+len overflow".into()))?;
-        let out_slice = mem_data
-            .get(out_ptr as usize..out_end)
-            .ok_or_else(|| {
-                EngineError::Query(format!(
-                    "wasm: out (ptr={}, len={}) out of memory bounds (mem_size={})",
-                    out_ptr,
-                    out_len,
-                    mem_data.len()
-                ))
-            })?;
+        let out_slice = mem_data.get(out_ptr as usize..out_end).ok_or_else(|| {
+            EngineError::Query(format!(
+                "wasm: out (ptr={}, len={}) out of memory bounds (mem_size={})",
+                out_ptr,
+                out_len,
+                mem_data.len()
+            ))
+        })?;
         String::from_utf8(out_slice.to_vec())
             .map_err(|e| EngineError::Query(format!("wasm: output not utf-8: {}", e)))
     }
@@ -4848,7 +5006,10 @@ impl DuckdbEngine {
             _ => {
                 let mut row = serde_json::Map::new();
                 row.insert("text".into(), JsonValue::String(text.clone()));
-                row.insert("length".into(), JsonValue::from(text.chars().count() as i64));
+                row.insert(
+                    "length".into(),
+                    JsonValue::from(text.chars().count() as i64),
+                );
                 vec![JsonValue::Object(row)]
             }
         };
@@ -4917,7 +5078,10 @@ impl DuckdbEngine {
             Ok(total)
         });
         match total {
-            Ok(n) => Ok(format!("nats: published {} message(s) to {}", n, spec.subject)),
+            Ok(n) => Ok(format!(
+                "nats: published {} message(s) to {}",
+                n, spec.subject
+            )),
             Err(e) if e == "cancelled" => Err(EngineError::Cancelled),
             Err(e) => Err(EngineError::Query(format!("nats sink: {}", e))),
         }
@@ -4947,8 +5111,8 @@ impl DuckdbEngine {
                 .subscribe(spec.subject.clone())
                 .await
                 .map_err(|e| format!("subscribe: {}", e))?;
-            let deadline = tokio::time::Instant::now()
-                + std::time::Duration::from_millis(spec.timeout_ms);
+            let deadline =
+                tokio::time::Instant::now() + std::time::Duration::from_millis(spec.timeout_ms);
             let mut out: Vec<JsonValue> = Vec::new();
             while (out.len() as u64) < spec.max_records {
                 if cancel.load(Ordering::Relaxed) {
@@ -4962,15 +5126,10 @@ impl DuckdbEngine {
                 match next {
                     Ok(Some(msg)) => {
                         let mut obj = serde_json::Map::new();
-                        obj.insert(
-                            "subject".into(),
-                            JsonValue::String(msg.subject.to_string()),
-                        );
+                        obj.insert("subject".into(), JsonValue::String(msg.subject.to_string()));
                         obj.insert(
                             "payload".into(),
-                            JsonValue::String(
-                                String::from_utf8_lossy(&msg.payload).to_string(),
-                            ),
+                            JsonValue::String(String::from_utf8_lossy(&msg.payload).to_string()),
                         );
                         out.push(JsonValue::Object(obj));
                     }
@@ -5023,7 +5182,8 @@ impl DuckdbEngine {
                 })
                 .collect();
             let body = serde_json::json!({ "messages": messages });
-            let resp = crate::tls::http_agent().post(&url)
+            let resp = crate::tls::http_agent()
+                .post(&url)
                 .set("Content-Type", "application/json")
                 .set("Authorization", &format!("Bearer {}", spec.access_token))
                 .send_string(&serde_json::to_string(&body).unwrap_or_default());
@@ -5038,10 +5198,7 @@ impl DuckdbEngine {
                     )));
                 }
                 Err(e) => {
-                    return Err(EngineError::Query(format!(
-                        "pubsub transport: {}",
-                        e
-                    )));
+                    return Err(EngineError::Query(format!("pubsub transport: {}", e)));
                 }
             }
         }
@@ -5068,7 +5225,8 @@ impl DuckdbEngine {
             spec.project, spec.subscription
         );
         let body = serde_json::json!({ "maxMessages": spec.max_messages });
-        let resp = crate::tls::http_agent().post(&pull_url)
+        let resp = crate::tls::http_agent()
+            .post(&pull_url)
             .set("Content-Type", "application/json")
             .set("Authorization", &format!("Bearer {}", spec.access_token))
             .send_string(&serde_json::to_string(&body).unwrap_or_default());
@@ -5105,7 +5263,10 @@ impl DuckdbEngine {
             );
             obj.insert(
                 "publish_time".into(),
-                message.get("publishTime").cloned().unwrap_or(JsonValue::Null),
+                message
+                    .get("publishTime")
+                    .cloned()
+                    .unwrap_or(JsonValue::Null),
             );
             // The data field is base64-encoded - decode best-effort.
             use base64::Engine as _;
@@ -5134,7 +5295,8 @@ impl DuckdbEngine {
                 spec.project, spec.subscription
             );
             let ack_body = serde_json::json!({ "ackIds": ack_ids });
-            let _ = crate::tls::http_agent().post(&ack_url)
+            let _ = crate::tls::http_agent()
+                .post(&ack_url)
                 .set("Content-Type", "application/json")
                 .set("Authorization", &format!("Bearer {}", spec.access_token))
                 .send_string(&serde_json::to_string(&ack_body).unwrap_or_default());
@@ -5201,9 +5363,7 @@ impl DuckdbEngine {
                                 other => Some(other.to_string().into_bytes()),
                             })
                         };
-                        let value = serde_json::to_string(row)
-                            .unwrap_or_default()
-                            .into_bytes();
+                        let value = serde_json::to_string(row).unwrap_or_default().into_bytes();
                         Record {
                             key,
                             value: Some(value),
@@ -5399,12 +5559,17 @@ impl DuckdbEngine {
         // "Invalid object name" (issue #8: "newly created tables"). Wrapped
         // in IF OBJECT_ID(...) IS NULL so an existing table is untouched.
         let col_types: std::collections::HashMap<String, String> =
-            describe_columns(self, db, &spec.from_view).into_iter().collect();
+            describe_columns(self, db, &spec.from_view)
+                .into_iter()
+                .collect();
         let col_defs = data_cols
             .iter()
             .map(|c| {
                 let ty = duckdb_type_to_sqlserver(
-                    col_types.get(c.as_str()).map(|s| s.as_str()).unwrap_or("VARCHAR"),
+                    col_types
+                        .get(c.as_str())
+                        .map(|s| s.as_str())
+                        .unwrap_or("VARCHAR"),
                 );
                 format!("{} {}", ss_quote_ident(c), ty)
             })
@@ -5546,7 +5711,10 @@ impl DuckdbEngine {
         Ok(format!(
             "sqlserver: {} {} rows into [{}].[{}].[{}]",
             if is_upsert { "merged" } else { "inserted" },
-            total, spec.database, spec.schema, spec.table
+            total,
+            spec.database,
+            spec.schema,
+            spec.table
         ))
     }
 
@@ -5583,10 +5751,7 @@ impl DuckdbEngine {
                 let mut config = tiberius::Config::new();
                 config.host(&spec.host);
                 config.port(spec.port);
-                config.authentication(tiberius::AuthMethod::sql_server(
-                    &spec.user,
-                    &spec.password,
-                ));
+                config.authentication(tiberius::AuthMethod::sql_server(&spec.user, &spec.password));
                 config.database(&spec.database);
                 if spec.trust_cert {
                     config.trust_cert();
@@ -5644,10 +5809,7 @@ impl DuckdbEngine {
         let select = format!("SELECT * FROM {}", plan::quote_ident(&spec.from_view));
         let rows = self.run_rows(Some(db), &select)?;
         if rows.is_empty() {
-            return Ok(format!(
-                "clickhouse: 0 rows to insert into {}",
-                spec.table
-            ));
+            return Ok(format!("clickhouse: 0 rows to insert into {}", spec.table));
         }
         let qualified = match &spec.database {
             Some(d) => format!("{}.{}", db_quote_ident(d), db_quote_ident(&spec.table)),
@@ -5656,10 +5818,7 @@ impl DuckdbEngine {
         let base = format!(
             "{}/?query={}",
             spec.endpoint.trim_end_matches('/'),
-            urlencode_simple(&format!(
-                "INSERT INTO {} FORMAT JSONEachRow",
-                qualified
-            ))
+            urlencode_simple(&format!("INSERT INTO {} FORMAT JSONEachRow", qualified))
         );
         let mut total = 0_usize;
         for chunk in rows.chunks(spec.batch_size) {
@@ -5671,7 +5830,8 @@ impl DuckdbEngine {
                 body.push_str(&line);
                 body.push('\n');
             }
-            let mut req = crate::tls::http_agent().post(&base)
+            let mut req = crate::tls::http_agent()
+                .post(&base)
                 .set("Content-Type", "application/x-ndjson");
             if let Some(u) = &spec.user {
                 req = req.set("X-ClickHouse-User", u);
@@ -5713,16 +5873,14 @@ impl DuckdbEngine {
         spec: &ClickHouseSourceSpec,
     ) -> Result<String, EngineError> {
         let url = format!("{}/", spec.endpoint.trim_end_matches('/'));
-        let q = if spec
-            .query
-            .to_uppercase()
-            .contains("FORMAT JSON")
-        {
+        let q = if spec.query.to_uppercase().contains("FORMAT JSON") {
             spec.query.clone()
         } else {
             format!("{} FORMAT JSON", spec.query.trim())
         };
-        let mut req = crate::tls::http_agent().post(&url).set("Content-Type", "text/plain");
+        let mut req = crate::tls::http_agent()
+            .post(&url)
+            .set("Content-Type", "text/plain");
         if let Some(u) = &spec.user {
             req = req.set("X-ClickHouse-User", u);
         }
@@ -5877,10 +6035,12 @@ impl DuckdbEngine {
                 total, spec.database, spec.collection
             ))
         });
-        result.map_err(|e| if e == "cancelled" {
-            EngineError::Cancelled
-        } else {
-            EngineError::Query(format!("mongodb sink: {}", e))
+        result.map_err(|e| {
+            if e == "cancelled" {
+                EngineError::Cancelled
+            } else {
+                EngineError::Query(format!("mongodb sink: {}", e))
+            }
         })
     }
 
@@ -5905,8 +6065,8 @@ impl DuckdbEngine {
                 .collection::<mongodb::bson::Document>(&spec.collection);
             let filter: mongodb::bson::Document = match &spec.filter {
                 Some(f) => {
-                    let v: serde_json::Value = serde_json::from_str(f)
-                        .map_err(|e| format!("bad filter JSON: {}", e))?;
+                    let v: serde_json::Value =
+                        serde_json::from_str(f).map_err(|e| format!("bad filter JSON: {}", e))?;
                     mongodb::bson::to_document(&v).map_err(|e| format!("filter to bson: {}", e))?
                 }
                 None => mongodb::bson::Document::new(),
@@ -5916,15 +6076,19 @@ impl DuckdbEngine {
                 find = find.limit(limit);
             }
             if let Some(p) = &spec.projection {
-                let pv: serde_json::Value = serde_json::from_str(p)
-                    .map_err(|e| format!("bad projection JSON: {}", e))?;
+                let pv: serde_json::Value =
+                    serde_json::from_str(p).map_err(|e| format!("bad projection JSON: {}", e))?;
                 let pdoc = mongodb::bson::to_document(&pv)
                     .map_err(|e| format!("projection to bson: {}", e))?;
                 find = find.projection(pdoc);
             }
             let mut cursor = find.await.map_err(|e| format!("find: {}", e))?;
             let mut out = Vec::new();
-            while cursor.advance().await.map_err(|e| format!("cursor: {}", e))? {
+            while cursor
+                .advance()
+                .await
+                .map_err(|e| format!("cursor: {}", e))?
+            {
                 let d = cursor
                     .deserialize_current()
                     .map_err(|e| format!("deserialize: {}", e))?;
@@ -5969,23 +6133,23 @@ impl DuckdbEngine {
             spec.index
         );
         let query_dsl: JsonValue = match &spec.query {
-            Some(q) => serde_json::from_str(q).map_err(|e| {
-                EngineError::Config(format!("elastic: invalid query JSON: {}", e))
-            })?,
+            Some(q) => serde_json::from_str(q)
+                .map_err(|e| EngineError::Config(format!("elastic: invalid query JSON: {}", e)))?,
             None => serde_json::json!({ "match_all": {} }),
         };
         let post = |body: &JsonValue| -> Result<JsonValue, EngineError> {
             let body_str = serde_json::to_string(body).unwrap_or_else(|_| "{}".into());
-            let mut req = crate::tls::http_agent().post(&url)
+            let mut req = crate::tls::http_agent()
+                .post(&url)
                 .set("Content-Type", "application/json")
                 .set("Accept", "application/json");
             if let Some(key) = &spec.api_key {
                 req = req.set("Authorization", &format!("ApiKey {}", key));
             }
             match req.send_string(&body_str) {
-                Ok(r) => r.into_json().map_err(|e| {
-                    EngineError::Query(format!("Elastic response not JSON: {}", e))
-                }),
+                Ok(r) => r
+                    .into_json()
+                    .map_err(|e| EngineError::Query(format!("Elastic response not JSON: {}", e))),
                 Err(ureq::Error::Status(code, r)) => {
                     let body = r.into_string().unwrap_or_default();
                     Err(EngineError::Query(format!(
@@ -6061,10 +6225,7 @@ impl DuckdbEngine {
                         .unwrap_or_default();
                     let hit_count = hits.len();
                     // Grab the last hit's sort before we move `hits`.
-                    let next_after = hits
-                        .last()
-                        .and_then(|h| h.get("sort"))
-                        .cloned();
+                    let next_after = hits.last().and_then(|h| h.get("sort")).cloned();
                     for h in hits {
                         let source = h
                             .get("_source")
@@ -6137,7 +6298,11 @@ impl DuckdbEngine {
         // Seed the FIRST request with the start page; the loop only appends the
         // page param on subsequent requests, so without this the first call hit
         // the server's default page and a non-default start_page was skipped.
-        if let RestPagination::Page { page_param, start_page } = &spec.pagination {
+        if let RestPagination::Page {
+            page_param,
+            start_page,
+        } = &spec.pagination
+        {
             let sep = if url.contains('?') { '&' } else { '?' };
             url = format!("{}{}{}={}", url, sep, page_param, start_page);
         }
@@ -6254,7 +6419,11 @@ impl DuckdbEngine {
                         None => false,
                     }
                 }
-                RestPagination::Offset { offset_param, page_size, total_path } => {
+                RestPagination::Offset {
+                    offset_param,
+                    page_size,
+                    total_path,
+                } => {
                     // A short page means we have reached the end.
                     if (row_count as u64) < *page_size {
                         false
@@ -6269,8 +6438,9 @@ impl DuckdbEngine {
                             .as_deref()
                             .and_then(|p| response.pointer(p))
                             .and_then(|v| {
-                                v.as_u64()
-                                    .or_else(|| v.as_str().and_then(|s| s.trim().parse::<u64>().ok()))
+                                v.as_u64().or_else(|| {
+                                    v.as_str().and_then(|s| s.trim().parse::<u64>().ok())
+                                })
                             })
                             .map(|total| next_offset >= total)
                             .unwrap_or(false);
@@ -6294,15 +6464,13 @@ impl DuckdbEngine {
                         true
                     }
                 }
-                RestPagination::Link => {
-                    match link_header.as_deref().and_then(parse_link_next) {
-                        Some(next_url) => {
-                            url = next_url;
-                            true
-                        }
-                        None => false,
+                RestPagination::Link => match link_header.as_deref().and_then(parse_link_next) {
+                    Some(next_url) => {
+                        url = next_url;
+                        true
                     }
-                }
+                    None => false,
+                },
                 RestPagination::NextUrl { next_path } => {
                     let next = response
                         .pointer(next_path)
@@ -6384,16 +6552,18 @@ impl DuckdbEngine {
             for doc_json in chunk {
                 let engine = self.clone();
                 let content = doc_json.replace("${__PSNAP__}", &snap);
-                handles.push(std::thread::spawn(move || -> Result<crate::RunResult, String> {
-                    let doc: plan::PipelineDoc = serde_json::from_str(&content)
-                        .map_err(|e| format!("branch parse: {}", e))?;
-                    let r = engine.execute_pipeline(&doc);
-                    if r.status == "ok" {
-                        Ok(r)
-                    } else {
-                        Err(r.error.unwrap_or_else(|| "branch failed".into()))
-                    }
-                }));
+                handles.push(std::thread::spawn(
+                    move || -> Result<crate::RunResult, String> {
+                        let doc: plan::PipelineDoc = serde_json::from_str(&content)
+                            .map_err(|e| format!("branch parse: {}", e))?;
+                        let r = engine.execute_pipeline(&doc);
+                        if r.status == "ok" {
+                            Ok(r)
+                        } else {
+                            Err(r.error.unwrap_or_else(|| "branch failed".into()))
+                        }
+                    },
+                ));
             }
             for h in handles {
                 match h.join() {
@@ -6450,18 +6620,15 @@ impl DuckdbEngine {
                 content = content.replace(&placeholder, &escaped);
             }
         }
-        let sub_doc: plan::PipelineDoc = serde_json::from_str(&content).map_err(|e| {
-            EngineError::Config(format!("sub-pipeline: parse '{}': {}", path, e))
-        })?;
+        let sub_doc: plan::PipelineDoc = serde_json::from_str(&content)
+            .map_err(|e| EngineError::Config(format!("sub-pipeline: parse '{}': {}", path, e)))?;
         let result = self.execute_pipeline(&sub_doc);
         if result.status == "ok" {
             Ok(())
         } else {
-            Err(EngineError::Query(
-                result
-                    .error
-                    .unwrap_or_else(|| "sub-pipeline failed (no error message)".into()),
-            ))
+            Err(EngineError::Query(result.error.unwrap_or_else(|| {
+                "sub-pipeline failed (no error message)".into()
+            })))
         }
     }
 
@@ -6581,13 +6748,19 @@ impl DuckdbEngine {
         // Current snapshot id from the catalog.
         let cur_rows = self.run_rows(
             Some(db),
-            &format!("{}SELECT max(snapshot_id) AS cur FROM duckle_src.snapshots();", attach),
+            &format!(
+                "{}SELECT max(snapshot_id) AS cur FROM duckle_src.snapshots();",
+                attach
+            ),
         )?;
         let current = cur_rows
             .into_iter()
             .next()
             .and_then(|r| r.get("cur").cloned())
-            .and_then(|v| v.as_u64().or_else(|| v.as_str().and_then(|s| s.parse::<u64>().ok())))
+            .and_then(|v| {
+                v.as_u64()
+                    .or_else(|| v.as_str().and_then(|s| s.parse::<u64>().ok()))
+            })
             .unwrap_or(0);
 
         let state_path = incremental_state_path(pipeline_name, &spec.node_id);
@@ -6632,14 +6805,14 @@ impl DuckdbEngine {
         self.run(Some(db), &materialize, false)?;
 
         let rows = self
-            .run_rows(
-                Some(db),
-                &format!("SELECT count(*) AS c FROM {};", node_q),
-            )?
+            .run_rows(Some(db), &format!("SELECT count(*) AS c FROM {};", node_q))?
             .into_iter()
             .next()
             .and_then(|r| r.get("c").cloned())
-            .and_then(|v| v.as_u64().or_else(|| v.as_str().and_then(|s| s.parse::<u64>().ok())))
+            .and_then(|v| {
+                v.as_u64()
+                    .or_else(|| v.as_str().and_then(|s| s.parse::<u64>().ok()))
+            })
             .unwrap_or(0);
 
         if let Some(path) = state_path {
@@ -6699,8 +6872,8 @@ impl DuckdbEngine {
         if let Some(role) = &spec.role {
             body_obj.insert("role".into(), JsonValue::String(role.clone()));
         }
-        let body = serde_json::to_string(&JsonValue::Object(body_obj))
-            .unwrap_or_else(|_| "{}".into());
+        let body =
+            serde_json::to_string(&JsonValue::Object(body_obj)).unwrap_or_else(|_| "{}".into());
         let initial = sf_request(&base_url, "POST", &auth_header, is_jwt, Some(&body))?;
         // If the server handed us a statementHandle without data
         // (async path: 202 in HTTP terms, but ureq returns 200/202
@@ -6785,9 +6958,7 @@ impl DuckdbEngine {
                 .get("statementHandle")
                 .and_then(|v| v.as_str())
                 .ok_or_else(|| {
-                    EngineError::Query(
-                        "Snowflake paged response missing statementHandle".into(),
-                    )
+                    EngineError::Query("Snowflake paged response missing statementHandle".into())
                 })?
                 .to_string();
             for i in 1..partition_count {
@@ -6800,12 +6971,10 @@ impl DuckdbEngine {
                 };
                 match part_rows {
                     Some(rows) => all_data.extend(rows),
-                    None => {
-                        return Err(EngineError::Query(format!(
-                            "Snowflake partition {} returned no row data (unexpected response shape)",
-                            i
-                        )))
-                    }
+                    None => return Err(EngineError::Query(format!(
+                        "Snowflake partition {} returned no row data (unexpected response shape)",
+                        i
+                    ))),
                 }
             }
         }
@@ -6838,9 +7007,10 @@ impl DuckdbEngine {
         db: &Path,
         spec: &DatabricksSourceSpec,
     ) -> Result<String, EngineError> {
-        let base_url = spec.endpoint.clone().unwrap_or_else(|| {
-            format!("https://{}/api/2.0/sql/statements/", spec.workspace)
-        });
+        let base_url = spec
+            .endpoint
+            .clone()
+            .unwrap_or_else(|| format!("https://{}/api/2.0/sql/statements/", spec.workspace));
         let auth = format!("Bearer {}", spec.pat);
         let mut body_obj = serde_json::Map::new();
         body_obj.insert("statement".into(), JsonValue::String(spec.query.clone()));
@@ -6862,8 +7032,8 @@ impl DuckdbEngine {
             "on_wait_timeout".into(),
             JsonValue::String("CONTINUE".into()),
         );
-        let body = serde_json::to_string(&JsonValue::Object(body_obj))
-            .unwrap_or_else(|_| "{}".into());
+        let body =
+            serde_json::to_string(&JsonValue::Object(body_obj)).unwrap_or_else(|_| "{}".into());
         let initial = dbr_request(&base_url, "POST", &auth, Some(&body))?;
         // Poll until SUCCEEDED if we got PENDING/RUNNING back.
         let response = match initial
@@ -6877,9 +7047,7 @@ impl DuckdbEngine {
                     .get("statement_id")
                     .and_then(|v| v.as_str())
                     .ok_or_else(|| {
-                        EngineError::Query(
-                            "Databricks async response missing statement_id".into(),
-                        )
+                        EngineError::Query("Databricks async response missing statement_id".into())
                     })?
                     .to_string();
                 let poll_url = format!("{}{}", base_url, statement_id);
@@ -6900,9 +7068,7 @@ impl DuckdbEngine {
             .pointer("/manifest/schema/columns")
             .and_then(|v| v.as_array())
             .ok_or_else(|| {
-                EngineError::Query(
-                    "Databricks response missing manifest.schema.columns".into(),
-                )
+                EngineError::Query("Databricks response missing manifest.schema.columns".into())
             })?
             .iter()
             .filter_map(|c| c.get("name").and_then(|n| n.as_str()).map(String::from))
@@ -6984,7 +7150,11 @@ impl DuckdbEngine {
         }
         let cols: Vec<String> = match rows[0].as_object() {
             Some(o) => o.keys().cloned().collect(),
-            None => return Err(EngineError::Query("databricks: upstream rows aren't JSON objects".into())),
+            None => {
+                return Err(EngineError::Query(
+                    "databricks: upstream rows aren't JSON objects".into(),
+                ))
+            }
         };
         // Build the qualified target. Catalog/schema both optional;
         // Databricks accepts 2-part (schema.table) or 3-part naming
@@ -6997,11 +7167,7 @@ impl DuckdbEngine {
                 db_quote_ident(s),
                 db_quote_ident(&spec.table)
             ),
-            (None, Some(s)) => format!(
-                "{}.{}",
-                db_quote_ident(s),
-                db_quote_ident(&spec.table)
-            ),
+            (None, Some(s)) => format!("{}.{}", db_quote_ident(s), db_quote_ident(&spec.table)),
             _ => db_quote_ident(&spec.table),
         };
         // Upsert (MERGE) clauses when key columns are configured. Databricks
@@ -7053,9 +7219,10 @@ impl DuckdbEngine {
             }
             None => (String::new(), String::new()),
         };
-        let url = spec.endpoint.clone().unwrap_or_else(|| {
-            format!("https://{}/api/2.0/sql/statements/", spec.workspace)
-        });
+        let url = spec
+            .endpoint
+            .clone()
+            .unwrap_or_else(|| format!("https://{}/api/2.0/sql/statements/", spec.workspace));
         let mut total_inserted = 0_usize;
         for chunk in rows.chunks(spec.batch_size) {
             self.check_cancelled()?;
@@ -7066,9 +7233,7 @@ impl DuckdbEngine {
                     let vals: Vec<String> = cols
                         .iter()
                         .map(|c| {
-                            let v = row_obj
-                                .and_then(|o| o.get(c))
-                                .unwrap_or(&JsonValue::Null);
+                            let v = row_obj.and_then(|o| o.get(c)).unwrap_or(&JsonValue::Null);
                             sql_literal(v, None, Dialect::JsonNative)
                         })
                         .collect();
@@ -7138,9 +7303,10 @@ impl DuckdbEngine {
                 "on_wait_timeout".into(),
                 JsonValue::String("CONTINUE".into()),
             );
-            let body = serde_json::to_string(&JsonValue::Object(body_obj))
-                .unwrap_or_else(|_| "{}".into());
-            let req = crate::tls::http_agent().post(&url)
+            let body =
+                serde_json::to_string(&JsonValue::Object(body_obj)).unwrap_or_else(|_| "{}".into());
+            let req = crate::tls::http_agent()
+                .post(&url)
                 .set("Authorization", &format!("Bearer {}", spec.pat))
                 .set("Content-Type", "application/json")
                 .set("Accept", "application/json");
@@ -7174,10 +7340,7 @@ impl DuckdbEngine {
                                     )
                                 })?;
                             let poll_url = format!("{}{}", url, statement_id);
-                            poll_databricks_until_done(
-                                &poll_url,
-                                &format!("Bearer {}", spec.pat),
-                            )?;
+                            poll_databricks_until_done(&poll_url, &format!("Bearer {}", spec.pat))?;
                         }
                         other => {
                             let err = env
@@ -7401,8 +7564,13 @@ fn tail_chars(s: &str, max: usize) -> &str {
     &s[idx..]
 }
 
-fn incremental_state_path(pipeline_name: Option<&str>, node_id: &str) -> Option<std::path::PathBuf> {
-    let ws = std::env::var("DUCKLE_WORKSPACE").ok().filter(|s| !s.is_empty())?;
+fn incremental_state_path(
+    pipeline_name: Option<&str>,
+    node_id: &str,
+) -> Option<std::path::PathBuf> {
+    let ws = std::env::var("DUCKLE_WORKSPACE")
+        .ok()
+        .filter(|s| !s.is_empty())?;
     let folder = sanitize_path_segment(pipeline_name.unwrap_or("pipeline"));
     let file = format!("{}.json", sanitize_path_segment(node_id));
     Some(
@@ -7432,8 +7600,10 @@ fn read_incremental_state(path: &std::path::PathBuf) -> Option<(String, String)>
 fn read_snapshot_state(path: &std::path::PathBuf) -> Option<u64> {
     let text = std::fs::read_to_string(path).ok()?;
     let v: JsonValue = serde_json::from_str(&text).ok()?;
-    v.get("snapshot_id")
-        .and_then(|x| x.as_u64().or_else(|| x.as_str().and_then(|s| s.parse::<u64>().ok())))
+    v.get("snapshot_id").and_then(|x| {
+        x.as_u64()
+            .or_else(|| x.as_str().and_then(|s| s.parse::<u64>().ok()))
+    })
 }
 
 /// Keep a DuckDB type name safe to splice into a CAST. typeof() output is
@@ -7482,7 +7652,11 @@ fn snowflake_body_error(body: &str) -> Option<String> {
     let sql_state = v.get("sqlState").and_then(|s| s.as_str()).unwrap_or("");
     let msg = v.get("message").and_then(|m| m.as_str()).unwrap_or("");
     if !msg.is_empty() && !sql_state.is_empty() && sql_state != "00000" {
-        Some(format!("{} (sqlState {})", msg.chars().take(300).collect::<String>(), sql_state))
+        Some(format!(
+            "{} (sqlState {})",
+            msg.chars().take(300).collect::<String>(),
+            sql_state
+        ))
     } else {
         None
     }
@@ -7520,9 +7694,9 @@ fn snowflake_cast_expr(ident: &str, sf_type: &str, scale: i64, precision: i64) -
             "CAST(make_timestamp(CAST(round(CAST({ident} AS DOUBLE) * 1000000) AS BIGINT)) AS TIME)"
         ),
         // TIMESTAMP_NTZ: float seconds since epoch, wall-clock (no zone).
-        "timestamp_ntz" => format!(
-            "make_timestamp(CAST(round(CAST({ident} AS DOUBLE) * 1000000) AS BIGINT))"
-        ),
+        "timestamp_ntz" => {
+            format!("make_timestamp(CAST(round(CAST({ident} AS DOUBLE) * 1000000) AS BIGINT))")
+        }
         // TIMESTAMP_LTZ: float seconds since epoch = a UTC instant.
         "timestamp_ltz" => format!("to_timestamp(CAST({ident} AS DOUBLE))"),
         // TIMESTAMP_TZ: "<seconds.frac> <offset>"; the seconds part is the UTC
@@ -7569,15 +7743,14 @@ pub(crate) fn context_vars_for_workspace(ws: &Path) -> std::collections::HashMap
             None => continue,
         };
         let name = it.get("name").and_then(|v| v.as_str()).unwrap_or(id);
-        let payload: serde_json::Value = match std::fs::read_to_string(
-            ws.join("contexts").join(format!("{}.json", id)),
-        )
-        .ok()
-        .and_then(|t| serde_json::from_str(&t).ok())
-        {
-            Some(v) => v,
-            None => continue,
-        };
+        let payload: serde_json::Value =
+            match std::fs::read_to_string(ws.join("contexts").join(format!("{}.json", id)))
+                .ok()
+                .and_then(|t| serde_json::from_str(&t).ok())
+            {
+                Some(v) => v,
+                None => continue,
+            };
         if let Some(vars) = payload.get("variables").and_then(|v| v.as_array()) {
             for v in vars {
                 if let (Some(k), Some(val)) = (
@@ -7720,7 +7893,10 @@ mod connector_helper_tests {
     #[test]
     fn mongo_delete_flag_matches_non_string_bson() {
         // The flag column can be a native bool/number, not just a string.
-        assert!(bson_flag_matches(Some(&Bson::String("delete".into())), "delete"));
+        assert!(bson_flag_matches(
+            Some(&Bson::String("delete".into())),
+            "delete"
+        ));
         assert!(bson_flag_matches(Some(&Bson::Boolean(true)), "true"));
         assert!(bson_flag_matches(Some(&Bson::Int32(1)), "1"));
         assert!(bson_flag_matches(Some(&Bson::Int64(1)), "1"));
@@ -7731,7 +7907,10 @@ mod connector_helper_tests {
         assert!(bson_flag_matches(Some(&Bson::Double(1.5)), "1.5"));
         // Non-matches and absent column.
         assert!(!bson_flag_matches(Some(&Bson::Boolean(false)), "true"));
-        assert!(!bson_flag_matches(Some(&Bson::String("keep".into())), "delete"));
+        assert!(!bson_flag_matches(
+            Some(&Bson::String("keep".into())),
+            "delete"
+        ));
         assert!(!bson_flag_matches(None, "delete"));
     }
 }
@@ -7762,8 +7941,14 @@ mod context_var_tests {
 
         let vars = context_vars_for_workspace(ws);
         // Both the bare key and the context-namespaced key resolve.
-        assert_eq!(vars.get("MOTHERDUCK_TOKEN").map(String::as_str), Some("tok-123"));
-        assert_eq!(vars.get("MotherDuck.MOTHERDUCK_TOKEN").map(String::as_str), Some("tok-123"));
+        assert_eq!(
+            vars.get("MOTHERDUCK_TOKEN").map(String::as_str),
+            Some("tok-123")
+        );
+        assert_eq!(
+            vars.get("MotherDuck.MOTHERDUCK_TOKEN").map(String::as_str),
+            Some("tok-123")
+        );
         // Built-in workspace placeholder is exposed too.
         assert!(vars.contains_key("workspace"));
     }

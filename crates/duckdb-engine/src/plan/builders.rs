@@ -83,18 +83,22 @@ pub(crate) fn build_view_sql(
         "src.sqlite" => Ok(build_sqlite_source(props)),
         "src.duckdb" => Ok(build_duckdb_source(props)),
         "src.ducklake.diff" => Ok(build_ducklake_diff(props)),
-        "src.s3" | "src.gcs" | "src.azureblob" | "src.http"
-        | "src.minio" | "src.r2" | "src.b2" => {
+        "src.s3" | "src.gcs" | "src.azureblob" | "src.http" | "src.minio" | "src.r2" | "src.b2" => {
             // MinIO / R2 / B2 are S3-compatible; the endpoint lives in
             // the SECRET created by the runtime, so the URL itself is
             // just s3://bucket/key.
             let s = component_id.strip_prefix("src.").unwrap_or(component_id);
-            let scheme = if matches!(s, "minio" | "r2" | "b2") { "s3" } else { s };
+            let scheme = if matches!(s, "minio" | "r2" | "b2") {
+                "s3"
+            } else {
+                s
+            };
             build_cloud_source(scheme, props, declared).map_err(|e| e.to_string())
         }
-        "src.postgres" | "src.cockroach" | "src.mysql" | "src.mariadb"
-        | "src.motherduck" | "src.ducklake" | "src.pgvector"
-        | "src.redshift" | "src.bigquery" | "src.quack" => build_relational_source(component_id, props),
+        "src.postgres" | "src.cockroach" | "src.mysql" | "src.mariadb" | "src.motherduck"
+        | "src.ducklake" | "src.pgvector" | "src.redshift" | "src.bigquery" | "src.quack" => {
+            build_relational_source(component_id, props)
+        }
         "src.avro" => Ok(build_avro_source(props)),
         "src.excel" => Ok(build_excel_source(props, declared)),
         "src.iceberg" => Ok(build_iceberg_source(props)),
@@ -241,7 +245,9 @@ pub(crate) fn build_view_sql(
         // multiple downstream edges read the same materialized table);
         // merge concatenates multiple input streams with UNION ALL.
         "ctl.replicate" => {
-            let upstream = inputs.main().ok_or_else(|| missing_input_msg("ctl.replicate"))?;
+            let upstream = inputs
+                .main()
+                .ok_or_else(|| missing_input_msg("ctl.replicate"))?;
             Ok(format!("SELECT * FROM {}", quote_ident(upstream)))
         }
         "ctl.merge" => build_union(inputs, false),
@@ -252,7 +258,9 @@ pub(crate) fn build_view_sql(
         // failure"; semantically equivalent to setting Advanced.retry
         // on the next downstream stage, but more visually obvious.
         "ctl.retry" => {
-            let upstream = inputs.main().ok_or_else(|| missing_input_msg("ctl.retry"))?;
+            let upstream = inputs
+                .main()
+                .ok_or_else(|| missing_input_msg("ctl.retry"))?;
             Ok(format!("SELECT * FROM {}", quote_ident(upstream)))
         }
         // Everything else isn't executable yet. Fail loudly rather than
@@ -273,7 +281,9 @@ pub(crate) fn build_passthrough_op(inputs: &NodeInputs, op: &str) -> Result<Stri
 }
 
 pub(crate) fn build_filter(inputs: &NodeInputs, props: &JsonValue) -> Result<String, String> {
-    let upstream = inputs.main().ok_or_else(|| "missing main input".to_string())?;
+    let upstream = inputs
+        .main()
+        .ok_or_else(|| "missing main input".to_string())?;
     // The predicate is usually a structured object carrying compiled
     // `sql`; it may also be a raw string (legacy / raw-SQL mode).
     let predicate = filter_predicate_sql(props.get("predicate"))
@@ -285,7 +295,11 @@ pub(crate) fn build_filter(inputs: &NodeInputs, props: &JsonValue) -> Result<Str
         })
         .unwrap_or_default();
     let predicate = predicate.trim();
-    let predicate = if predicate.is_empty() { "TRUE" } else { predicate };
+    let predicate = if predicate.is_empty() {
+        "TRUE"
+    } else {
+        predicate
+    };
     Ok(format!(
         "SELECT * FROM {} WHERE {}",
         quote_ident(upstream),
@@ -306,7 +320,9 @@ pub(crate) fn filter_predicate_sql(v: Option<&JsonValue>) -> Option<String> {
             .filter(|s| !s.trim().is_empty())
             .or_else(|| {
                 if o.get("mode").and_then(JsonValue::as_str) == Some("raw") {
-                    o.get("rawSql").and_then(JsonValue::as_str).map(str::to_string)
+                    o.get("rawSql")
+                        .and_then(JsonValue::as_str)
+                        .map(str::to_string)
                 } else {
                     None
                 }
@@ -316,8 +332,11 @@ pub(crate) fn filter_predicate_sql(v: Option<&JsonValue>) -> Option<String> {
 }
 
 pub(crate) fn build_project(inputs: &NodeInputs, props: &JsonValue) -> Result<String, String> {
-    let upstream = inputs.main().ok_or_else(|| "missing main input".to_string())?;
-    let columns = columns_from_props(props, "columns").or_else(|| columns_from_props(props, "keep"));
+    let upstream = inputs
+        .main()
+        .ok_or_else(|| "missing main input".to_string())?;
+    let columns =
+        columns_from_props(props, "columns").or_else(|| columns_from_props(props, "keep"));
     let cols = match columns {
         Some(cs) if !cs.is_empty() => cs
             .iter()
@@ -330,7 +349,9 @@ pub(crate) fn build_project(inputs: &NodeInputs, props: &JsonValue) -> Result<St
 }
 
 pub(crate) fn build_drop(inputs: &NodeInputs, props: &JsonValue) -> Result<String, String> {
-    let upstream = inputs.main().ok_or_else(|| "missing main input".to_string())?;
+    let upstream = inputs
+        .main()
+        .ok_or_else(|| "missing main input".to_string())?;
     let columns = columns_from_props(props, "columns")
         .or_else(|| columns_from_props(props, "drop"))
         .unwrap_or_default();
@@ -354,7 +375,9 @@ pub(crate) fn build_drop(inputs: &NodeInputs, props: &JsonValue) -> Result<Strin
 /// total_changes counts plus a ready-made `summary` text. Feed the row into
 /// xf.ai.llm for an AI narrative, or into a validator to assert expected counts.
 pub(crate) fn build_diffsummary(inputs: &NodeInputs, props: &JsonValue) -> Result<String, String> {
-    let upstream = inputs.main().ok_or_else(|| "missing main input".to_string())?;
+    let upstream = inputs
+        .main()
+        .ok_or_else(|| "missing main input".to_string())?;
     let col = string_prop(props, "changeColumn")
         .filter(|s| !s.trim().is_empty())
         .unwrap_or_else(|| "change_type".into());
@@ -373,7 +396,9 @@ pub(crate) fn build_diffsummary(inputs: &NodeInputs, props: &JsonValue) -> Resul
 }
 
 pub(crate) fn build_limit(inputs: &NodeInputs, props: &JsonValue) -> Result<String, String> {
-    let upstream = inputs.main().ok_or_else(|| "missing main input".to_string())?;
+    let upstream = inputs
+        .main()
+        .ok_or_else(|| "missing main input".to_string())?;
     let limit = props
         .get("limit")
         .and_then(JsonValue::as_u64)
@@ -392,8 +417,14 @@ pub(crate) enum TakeKind {
     Sample,
 }
 
-pub(crate) fn build_take(inputs: &NodeInputs, props: &JsonValue, kind: TakeKind) -> Result<String, String> {
-    let upstream = inputs.main().ok_or_else(|| "missing main input".to_string())?;
+pub(crate) fn build_take(
+    inputs: &NodeInputs,
+    props: &JsonValue,
+    kind: TakeKind,
+) -> Result<String, String> {
+    let upstream = inputs
+        .main()
+        .ok_or_else(|| "missing main input".to_string())?;
     let n = props
         .get("count")
         .and_then(JsonValue::as_u64)
@@ -415,7 +446,10 @@ pub(crate) fn build_take(inputs: &NodeInputs, props: &JsonValue, kind: TakeKind)
         } else {
             format!(
                 " ORDER BY {}",
-                cols.iter().map(|c| quote_ident(c)).collect::<Vec<_>>().join(", ")
+                cols.iter()
+                    .map(|c| quote_ident(c))
+                    .collect::<Vec<_>>()
+                    .join(", ")
             )
         }
     };
@@ -437,7 +471,11 @@ pub(crate) fn build_custom_sql(inputs: &NodeInputs, props: &JsonValue) -> Result
         .ok_or_else(|| "Custom SQL is empty - write a SELECT or pick a SQL routine".to_string())?;
     Ok(match inputs.main() {
         Some(upstream) => {
-            format!("WITH input AS (SELECT * FROM {}) {}", quote_ident(upstream), sql)
+            format!(
+                "WITH input AS (SELECT * FROM {}) {}",
+                quote_ident(upstream),
+                sql
+            )
         }
         None => sql,
     })
@@ -451,14 +489,26 @@ pub(crate) fn build_custom_sql(inputs: &NodeInputs, props: &JsonValue) -> Result
 pub(crate) fn sanitize_dbt_model_name(name: &str) -> String {
     let s: String = name
         .chars()
-        .map(|c| if c.is_ascii_alphanumeric() || c == '_' { c } else { '_' })
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '_' {
+                c
+            } else {
+                '_'
+            }
+        })
         .collect();
     let s = s.trim_matches('_').to_string();
-    if s.is_empty() { "duckle_model".to_string() } else { s }
+    if s.is_empty() {
+        "duckle_model".to_string()
+    } else {
+        s
+    }
 }
 
 pub(crate) fn build_distinct(inputs: &NodeInputs, props: &JsonValue) -> Result<String, String> {
-    let upstream = inputs.main().ok_or_else(|| "missing main input".to_string())?;
+    let upstream = inputs
+        .main()
+        .ok_or_else(|| "missing main input".to_string())?;
     let cols = columns_list(props, "columns");
     if cols.is_empty() {
         // A bare DISTINCT has no per-group survivor to order, so an orderBy
@@ -468,7 +518,11 @@ pub(crate) fn build_distinct(inputs: &NodeInputs, props: &JsonValue) -> Result<S
         }
         Ok(format!("SELECT DISTINCT * FROM {}", quote_ident(upstream)))
     } else {
-        let on = cols.iter().map(|c| quote_ident(c)).collect::<Vec<_>>().join(", ");
+        let on = cols
+            .iter()
+            .map(|c| quote_ident(c))
+            .collect::<Vec<_>>()
+            .join(", ");
         // DISTINCT ON keeps the first row per group in ORDER BY order; with
         // no ORDER BY the surviving non-key columns are nondeterministic
         // (worse under preserve_insertion_order=false).
@@ -489,7 +543,11 @@ pub(crate) fn build_distinct(inputs: &NodeInputs, props: &JsonValue) -> Result<S
             // the survivor is fully deterministic even when (keys, tiebreak)
             // is not unique within a group. `ORDER BY cols, *` is valid DuckDB
             // (unlike `ORDER BY cols, ALL`).
-            let tb = tiebreak.iter().map(|c| quote_ident(c)).collect::<Vec<_>>().join(", ");
+            let tb = tiebreak
+                .iter()
+                .map(|c| quote_ident(c))
+                .collect::<Vec<_>>()
+                .join(", ");
             format!("ORDER BY {}, {}, *", on, tb)
         };
         Ok(format!(
@@ -502,7 +560,9 @@ pub(crate) fn build_distinct(inputs: &NodeInputs, props: &JsonValue) -> Result<S
 }
 
 pub(crate) fn build_sort(inputs: &NodeInputs, props: &JsonValue) -> Result<String, String> {
-    let upstream = inputs.main().ok_or_else(|| "missing main input".to_string())?;
+    let upstream = inputs
+        .main()
+        .ok_or_else(|| "missing main input".to_string())?;
     let sort_keys: Vec<String> = props
         .get("orderBy")
         .and_then(JsonValue::as_array)
@@ -542,7 +602,11 @@ pub(crate) fn build_sort(inputs: &NodeInputs, props: &JsonValue) -> Result<Strin
             } else {
                 "ASC"
             };
-            let nulls = if props.get("nullsLast").and_then(JsonValue::as_bool).unwrap_or(true) {
+            let nulls = if props
+                .get("nullsLast")
+                .and_then(JsonValue::as_bool)
+                .unwrap_or(true)
+            {
                 " NULLS LAST"
             } else {
                 " NULLS FIRST"
@@ -571,7 +635,9 @@ pub(crate) fn build_aggregate(
     props: &JsonValue,
     mode: GroupMode,
 ) -> Result<String, String> {
-    let upstream = inputs.main().ok_or_else(|| "missing main input".to_string())?;
+    let upstream = inputs
+        .main()
+        .ok_or_else(|| "missing main input".to_string())?;
     // The Group By form writes `groupKeys`; accept `groupBy` too.
     let group_by: Vec<String> = columns_from_props(props, "groupKeys")
         .or_else(|| columns_from_props(props, "groupBy"))
@@ -668,7 +734,9 @@ pub(crate) fn interval_unit(unit: &str) -> &'static str {
 }
 
 pub(crate) fn build_date_add(inputs: &NodeInputs, props: &JsonValue) -> Result<String, String> {
-    let upstream = inputs.main().ok_or_else(|| missing_input_msg("xf.dt.add"))?;
+    let upstream = inputs
+        .main()
+        .ok_or_else(|| missing_input_msg("xf.dt.add"))?;
     let column = require_column(props)?;
     let amount = props.get("amount").and_then(JsonValue::as_i64).unwrap_or(1);
     let unit = string_prop(props, "unit").unwrap_or_else(|| "day".into());
@@ -679,11 +747,18 @@ pub(crate) fn build_date_add(inputs: &NodeInputs, props: &JsonValue) -> Result<S
         amount,
         interval_unit(&unit)
     );
-    Ok(apply_col_expr(upstream, &column, expr, string_prop(props, "outputColumn")))
+    Ok(apply_col_expr(
+        upstream,
+        &column,
+        expr,
+        string_prop(props, "outputColumn"),
+    ))
 }
 
 pub(crate) fn build_date_diff(inputs: &NodeInputs, props: &JsonValue) -> Result<String, String> {
-    let upstream = inputs.main().ok_or_else(|| missing_input_msg("xf.dt.diff"))?;
+    let upstream = inputs
+        .main()
+        .ok_or_else(|| missing_input_msg("xf.dt.diff"))?;
     let start = string_prop(props, "startColumn")
         .filter(|s| !s.is_empty())
         .ok_or_else(|| "Date diff needs a start column".to_string())?;
@@ -705,7 +780,9 @@ pub(crate) fn build_date_diff(inputs: &NodeInputs, props: &JsonValue) -> Result<
 }
 
 pub(crate) fn build_json_flatten(inputs: &NodeInputs, props: &JsonValue) -> Result<String, String> {
-    let upstream = inputs.main().ok_or_else(|| missing_input_msg("xf.json.flatten"))?;
+    let upstream = inputs
+        .main()
+        .ok_or_else(|| missing_input_msg("xf.json.flatten"))?;
     let column = require_column(props)?;
     let col = quote_ident(&column);
     // Expand a STRUCT column's fields to top-level columns.
@@ -718,7 +795,9 @@ pub(crate) fn build_json_flatten(inputs: &NodeInputs, props: &JsonValue) -> Resu
 }
 
 pub(crate) fn build_json_merge(inputs: &NodeInputs, props: &JsonValue) -> Result<String, String> {
-    let upstream = inputs.main().ok_or_else(|| missing_input_msg("xf.json.merge"))?;
+    let upstream = inputs
+        .main()
+        .ok_or_else(|| missing_input_msg("xf.json.merge"))?;
     let a = require_column(props)?;
     let b = string_prop(props, "secondColumn")
         .filter(|s| !s.is_empty())
@@ -736,7 +815,9 @@ pub(crate) fn build_json_merge(inputs: &NodeInputs, props: &JsonValue) -> Result
 }
 
 pub(crate) fn build_arr_collect(inputs: &NodeInputs, props: &JsonValue) -> Result<String, String> {
-    let upstream = inputs.main().ok_or_else(|| missing_input_msg("xf.arr.collect"))?;
+    let upstream = inputs
+        .main()
+        .ok_or_else(|| missing_input_msg("xf.arr.collect"))?;
     let value = string_prop(props, "valueColumn")
         .or_else(|| string_prop(props, "column"))
         .filter(|s| !s.is_empty())
@@ -757,7 +838,11 @@ pub(crate) fn build_arr_collect(inputs: &NodeInputs, props: &JsonValue) -> Resul
             v = v,
         ))
     } else {
-        let g = group.iter().map(|c| quote_ident(c)).collect::<Vec<_>>().join(", ");
+        let g = group
+            .iter()
+            .map(|c| quote_ident(c))
+            .collect::<Vec<_>>()
+            .join(", ");
         Ok(format!(
             "SELECT {}, list({v} ORDER BY {v}) AS {} FROM {} GROUP BY {}",
             g,
@@ -810,7 +895,9 @@ UNNEST(range(1, len(__duckle_ex.__duckle_h) + 1)) AS __duckle_g(__duckle_i)\
 }
 
 pub(crate) fn build_arr_contains(inputs: &NodeInputs, props: &JsonValue) -> Result<String, String> {
-    let upstream = inputs.main().ok_or_else(|| missing_input_msg("xf.arr.contains"))?;
+    let upstream = inputs
+        .main()
+        .ok_or_else(|| missing_input_msg("xf.arr.contains"))?;
     let column = require_column(props)?;
     let value = string_prop(props, "value").unwrap_or_default();
     // Only emit a bare numeric literal for a FINITE number. Rust's f64
@@ -895,9 +982,16 @@ pub(crate) fn build_window(
     props: &JsonValue,
     component_id: &str,
 ) -> Result<String, String> {
-    let upstream = inputs.main().ok_or_else(|| "window: missing main input".to_string())?;
-    let func = string_prop(props, "function")
-        .unwrap_or_else(|| component_id.rsplit('.').next().unwrap_or("rownum").to_string());
+    let upstream = inputs
+        .main()
+        .ok_or_else(|| "window: missing main input".to_string())?;
+    let func = string_prop(props, "function").unwrap_or_else(|| {
+        component_id
+            .rsplit('.')
+            .next()
+            .unwrap_or("rownum")
+            .to_string()
+    });
     let target = string_prop(props, "targetColumn").filter(|s| !s.is_empty());
     let offset = props.get("offset").and_then(JsonValue::as_u64).unwrap_or(1);
     let need_target = |f: &str| -> Result<String, String> {
@@ -946,7 +1040,11 @@ pub(crate) fn build_window(
     if !partition.is_empty() {
         over.push_str(&format!(
             "PARTITION BY {}",
-            partition.iter().map(|c| quote_ident(c)).collect::<Vec<_>>().join(", ")
+            partition
+                .iter()
+                .map(|c| quote_ident(c))
+                .collect::<Vec<_>>()
+                .join(", ")
         ));
     }
     if !over.is_empty() {
@@ -954,7 +1052,11 @@ pub(crate) fn build_window(
     }
     over.push_str(&format!(
         "ORDER BY {}",
-        order.iter().map(|c| quote_ident(c)).collect::<Vec<_>>().join(", ")
+        order
+            .iter()
+            .map(|c| quote_ident(c))
+            .collect::<Vec<_>>()
+            .join(", ")
     ));
     let out_name = string_prop(props, "outputName")
         .filter(|s| !s.is_empty())
@@ -979,7 +1081,9 @@ pub(crate) fn build_window(
 }
 
 pub(crate) fn build_pivot(inputs: &NodeInputs, props: &JsonValue) -> Result<String, String> {
-    let upstream = inputs.main().ok_or_else(|| "pivot: missing main input".to_string())?;
+    let upstream = inputs
+        .main()
+        .ok_or_else(|| "pivot: missing main input".to_string())?;
     let pivot_col = string_prop(props, "pivotColumn")
         .filter(|s| !s.is_empty())
         .ok_or_else(|| "Pivot needs a pivot column".to_string())?;
@@ -998,7 +1102,11 @@ pub(crate) fn build_pivot(inputs: &NodeInputs, props: &JsonValue) -> Result<Stri
     if !group.is_empty() {
         sql.push_str(&format!(
             " GROUP BY {}",
-            group.iter().map(|c| quote_ident(c)).collect::<Vec<_>>().join(", ")
+            group
+                .iter()
+                .map(|c| quote_ident(c))
+                .collect::<Vec<_>>()
+                .join(", ")
         ));
     }
     Ok(sql)
@@ -1010,7 +1118,12 @@ pub(crate) fn missing_input_msg(component: &str) -> String {
 
 /// Emit a per-row column expression: add it as `output` if given, else
 /// replace the source column in place.
-pub(crate) fn apply_col_expr(upstream: &str, column: &str, expr: String, output: Option<String>) -> String {
+pub(crate) fn apply_col_expr(
+    upstream: &str,
+    column: &str,
+    expr: String,
+    output: Option<String>,
+) -> String {
     match output.filter(|s| !s.trim().is_empty()) {
         Some(out) => format!(
             "SELECT *, {} AS {} FROM {}",
@@ -1075,8 +1188,20 @@ pub(crate) fn escape_stray_printf_percents(pattern: &str) -> String {
         let is_spec = j < bytes.len()
             && matches!(
                 bytes[j],
-                b's' | b'd' | b'i' | b'u' | b'f' | b'F' | b'g' | b'G' | b'e' | b'E'
-                    | b'x' | b'X' | b'o' | b'c' | b'b'
+                b's' | b'd'
+                    | b'i'
+                    | b'u'
+                    | b'f'
+                    | b'F'
+                    | b'g'
+                    | b'G'
+                    | b'e'
+                    | b'E'
+                    | b'x'
+                    | b'X'
+                    | b'o'
+                    | b'c'
+                    | b'b'
             );
         if is_spec {
             out.push_str(&pattern[i..=j]);
@@ -1089,8 +1214,14 @@ pub(crate) fn escape_stray_printf_percents(pattern: &str) -> String {
     out
 }
 
-pub(crate) fn build_string(inputs: &NodeInputs, props: &JsonValue, component_id: &str) -> Result<String, String> {
-    let upstream = inputs.main().ok_or_else(|| missing_input_msg(component_id))?;
+pub(crate) fn build_string(
+    inputs: &NodeInputs,
+    props: &JsonValue,
+    component_id: &str,
+) -> Result<String, String> {
+    let upstream = inputs
+        .main()
+        .ok_or_else(|| missing_input_msg(component_id))?;
     let column = require_column(props)?;
     let col = quote_ident(&column);
     let pattern = string_prop(props, "pattern").unwrap_or_default();
@@ -1134,16 +1265,39 @@ pub(crate) fn build_string(inputs: &NodeInputs, props: &JsonValue, component_id:
                 Err(_) => format!("substring(CAST({} AS VARCHAR), {})", col, start),
             }
         }
-        "xf.concat" => format!("concat(CAST({} AS VARCHAR), '{}')", col, sql_escape(&pattern)),
-        "xf.split" => format!("string_split(CAST({} AS VARCHAR), '{}')", col, sql_escape(&pattern)),
-        "xf.format" => format!("printf('{}', {})", sql_escape(&escape_stray_printf_percents(&pattern)), col),
+        "xf.concat" => format!(
+            "concat(CAST({} AS VARCHAR), '{}')",
+            col,
+            sql_escape(&pattern)
+        ),
+        "xf.split" => format!(
+            "string_split(CAST({} AS VARCHAR), '{}')",
+            col,
+            sql_escape(&pattern)
+        ),
+        "xf.format" => format!(
+            "printf('{}', {})",
+            sql_escape(&escape_stray_printf_percents(&pattern)),
+            col
+        ),
         other => return Err(format!("String op '{}' is not implemented", other)),
     };
-    Ok(apply_col_expr(upstream, &column, expr, string_prop(props, "outputColumn")))
+    Ok(apply_col_expr(
+        upstream,
+        &column,
+        expr,
+        string_prop(props, "outputColumn"),
+    ))
 }
 
-pub(crate) fn build_numeric(inputs: &NodeInputs, props: &JsonValue, component_id: &str) -> Result<String, String> {
-    let upstream = inputs.main().ok_or_else(|| missing_input_msg(component_id))?;
+pub(crate) fn build_numeric(
+    inputs: &NodeInputs,
+    props: &JsonValue,
+    component_id: &str,
+) -> Result<String, String> {
+    let upstream = inputs
+        .main()
+        .ok_or_else(|| missing_input_msg(component_id))?;
     let column = require_column(props)?;
     let col = quote_ident(&column);
     let arg = num_prop(props, "argument");
@@ -1158,7 +1312,15 @@ pub(crate) fn build_numeric(inputs: &NodeInputs, props: &JsonValue, component_id
         let low = a.trim().to_ascii_lowercase();
         if matches!(
             low.as_str(),
-            "inf" | "-inf" | "+inf" | "infinity" | "-infinity" | "+infinity" | "nan" | "-nan" | "+nan"
+            "inf"
+                | "-inf"
+                | "+inf"
+                | "infinity"
+                | "-infinity"
+                | "+infinity"
+                | "nan"
+                | "-nan"
+                | "+nan"
         ) {
             return Err(format!(
                 "{}: numeric argument must be a finite number (got '{}')",
@@ -1169,7 +1331,11 @@ pub(crate) fn build_numeric(inputs: &NodeInputs, props: &JsonValue, component_id
     let expr = match component_id {
         "xf.num.round" => format!("round({}, {})", col, arg.unwrap_or_else(|| "0".into())),
         "xf.num.abs" => format!("abs({})", col),
-        "xf.num.mod" => format!("{} % {}", col, arg.ok_or("Modulo needs a divisor argument")?),
+        "xf.num.mod" => format!(
+            "{} % {}",
+            col,
+            arg.ok_or("Modulo needs a divisor argument")?
+        ),
         "xf.num.power" => format!("power({}, {})", col, arg.unwrap_or_else(|| "2".into())),
         "xf.num.sqrt" => format!("sqrt({})", col),
         "xf.num.log" => match arg {
@@ -1178,11 +1344,22 @@ pub(crate) fn build_numeric(inputs: &NodeInputs, props: &JsonValue, component_id
         },
         other => return Err(format!("Numeric op '{}' is not implemented", other)),
     };
-    Ok(apply_col_expr(upstream, &column, expr, string_prop(props, "outputColumn")))
+    Ok(apply_col_expr(
+        upstream,
+        &column,
+        expr,
+        string_prop(props, "outputColumn"),
+    ))
 }
 
-pub(crate) fn build_datetime(inputs: &NodeInputs, props: &JsonValue, component_id: &str) -> Result<String, String> {
-    let upstream = inputs.main().ok_or_else(|| missing_input_msg(component_id))?;
+pub(crate) fn build_datetime(
+    inputs: &NodeInputs,
+    props: &JsonValue,
+    component_id: &str,
+) -> Result<String, String> {
+    let upstream = inputs
+        .main()
+        .ok_or_else(|| missing_input_msg(component_id))?;
     let column = require_column(props)?;
     let col = quote_ident(&column);
     let fmt = string_prop(props, "format").unwrap_or_else(|| "%Y-%m-%d".into());
@@ -1193,7 +1370,11 @@ pub(crate) fn build_datetime(inputs: &NodeInputs, props: &JsonValue, component_i
         // format, instead of strptime's hard error that aborts the entire
         // run on the first unparseable row (one bad date killing a whole
         // pipeline). Matches the TRY_CAST philosophy used elsewhere.
-        "xf.dt.parse" => format!("try_strptime(CAST({} AS VARCHAR), '{}')", col, sql_escape(&fmt)),
+        "xf.dt.parse" => format!(
+            "try_strptime(CAST({} AS VARCHAR), '{}')",
+            col,
+            sql_escape(&fmt)
+        ),
         "xf.dt.format" => format!("strftime({}, '{}')", col, sql_escape(&fmt)),
         "xf.dt.extract" => format!("date_part('{}', {})", sql_escape(&unit), col),
         "xf.dt.trunc" => format!("date_trunc('{}', {})", sql_escape(&unit), col),
@@ -1205,11 +1386,22 @@ pub(crate) fn build_datetime(inputs: &NodeInputs, props: &JsonValue, component_i
         }
         other => return Err(format!("Date/time op '{}' is not implemented", other)),
     };
-    Ok(apply_col_expr(upstream, &column, expr, string_prop(props, "outputColumn")))
+    Ok(apply_col_expr(
+        upstream,
+        &column,
+        expr,
+        string_prop(props, "outputColumn"),
+    ))
 }
 
-pub(crate) fn build_json(inputs: &NodeInputs, props: &JsonValue, component_id: &str) -> Result<String, String> {
-    let upstream = inputs.main().ok_or_else(|| missing_input_msg(component_id))?;
+pub(crate) fn build_json(
+    inputs: &NodeInputs,
+    props: &JsonValue,
+    component_id: &str,
+) -> Result<String, String> {
+    let upstream = inputs
+        .main()
+        .ok_or_else(|| missing_input_msg(component_id))?;
     let column = require_column(props)?;
     let col = quote_ident(&column);
     let path = string_prop(props, "path").unwrap_or_default();
@@ -1224,11 +1416,22 @@ pub(crate) fn build_json(inputs: &NodeInputs, props: &JsonValue, component_id: &
         }
         other => return Err(format!("JSON op '{}' is not implemented", other)),
     };
-    Ok(apply_col_expr(upstream, &column, expr, string_prop(props, "outputColumn")))
+    Ok(apply_col_expr(
+        upstream,
+        &column,
+        expr,
+        string_prop(props, "outputColumn"),
+    ))
 }
 
-pub(crate) fn build_array(inputs: &NodeInputs, props: &JsonValue, component_id: &str) -> Result<String, String> {
-    let upstream = inputs.main().ok_or_else(|| missing_input_msg(component_id))?;
+pub(crate) fn build_array(
+    inputs: &NodeInputs,
+    props: &JsonValue,
+    component_id: &str,
+) -> Result<String, String> {
+    let upstream = inputs
+        .main()
+        .ok_or_else(|| missing_input_msg(component_id))?;
     let column = require_column(props)?;
     let col = quote_ident(&column);
     if component_id == "xf.arr.explode" {
@@ -1253,16 +1456,27 @@ pub(crate) fn build_array(inputs: &NodeInputs, props: &JsonValue, component_id: 
         "xf.arr.distinct" => format!("list_distinct({})", col),
         other => return Err(format!("Array op '{}' is not implemented", other)),
     };
-    Ok(apply_col_expr(upstream, &column, expr, string_prop(props, "outputColumn")))
+    Ok(apply_col_expr(
+        upstream,
+        &column,
+        expr,
+        string_prop(props, "outputColumn"),
+    ))
 }
 
 pub(crate) fn build_reorder(inputs: &NodeInputs, props: &JsonValue) -> Result<String, String> {
-    let upstream = inputs.main().ok_or_else(|| missing_input_msg("xf.reorder"))?;
+    let upstream = inputs
+        .main()
+        .ok_or_else(|| missing_input_msg("xf.reorder"))?;
     let cols = columns_list(props, "columns");
     if cols.is_empty() {
         return Ok(format!("SELECT * FROM {}", quote_ident(upstream)));
     }
-    let listed = cols.iter().map(|c| quote_ident(c)).collect::<Vec<_>>().join(", ");
+    let listed = cols
+        .iter()
+        .map(|c| quote_ident(c))
+        .collect::<Vec<_>>()
+        .join(", ");
     // Listed columns first, everything else after - never drops a column.
     Ok(format!(
         "SELECT {}, * EXCLUDE ({}) FROM {}",
@@ -1274,7 +1488,10 @@ pub(crate) fn build_reorder(inputs: &NodeInputs, props: &JsonValue) -> Result<St
 
 pub(crate) fn build_count(inputs: &NodeInputs) -> Result<String, String> {
     let upstream = inputs.main().ok_or_else(|| missing_input_msg("xf.count"))?;
-    Ok(format!("SELECT count(*) AS row_count FROM {}", quote_ident(upstream)))
+    Ok(format!(
+        "SELECT count(*) AS row_count FROM {}",
+        quote_ident(upstream)
+    ))
 }
 
 /// Approximate Quantile via DuckDB's t-digest. Single-row aggregate
@@ -1283,12 +1500,20 @@ pub(crate) fn build_count(inputs: &NodeInputs) -> Result<String, String> {
 /// regardless of cardinality, so it's the right tool for "what's the
 /// p95 latency over 10B rows" instead of an exact quantile() call
 /// that would need to sort the whole input.
-pub(crate) fn build_approx_quantile(inputs: &NodeInputs, props: &JsonValue) -> Result<String, String> {
-    let upstream = inputs.main().ok_or_else(|| missing_input_msg("xf.approx.quantile"))?;
+pub(crate) fn build_approx_quantile(
+    inputs: &NodeInputs,
+    props: &JsonValue,
+) -> Result<String, String> {
+    let upstream = inputs
+        .main()
+        .ok_or_else(|| missing_input_msg("xf.approx.quantile"))?;
     let column = string_prop(props, "column")
         .filter(|s| !s.is_empty())
         .ok_or_else(|| "Approx Quantile needs a column".to_string())?;
-    let q = props.get("quantile").and_then(|v| v.as_f64()).unwrap_or(0.5);
+    let q = props
+        .get("quantile")
+        .and_then(|v| v.as_f64())
+        .unwrap_or(0.5);
     let q = if (0.0..=1.0).contains(&q) { q } else { 0.5 };
     let group_by: Vec<String> = columns_from_props(props, "groupBy").unwrap_or_default();
     let alias = string_prop(props, "outputColumn")
@@ -1300,7 +1525,12 @@ pub(crate) fn build_approx_quantile(inputs: &NodeInputs, props: &JsonValue) -> R
         .collect::<Vec<_>>()
         .join(", ");
     let select = if group_by.is_empty() {
-        format!("approx_quantile({}, {}) AS {}", quote_ident(&column), q, quote_ident(&alias))
+        format!(
+            "approx_quantile({}, {}) AS {}",
+            quote_ident(&column),
+            q,
+            quote_ident(&alias)
+        )
     } else {
         format!(
             "{}, approx_quantile({}, {}) AS {}",
@@ -1324,7 +1554,9 @@ pub(crate) fn build_approx_quantile(inputs: &NodeInputs, props: &JsonValue) -> R
 }
 
 pub(crate) fn build_cross_join(inputs: &NodeInputs) -> Result<String, String> {
-    let left = inputs.main().ok_or_else(|| "Cross join needs a main input".to_string())?;
+    let left = inputs
+        .main()
+        .ok_or_else(|| "Cross join needs a main input".to_string())?;
     let right = inputs
         .first_lookup()
         .ok_or_else(|| "Cross join needs a lookup input".to_string())?;
@@ -1337,9 +1569,16 @@ pub(crate) fn build_cross_join(inputs: &NodeInputs) -> Result<String, String> {
 
 /// Window aggregate: an aggregate computed over a window, keeping every
 /// row (unlike Group By, which collapses them).
-pub(crate) fn build_window_aggregate(inputs: &NodeInputs, props: &JsonValue) -> Result<String, String> {
-    let upstream = inputs.main().ok_or_else(|| missing_input_msg("xf.aggwin"))?;
-    let func = string_prop(props, "function").unwrap_or_else(|| "sum".into()).to_uppercase();
+pub(crate) fn build_window_aggregate(
+    inputs: &NodeInputs,
+    props: &JsonValue,
+) -> Result<String, String> {
+    let upstream = inputs
+        .main()
+        .ok_or_else(|| missing_input_msg("xf.aggwin"))?;
+    let func = string_prop(props, "function")
+        .unwrap_or_else(|| "sum".into())
+        .to_uppercase();
     let column = string_prop(props, "column")
         .filter(|s| !s.is_empty())
         .unwrap_or_else(|| "*".into());
@@ -1354,7 +1593,11 @@ pub(crate) fn build_window_aggregate(inputs: &NodeInputs, props: &JsonValue) -> 
     if !partition.is_empty() {
         over.push_str(&format!(
             "PARTITION BY {}",
-            partition.iter().map(|c| quote_ident(c)).collect::<Vec<_>>().join(", ")
+            partition
+                .iter()
+                .map(|c| quote_ident(c))
+                .collect::<Vec<_>>()
+                .join(", ")
         ));
     }
     if !order.is_empty() {
@@ -1363,7 +1606,11 @@ pub(crate) fn build_window_aggregate(inputs: &NodeInputs, props: &JsonValue) -> 
         }
         over.push_str(&format!(
             "ORDER BY {}",
-            order.iter().map(|c| quote_ident(c)).collect::<Vec<_>>().join(", ")
+            order
+                .iter()
+                .map(|c| quote_ident(c))
+                .collect::<Vec<_>>()
+                .join(", ")
         ));
         // An ORDER BY in a window with no explicit frame defaults to a running
         // aggregate (RANGE UNBOUNDED PRECEDING .. CURRENT ROW), silently turning
@@ -1474,7 +1721,9 @@ pub(crate) fn build_cdc_diff(inputs: &NodeInputs, props: &JsonValue) -> Result<S
 /// Denormalize: collapse many rows per group into one, joining the
 /// chosen columns into a single delimited cell with string_agg.
 pub(crate) fn build_denormalize(inputs: &NodeInputs, props: &JsonValue) -> Result<String, String> {
-    let upstream = inputs.main().ok_or_else(|| missing_input_msg("xf.denorm"))?;
+    let upstream = inputs
+        .main()
+        .ok_or_else(|| missing_input_msg("xf.denorm"))?;
     let group_by = columns_list(props, "groupBy");
     if group_by.is_empty() {
         return Err("Denormalize needs group-by columns".to_string());
@@ -1550,7 +1799,9 @@ pub(crate) fn build_normalize(inputs: &NodeInputs, props: &JsonValue) -> Result<
 /// header would not auto-detect). Requires the input's columns to share
 /// a compatible type (UNPIVOT cannot mix unrelated types).
 pub(crate) fn build_transpose(inputs: &NodeInputs) -> Result<String, String> {
-    let upstream = inputs.main().ok_or_else(|| missing_input_msg("xf.transpose"))?;
+    let upstream = inputs
+        .main()
+        .ok_or_else(|| missing_input_msg("xf.transpose"))?;
     Ok(format!(
         "SELECT * FROM (PIVOT (FROM (SELECT *, \
          'r' || CAST(ROW_NUMBER() OVER () AS VARCHAR) AS _row FROM {up}) \
@@ -1573,7 +1824,9 @@ pub(crate) fn build_switch(
     props: &JsonValue,
     consumer_count: &HashMap<String, usize>,
 ) -> Result<String, String> {
-    let upstream = inputs.main().ok_or_else(|| missing_input_msg("ctl.switch"))?;
+    let upstream = inputs
+        .main()
+        .ok_or_else(|| missing_input_msg("ctl.switch"))?;
     // `branches` is a key-value field. The UI saves it as an ARRAY of
     // {key,value} (which also preserves branch order = case_1, case_2, ...);
     // older docs may have an object. Accept both, mirroring
@@ -1617,7 +1870,11 @@ pub(crate) fn build_switch(
         .unwrap_or(false);
     let kw = |relation: &str| -> &'static str {
         let consumers = consumer_count.get(relation).copied().unwrap_or(0);
-        if force_views || consumers <= 1 { "VIEW" } else { "TABLE" }
+        if force_views || consumers <= 1 {
+            "VIEW"
+        } else {
+            "TABLE"
+        }
     };
     let up = quote_ident(upstream);
     let mut stmts: Vec<String> = Vec::new();
@@ -1679,10 +1936,12 @@ pub(crate) fn build_switch(
 /// key isn't in current (so unrelated history isn't dropped). Both
 /// inputs must have the same column schema.
 pub(crate) fn build_scd1(inputs: &NodeInputs, props: &JsonValue) -> Result<String, String> {
-    let cur = inputs.main().ok_or_else(|| missing_input_msg("xf.cdc.scd1"))?;
-    let prev = inputs.first_lookup().ok_or_else(|| {
-        "SCD1 needs a 'previous' input on the lookup port".to_string()
-    })?;
+    let cur = inputs
+        .main()
+        .ok_or_else(|| missing_input_msg("xf.cdc.scd1"))?;
+    let prev = inputs
+        .first_lookup()
+        .ok_or_else(|| "SCD1 needs a 'previous' input on the lookup port".to_string())?;
     let keys = columns_list(props, "naturalKey");
     if keys.is_empty() {
         return Err("SCD1 needs natural key columns".to_string());
@@ -1715,10 +1974,12 @@ pub(crate) fn build_scd1(inputs: &NodeInputs, props: &JsonValue) -> Result<Strin
 /// Unchanged rows are skipped (the target already has them). Deletes
 /// are NOT emitted; use Diff Detect when you need them.
 pub(crate) fn build_upsert(inputs: &NodeInputs, props: &JsonValue) -> Result<String, String> {
-    let cur = inputs.main().ok_or_else(|| missing_input_msg("xf.cdc.upsert"))?;
-    let prev = inputs.first_lookup().ok_or_else(|| {
-        "Upsert needs a 'previous' input on the lookup port".to_string()
-    })?;
+    let cur = inputs
+        .main()
+        .ok_or_else(|| missing_input_msg("xf.cdc.upsert"))?;
+    let prev = inputs
+        .first_lookup()
+        .ok_or_else(|| "Upsert needs a 'previous' input on the lookup port".to_string())?;
     let keys = columns_list(props, "naturalKey");
     if keys.is_empty() {
         return Err("Upsert needs natural key columns".to_string());
@@ -1764,7 +2025,9 @@ pub(crate) fn build_upsert(inputs: &NodeInputs, props: &JsonValue) -> Result<Str
 /// new / changed keys land as fresh current versions. Compare columns
 /// drive the change detection.
 pub(crate) fn build_scd2(inputs: &NodeInputs, props: &JsonValue) -> Result<String, String> {
-    let cur = inputs.main().ok_or_else(|| missing_input_msg("xf.cdc.scd2"))?;
+    let cur = inputs
+        .main()
+        .ok_or_else(|| missing_input_msg("xf.cdc.scd2"))?;
     let prev = inputs.first_lookup().ok_or_else(|| {
         "SCD2 needs a 'previous' input on the lookup port (the current history table)".to_string()
     })?;
@@ -1835,7 +2098,9 @@ pub(crate) fn build_scd2(inputs: &NodeInputs, props: &JsonValue) -> Result<Strin
 
 /// Unpivot: turn a set of columns into name/value rows (wide to long).
 pub(crate) fn build_unpivot(inputs: &NodeInputs, props: &JsonValue) -> Result<String, String> {
-    let upstream = inputs.main().ok_or_else(|| missing_input_msg("xf.unpivot"))?;
+    let upstream = inputs
+        .main()
+        .ok_or_else(|| missing_input_msg("xf.unpivot"))?;
     let cols = columns_list(props, "columns");
     if cols.is_empty() {
         return Err("Unpivot needs the columns to unpivot".to_string());
@@ -1846,7 +2111,11 @@ pub(crate) fn build_unpivot(inputs: &NodeInputs, props: &JsonValue) -> Result<St
     let value_col = string_prop(props, "valueColumn")
         .filter(|s| !s.is_empty())
         .unwrap_or_else(|| "value".into());
-    let on = cols.iter().map(|c| quote_ident(c)).collect::<Vec<_>>().join(", ");
+    let on = cols
+        .iter()
+        .map(|c| quote_ident(c))
+        .collect::<Vec<_>>()
+        .join(", ");
     // INCLUDE NULLS: DuckDB's UNPIVOT defaults to EXCLUDE NULLS, which
     // silently drops every row whose unpivoted value is NULL - on sparse
     // wide data that's real data loss. The SQL-standard form is the only
@@ -1865,7 +2134,9 @@ pub(crate) fn build_unpivot(inputs: &NodeInputs, props: &JsonValue) -> Result<St
 /// Column Profile: one summary-stats row per column, via DuckDB
 /// SUMMARIZE (count, null %, approx distinct, min/max, quartiles).
 pub(crate) fn build_profile(inputs: &NodeInputs, props: &JsonValue) -> Result<String, String> {
-    let upstream = inputs.main().ok_or_else(|| missing_input_msg("qa.profile"))?;
+    let upstream = inputs
+        .main()
+        .ok_or_else(|| missing_input_msg("qa.profile"))?;
     let cols = columns_list(props, "columns");
     let projection = if cols.is_empty() {
         "*".to_string()
@@ -1884,7 +2155,9 @@ pub(crate) fn build_profile(inputs: &NodeInputs, props: &JsonValue) -> Result<St
 
 /// Describe: the column names and types of the input.
 pub(crate) fn build_describe(inputs: &NodeInputs) -> Result<String, String> {
-    let upstream = inputs.main().ok_or_else(|| missing_input_msg("qa.describe"))?;
+    let upstream = inputs
+        .main()
+        .ok_or_else(|| missing_input_msg("qa.describe"))?;
     Ok(format!(
         "SELECT * FROM (DESCRIBE SELECT * FROM {})",
         quote_ident(upstream)
@@ -1893,7 +2166,9 @@ pub(crate) fn build_describe(inputs: &NodeInputs) -> Result<String, String> {
 
 /// Histogram: value frequencies for one column, most frequent first.
 pub(crate) fn build_histogram(inputs: &NodeInputs, props: &JsonValue) -> Result<String, String> {
-    let upstream = inputs.main().ok_or_else(|| missing_input_msg("qa.histogram"))?;
+    let upstream = inputs
+        .main()
+        .ok_or_else(|| missing_input_msg("qa.histogram"))?;
     let col = string_prop(props, "column")
         .filter(|s| !s.is_empty())
         .ok_or_else(|| "Histogram needs a column".to_string())?;
@@ -1911,7 +2186,13 @@ pub(crate) fn build_histogram(inputs: &NodeInputs, props: &JsonValue) -> Result<
 /// shared salt, joinable across masked datasets); partial = keep the last N
 /// chars and star the rest; null = drop the value; constant = a fixed
 /// replacement. NULL inputs stay NULL.
-fn mask_replacement(column: &str, mode: &str, salt: Option<&str>, show_last: i64, value: Option<&str>) -> Result<String, String> {
+fn mask_replacement(
+    column: &str,
+    mode: &str,
+    salt: Option<&str>,
+    show_last: i64,
+    value: Option<&str>,
+) -> Result<String, String> {
     let q = quote_ident(column);
     let cv = format!("CAST({} AS VARCHAR)", q);
     let expr = match mode {
@@ -1929,7 +2210,12 @@ fn mask_replacement(column: &str, mode: &str, salt: Option<&str>, show_last: i64
                 n = n
             )
         }
-        other => return Err(format!("mask: unknown mode '{}' (use hash | partial | null | constant)", other)),
+        other => {
+            return Err(format!(
+                "mask: unknown mode '{}' (use hash | partial | null | constant)",
+                other
+            ))
+        }
     };
     Ok(format!("{} AS {}", expr, q))
 }
@@ -1943,7 +2229,11 @@ pub(crate) fn build_mask(inputs: &NodeInputs, props: &JsonValue) -> Result<Strin
     let mut repl: Vec<String> = Vec::new();
     if let Some(masks) = props.get("masks").and_then(JsonValue::as_array) {
         for m in masks {
-            let column = m.get("column").and_then(JsonValue::as_str).unwrap_or("").trim();
+            let column = m
+                .get("column")
+                .and_then(JsonValue::as_str)
+                .unwrap_or("")
+                .trim();
             if column.is_empty() {
                 continue;
             }
@@ -1958,15 +2248,28 @@ pub(crate) fn build_mask(inputs: &NodeInputs, props: &JsonValue) -> Result<Strin
         if let Some(column) = string_prop(props, "column").filter(|s| !s.trim().is_empty()) {
             let mode = string_prop(props, "mode").unwrap_or_else(|| "hash".into());
             let salt = string_prop(props, "salt");
-            let show_last = props.get("showLast").and_then(JsonValue::as_i64).unwrap_or(4);
+            let show_last = props
+                .get("showLast")
+                .and_then(JsonValue::as_i64)
+                .unwrap_or(4);
             let value = string_prop(props, "value");
-            repl.push(mask_replacement(column.trim(), &mode, salt.as_deref(), show_last, value.as_deref())?);
+            repl.push(mask_replacement(
+                column.trim(),
+                &mode,
+                salt.as_deref(),
+                show_last,
+                value.as_deref(),
+            )?);
         }
     }
     if repl.is_empty() {
         return Err("mask: select at least one column to mask".to_string());
     }
-    Ok(format!("SELECT * REPLACE ({}) FROM {}", repl.join(", "), quote_ident(upstream)))
+    Ok(format!(
+        "SELECT * REPLACE ({}) FROM {}",
+        repl.join(", "),
+        quote_ident(upstream)
+    ))
 }
 
 /// qa.survivor: collapse duplicate records that share a group key into one
@@ -1976,12 +2279,20 @@ pub(crate) fn build_mask(inputs: &NodeInputs, props: &JsonValue) -> Result<Strin
 /// (arg_max/arg_min by a recency column), max, min. The MDM merge step that
 /// pairs with record matching.
 pub(crate) fn build_survivor(inputs: &NodeInputs, props: &JsonValue) -> Result<String, String> {
-    let upstream = inputs.main().ok_or_else(|| missing_input_msg("qa.survivor"))?;
+    let upstream = inputs
+        .main()
+        .ok_or_else(|| missing_input_msg("qa.survivor"))?;
     let keys = columns_list(props, "groupBy");
     if keys.is_empty() {
-        return Err("survivor: choose the group-by key column(s) that identify one entity".to_string());
+        return Err(
+            "survivor: choose the group-by key column(s) that identify one entity".to_string(),
+        );
     }
-    let key_sql = keys.iter().map(|c| quote_ident(c)).collect::<Vec<_>>().join(", ");
+    let key_sql = keys
+        .iter()
+        .map(|c| quote_ident(c))
+        .collect::<Vec<_>>()
+        .join(", ");
     let cols = format!("COLUMNS(* EXCLUDE ({}))", key_sql);
     let rule = string_prop(props, "rule").unwrap_or_else(|| "most_frequent".into());
     let agg = match rule.as_str() {
@@ -1991,16 +2302,23 @@ pub(crate) fn build_survivor(inputs: &NodeInputs, props: &JsonValue) -> Result<S
         "most_recent" | "oldest" => {
             let rc = string_prop(props, "recencyColumn")
                 .filter(|s| !s.trim().is_empty())
-                .ok_or_else(|| format!("survivor: rule '{}' needs a recency column to rank by", rule))?;
-            let f = if rule == "most_recent" { "arg_max" } else { "arg_min" };
+                .ok_or_else(|| {
+                    format!(
+                        "survivor: rule '{}' needs a recency column to rank by",
+                        rule
+                    )
+                })?;
+            let f = if rule == "most_recent" {
+                "arg_max"
+            } else {
+                "arg_min"
+            };
             format!("{}({}, {})", f, cols, quote_ident(rc.trim()))
         }
-        other => {
-            return Err(format!(
-                "survivor: unknown rule '{}' (use most_frequent | most_recent | oldest | max | min)",
-                other
-            ))
-        }
+        other => return Err(format!(
+            "survivor: unknown rule '{}' (use most_frequent | most_recent | oldest | max | min)",
+            other
+        )),
     };
     Ok(format!(
         "SELECT {}, {} FROM {} GROUP BY {}",
@@ -2019,7 +2337,9 @@ pub(crate) fn build_survivor(inputs: &NodeInputs, props: &JsonValue) -> Result<S
 /// matches (the connected-component representative). Output: id, cluster_id.
 /// The resolve step that follows Record Match in an MDM flow.
 pub(crate) fn build_matchgroup(inputs: &NodeInputs, props: &JsonValue) -> Result<String, String> {
-    let upstream = inputs.main().ok_or_else(|| missing_input_msg("qa.matchgroup"))?;
+    let upstream = inputs
+        .main()
+        .ok_or_else(|| missing_input_msg("qa.matchgroup"))?;
     let left = string_prop(props, "leftKey")
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty())
@@ -2058,25 +2378,39 @@ pub(crate) fn build_matchgroup(inputs: &NodeInputs, props: &JsonValue) -> Result
 /// bernoulli. A seed makes the draw deterministic (stable golden files / reruns);
 /// omit it for a fresh random sample each run. Pure SQL, columns preserved.
 pub(crate) fn build_sample_adv(inputs: &NodeInputs, props: &JsonValue) -> Result<String, String> {
-    let upstream = inputs.main().ok_or_else(|| missing_input_msg("qa.sample.adv"))?;
+    let upstream = inputs
+        .main()
+        .ok_or_else(|| missing_input_msg("qa.sample.adv"))?;
     let percent = num_prop(props, "percent")
         .ok_or_else(|| "sample: set a sampling percent (e.g. 10 for 10%)".to_string())?;
     if let Ok(p) = percent.parse::<f64>() {
         if !(0.0..=100.0).contains(&p) {
-            return Err(format!("sample: percent must be between 0 and 100 (got {})", percent));
+            return Err(format!(
+                "sample: percent must be between 0 and 100 (got {})",
+                percent
+            ));
         }
     }
     let method = string_prop(props, "method").unwrap_or_else(|| "reservoir".into());
     let method = match method.as_str() {
         "reservoir" => "reservoir",
         "bernoulli" => "bernoulli",
-        other => return Err(format!("sample: unknown method '{}' (use reservoir | bernoulli)", other)),
+        other => {
+            return Err(format!(
+                "sample: unknown method '{}' (use reservoir | bernoulli)",
+                other
+            ))
+        }
     };
     let sample_clause = match num_prop(props, "seed") {
         Some(seed) => format!("{} PERCENT ({}, {})", percent, method, seed),
         None => format!("{} PERCENT ({})", percent, method),
     };
-    Ok(format!("SELECT * FROM {} USING SAMPLE {}", quote_ident(upstream), sample_clause))
+    Ok(format!(
+        "SELECT * FROM {} USING SAMPLE {}",
+        quote_ident(upstream),
+        sample_clause
+    ))
 }
 
 /// qa.expect: a reusable expectation suite + data-quality scorecard - the
@@ -2086,7 +2420,9 @@ pub(crate) fn build_sample_adv(inputs: &NodeInputs, props: &JsonValue) -> Result
 /// that COUNTs total rows and rows failing the rule's predicate. Checks:
 /// not_null, unique, in_set, in_range, regex, non_negative.
 pub(crate) fn build_expect(inputs: &NodeInputs, props: &JsonValue) -> Result<String, String> {
-    let upstream = inputs.main().ok_or_else(|| missing_input_msg("qa.expect"))?;
+    let upstream = inputs
+        .main()
+        .ok_or_else(|| missing_input_msg("qa.expect"))?;
     let from = quote_ident(upstream);
     let rules = collect_expect_rules(props)?;
     if rules.is_empty() {
@@ -2144,7 +2480,9 @@ fn expect_predicate(col: &str, check: &str, args: &JsonValue) -> Result<String, 
                 (Some(lo), Some(hi)) => Ok(format!("{} BETWEEN {} AND {}", col, lo, hi)),
                 (Some(lo), None) => Ok(format!("{} >= {}", col, lo)),
                 (None, Some(hi)) => Ok(format!("{} <= {}", col, hi)),
-                (None, None) => Err("in_range check needs a numeric min and/or max in args".to_string()),
+                (None, None) => {
+                    Err("in_range check needs a numeric min and/or max in args".to_string())
+                }
             }
         }
         "regex" => {
@@ -2154,7 +2492,11 @@ fn expect_predicate(col: &str, check: &str, args: &JsonValue) -> Result<String, 
                 .or_else(|| string_prop(args, "pattern"))
                 .filter(|s| !s.is_empty())
                 .ok_or_else(|| "regex check needs a pattern in args".to_string())?;
-            Ok(format!("regexp_full_match(CAST({} AS VARCHAR), '{}')", col, sql_escape(&pat)))
+            Ok(format!(
+                "regexp_full_match(CAST({} AS VARCHAR), '{}')",
+                col,
+                sql_escape(&pat)
+            ))
         }
         "in_set" => {
             let arr = args
@@ -2209,8 +2551,17 @@ fn collect_expect_rules(props: &JsonValue) -> Result<Vec<(String, String, JsonVa
     let mut out: Vec<(String, String, JsonValue)> = Vec::new();
     if let Some(arr) = props.get("rules").and_then(JsonValue::as_array) {
         for r in arr {
-            let column = r.get("column").and_then(JsonValue::as_str).unwrap_or("").to_string();
-            let check = r.get("check").and_then(JsonValue::as_str).unwrap_or("").trim().to_string();
+            let column = r
+                .get("column")
+                .and_then(JsonValue::as_str)
+                .unwrap_or("")
+                .to_string();
+            let check = r
+                .get("check")
+                .and_then(JsonValue::as_str)
+                .unwrap_or("")
+                .trim()
+                .to_string();
             if check.is_empty() {
                 continue;
             }
@@ -2269,7 +2620,9 @@ pub(crate) fn build_refintegrity(
     props: &JsonValue,
     reject: bool,
 ) -> Result<String, String> {
-    let main = inputs.main().ok_or_else(|| missing_input_msg("qa.refintegrity"))?;
+    let main = inputs
+        .main()
+        .ok_or_else(|| missing_input_msg("qa.refintegrity"))?;
     let reference = inputs.first_lookup().ok_or_else(|| {
         "Referential Integrity needs a reference input (connect the lookup port to the table that holds the valid keys)".to_string()
     })?;
@@ -2280,7 +2633,9 @@ pub(crate) fn build_refintegrity(
     let right_key = string_prop(props, "rightKey")
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty())
-        .ok_or_else(|| "Referential Integrity needs a reference key column (rightKey)".to_string())?;
+        .ok_or_else(|| {
+            "Referential Integrity needs a reference key column (rightKey)".to_string()
+        })?;
     let m = quote_ident(main);
     let r = quote_ident(reference);
     let exists = format!(
@@ -2291,9 +2646,17 @@ pub(crate) fn build_refintegrity(
         lk = quote_ident(&left_key),
     );
     Ok(if reject {
-        format!("SELECT {m}.* FROM {m} WHERE NOT {exists}", m = m, exists = exists)
+        format!(
+            "SELECT {m}.* FROM {m} WHERE NOT {exists}",
+            m = m,
+            exists = exists
+        )
     } else {
-        format!("SELECT {m}.* FROM {m} WHERE {exists}", m = m, exists = exists)
+        format!(
+            "SELECT {m}.* FROM {m} WHERE {exists}",
+            m = m,
+            exists = exists
+        )
     })
 }
 
@@ -2304,7 +2667,9 @@ pub(crate) fn build_refintegrity(
 /// decimal / date via regexp_full_match), and the top-N most frequent values
 /// with their counts. Output columns: metric, value, count, pct. Pure SQL.
 pub(crate) fn build_profile_adv(inputs: &NodeInputs, props: &JsonValue) -> Result<String, String> {
-    let upstream = inputs.main().ok_or_else(|| missing_input_msg("qa.profile.adv"))?;
+    let upstream = inputs
+        .main()
+        .ok_or_else(|| missing_input_msg("qa.profile.adv"))?;
     let col = string_prop(props, "column")
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty())
@@ -2360,18 +2725,35 @@ pub(crate) fn build_profile_adv(inputs: &NodeInputs, props: &JsonValue) -> Resul
 
 /// Comparison-key pair (show expr, lowered match key) for one side of a record
 /// linkage join: a multi-column list (multi_key) or single column (single_key).
-fn link_key(props: &JsonValue, multi_key: &str, single_key: &str, alias: &str) -> Result<(String, String), String> {
+fn link_key(
+    props: &JsonValue,
+    multi_key: &str,
+    single_key: &str,
+    alias: &str,
+) -> Result<(String, String), String> {
     let mut cols = columns_list(props, multi_key);
     if cols.is_empty() {
-        if let Some(c) = string_prop(props, single_key).map(|s| s.trim().to_string()).filter(|s| !s.is_empty()) {
+        if let Some(c) = string_prop(props, single_key)
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+        {
             cols.push(c);
         }
     }
     if cols.is_empty() {
-        return Err(format!("Record Linkage needs the {alias} compare column(s) ({multi_key} or {single_key})"));
+        return Err(format!(
+            "Record Linkage needs the {alias} compare column(s) ({multi_key} or {single_key})"
+        ));
     }
-    let list = cols.iter().map(|c| quote_ident(c)).collect::<Vec<_>>().join(", ");
-    Ok((format!("concat_ws(' ', {})", list), format!("lower(concat_ws(' ', {}))", list)))
+    let list = cols
+        .iter()
+        .map(|c| quote_ident(c))
+        .collect::<Vec<_>>()
+        .join(", ");
+    Ok((
+        format!("concat_ws(' ', {})", list),
+        format!("lower(concat_ws(' ', {}))", list),
+    ))
 }
 
 /// qa.link: fuzzy record LINKAGE across TWO inputs (main = left, lookup port =
@@ -2409,13 +2791,18 @@ pub(crate) fn build_record_link(inputs: &NodeInputs, props: &JsonValue) -> Resul
 /// rows_only_in_target, keys_matched, plus per measure source_sum/target_sum/
 /// difference. FULL OUTER JOIN on the keys (NULL-safe) + independent COUNT/SUM.
 pub(crate) fn build_reconcile(inputs: &NodeInputs, props: &JsonValue) -> Result<String, String> {
-    let main = inputs.main().ok_or_else(|| missing_input_msg("qa.reconcile"))?;
+    let main = inputs
+        .main()
+        .ok_or_else(|| missing_input_msg("qa.reconcile"))?;
     let reference = inputs.first_lookup().ok_or_else(|| {
         "Reconcile needs a target input (connect the lookup port to the target table to compare against)".to_string()
     })?;
     let keys = columns_list(props, "keyColumns");
     if keys.is_empty() {
-        return Err("Reconcile needs at least one key column (keyColumns) to join source and target on".to_string());
+        return Err(
+            "Reconcile needs at least one key column (keyColumns) to join source and target on"
+                .to_string(),
+        );
     }
     let measures = columns_list(props, "measureColumns");
     let m = quote_ident(main);
@@ -2429,7 +2816,10 @@ pub(crate) fn build_reconcile(inputs: &NodeInputs, props: &JsonValue) -> Result<
         .collect::<Vec<_>>()
         .join(" AND ");
     let mut rows: Vec<String> = Vec::new();
-    rows.push("SELECT 'source_rows' AS metric, CAST((SELECT COUNT(*) FROM \"__m\") AS DOUBLE) AS value".to_string());
+    rows.push(
+        "SELECT 'source_rows' AS metric, CAST((SELECT COUNT(*) FROM \"__m\") AS DOUBLE) AS value"
+            .to_string(),
+    );
     rows.push("SELECT 'target_rows', CAST((SELECT COUNT(*) FROM \"__r\") AS DOUBLE)".to_string());
     rows.push("SELECT 'rows_only_in_source', CAST((SELECT COUNT(*) FROM \"__j\" WHERE \"__m_present\" AND \"__r_present\" IS NULL) AS DOUBLE)".to_string());
     rows.push("SELECT 'rows_only_in_target', CAST((SELECT COUNT(*) FROM \"__j\" WHERE \"__r_present\" AND \"__m_present\" IS NULL) AS DOUBLE)".to_string());
@@ -2437,8 +2827,16 @@ pub(crate) fn build_reconcile(inputs: &NodeInputs, props: &JsonValue) -> Result<
     for col in &measures {
         let q = quote_ident(col);
         let lbl = sql_escape(col);
-        rows.push(format!("SELECT '{lbl}_source_sum', CAST((SELECT SUM({q}) FROM \"__m\") AS DOUBLE)", lbl = lbl, q = q));
-        rows.push(format!("SELECT '{lbl}_target_sum', CAST((SELECT SUM({q}) FROM \"__r\") AS DOUBLE)", lbl = lbl, q = q));
+        rows.push(format!(
+            "SELECT '{lbl}_source_sum', CAST((SELECT SUM({q}) FROM \"__m\") AS DOUBLE)",
+            lbl = lbl,
+            q = q
+        ));
+        rows.push(format!(
+            "SELECT '{lbl}_target_sum', CAST((SELECT SUM({q}) FROM \"__r\") AS DOUBLE)",
+            lbl = lbl,
+            q = q
+        ));
         rows.push(format!("SELECT '{lbl}_difference', CAST((SELECT SUM({q}) FROM \"__m\") AS DOUBLE) - CAST((SELECT SUM({q}) FROM \"__r\") AS DOUBLE)", lbl = lbl, q = q));
     }
     Ok(format!(
@@ -2460,16 +2858,25 @@ pub(crate) fn build_reconcile(inputs: &NodeInputs, props: &JsonValue) -> Result<
 /// text), and emits a report: column, detected_type, match_rate, sample_count,
 /// is_pii. Drives governance auto-masking (pairs with qa.mask).
 pub(crate) fn build_classify(inputs: &NodeInputs, props: &JsonValue) -> Result<String, String> {
-    let upstream = inputs.main().ok_or_else(|| missing_input_msg("qa.classify"))?;
-    let threshold = props.get("threshold").and_then(JsonValue::as_f64).unwrap_or(0.8).clamp(0.0, 1.0);
+    let upstream = inputs
+        .main()
+        .ok_or_else(|| missing_input_msg("qa.classify"))?;
+    let threshold = props
+        .get("threshold")
+        .and_then(JsonValue::as_f64)
+        .unwrap_or(0.8)
+        .clamp(0.0, 1.0);
     let cols = columns_list(props, "columns");
     let cast_projection = if cols.is_empty() {
         "COLUMNS(*)::VARCHAR".to_string()
     } else {
-        cols.iter().map(|c| {
-            let q = quote_ident(c);
-            format!("CAST({q} AS VARCHAR) AS {q}", q = q)
-        }).collect::<Vec<_>>().join(", ")
+        cols.iter()
+            .map(|c| {
+                let q = quote_ident(c);
+                format!("CAST({q} AS VARCHAR) AS {q}", q = q)
+            })
+            .collect::<Vec<_>>()
+            .join(", ")
     };
     let patterns: &[(&str, bool, &str)] = &[
         ("email", true, "regexp_full_match(col_val, '[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}')"),
@@ -2481,17 +2888,41 @@ pub(crate) fn build_classify(inputs: &NodeInputs, props: &JsonValue) -> Result<S
         ("credit_card", true, "regexp_full_match(replace(replace(col_val, ' ', ''), '-', ''), '\\d{13,16}')"),
         ("phone", true, "regexp_full_match(col_val, '[+]?[-0-9 ().]{7,}')"),
     ];
-    let n_cols = patterns.iter().map(|(ty, _, expr)| {
-        format!("COUNT(*) FILTER (WHERE col_val IS NOT NULL AND {expr})::DOUBLE AS n_{ty}", expr = expr, ty = ty)
-    }).collect::<Vec<_>>().join(", ");
-    let r_cols = patterns.iter().map(|(ty, _, _)| format!("n_{ty} / NULLIF(sample_count, 0) AS r_{ty}", ty = ty)).collect::<Vec<_>>().join(", ");
-    let greatest_args = patterns.iter().map(|(ty, _, _)| format!("COALESCE(r_{ty}, 0)", ty = ty)).collect::<Vec<_>>().join(", ");
-    let mut type_case = format!("CASE WHEN best_rate < {threshold} THEN 'text' ", threshold = threshold);
+    let n_cols = patterns
+        .iter()
+        .map(|(ty, _, expr)| {
+            format!(
+                "COUNT(*) FILTER (WHERE col_val IS NOT NULL AND {expr})::DOUBLE AS n_{ty}",
+                expr = expr,
+                ty = ty
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(", ");
+    let r_cols = patterns
+        .iter()
+        .map(|(ty, _, _)| format!("n_{ty} / NULLIF(sample_count, 0) AS r_{ty}", ty = ty))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let greatest_args = patterns
+        .iter()
+        .map(|(ty, _, _)| format!("COALESCE(r_{ty}, 0)", ty = ty))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let mut type_case = format!(
+        "CASE WHEN best_rate < {threshold} THEN 'text' ",
+        threshold = threshold
+    );
     for (ty, _, _) in patterns {
         type_case.push_str(&format!("WHEN r_{ty} = best_rate THEN '{ty}' ", ty = ty));
     }
     type_case.push_str("ELSE 'text' END");
-    let pii_types = patterns.iter().filter(|(_, pii, _)| *pii).map(|(ty, _, _)| format!("'{ty}'", ty = ty)).collect::<Vec<_>>().join(", ");
+    let pii_types = patterns
+        .iter()
+        .filter(|(_, pii, _)| *pii)
+        .map(|(ty, _, _)| format!("'{ty}'", ty = ty))
+        .collect::<Vec<_>>()
+        .join(", ");
     Ok(format!(
         "WITH __cls_src AS (SELECT {cast_projection} FROM {up}), \
          __cls_m AS (FROM __cls_src UNPIVOT INCLUDE NULLS (col_val FOR col_name IN (COLUMNS(*)))), \
@@ -2516,7 +2947,9 @@ pub(crate) fn build_classify(inputs: &NodeInputs, props: &JsonValue) -> Result<S
 /// lookup port (mirrors build_scd2). Joined on keyColumns (NULL previous for new
 /// keys). Optional effective-date stamp.
 pub(crate) fn build_scd3(inputs: &NodeInputs, props: &JsonValue) -> Result<String, String> {
-    let cur = inputs.main().ok_or_else(|| missing_input_msg("xf.cdc.scd3"))?;
+    let cur = inputs
+        .main()
+        .ok_or_else(|| missing_input_msg("xf.cdc.scd3"))?;
     let prev = inputs.first_lookup().ok_or_else(|| {
         "SCD3 needs a 'previous' input on the lookup port (the prior snapshot)".to_string()
     })?;
@@ -2528,17 +2961,33 @@ pub(crate) fn build_scd3(inputs: &NodeInputs, props: &JsonValue) -> Result<Strin
     if tracked.is_empty() {
         return Err("SCD3 needs at least one column to track a previous value for".to_string());
     }
-    let key_eq = keys.iter().map(|k| { let q = quote_ident(k); format!("p.{q} = c.{q}") }).collect::<Vec<_>>().join(" AND ");
-    let prev_cols = tracked.iter()
-        .map(|t| format!("p.{src} AS {dst}", src = quote_ident(t), dst = quote_ident(&format!("previous_{t}"))))
-        .collect::<Vec<_>>().join(", ");
+    let key_eq = keys
+        .iter()
+        .map(|k| {
+            let q = quote_ident(k);
+            format!("p.{q} = c.{q}")
+        })
+        .collect::<Vec<_>>()
+        .join(" AND ");
+    let prev_cols = tracked
+        .iter()
+        .map(|t| {
+            format!(
+                "p.{src} AS {dst}",
+                src = quote_ident(t),
+                dst = quote_ident(&format!("previous_{t}"))
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(", ");
     let eff_select = string_prop(props, "effectiveDateColumn")
         .filter(|s| !s.trim().is_empty())
         .map(|name| format!(", CURRENT_TIMESTAMP AS {}", quote_ident(name.trim())))
         .unwrap_or_default();
     Ok(format!(
         "SELECT c.*, {prev_cols}{eff_select} FROM {cur} c LEFT JOIN {prev} p ON {key_eq}",
-        cur = quote_ident(cur), prev = quote_ident(prev)
+        cur = quote_ident(cur),
+        prev = quote_ident(prev)
     ))
 }
 
@@ -2548,15 +2997,25 @@ pub(crate) fn build_scd3(inputs: &NodeInputs, props: &JsonValue) -> Result<Strin
 /// default 3). Stats are window aggregates over the whole input; NULLs pass;
 /// zero spread -> nothing is an outlier (also avoids /0). reject=true yields the
 /// outlier rows.
-pub(crate) fn build_outlier(inputs: &NodeInputs, props: &JsonValue, reject: bool) -> Result<String, String> {
-    let upstream = inputs.main().ok_or_else(|| missing_input_msg("qa.outlier"))?;
-    let column = string_prop(props, "column").filter(|s| !s.is_empty())
+pub(crate) fn build_outlier(
+    inputs: &NodeInputs,
+    props: &JsonValue,
+    reject: bool,
+) -> Result<String, String> {
+    let upstream = inputs
+        .main()
+        .ok_or_else(|| missing_input_msg("qa.outlier"))?;
+    let column = string_prop(props, "column")
+        .filter(|s| !s.is_empty())
         .ok_or_else(|| "Outlier detection needs a numeric column".to_string())?;
     let method = string_prop(props, "method").unwrap_or_else(|| "iqr".into());
     let col = quote_ident(&column);
     let val = format!("CAST({} AS DOUBLE)", col);
     let default = if method == "zscore" { 3.0 } else { 1.5 };
-    let sensitivity = props.get("sensitivity").and_then(|v| v.as_f64()).unwrap_or(default);
+    let sensitivity = props
+        .get("sensitivity")
+        .and_then(|v| v.as_f64())
+        .unwrap_or(default);
     if !(sensitivity > 0.0) {
         return Err("Outlier sensitivity must be greater than 0".into());
     }
@@ -2570,7 +3029,11 @@ pub(crate) fn build_outlier(inputs: &NodeInputs, props: &JsonValue, reject: bool
             format!("{col} IS NULL OR {val} BETWEEN (__dq_q1 - {sensitivity} * (__dq_q3 - __dq_q1)) AND (__dq_q3 + {sensitivity} * (__dq_q3 - __dq_q1))"),
         ),
     };
-    let exclude = if method == "zscore" { "__dq_mean, __dq_sd" } else { "__dq_q1, __dq_q3" };
+    let exclude = if method == "zscore" {
+        "__dq_mean, __dq_sd"
+    } else {
+        "__dq_q1, __dq_q3"
+    };
     let guard = if reject { "NOT COALESCE" } else { "COALESCE" };
     Ok(format!(
         "SELECT * EXCLUDE ({exclude}) FROM (SELECT *, {helpers} FROM {up}) WHERE {guard}(({inlier}), TRUE)",
@@ -2583,10 +3046,15 @@ pub(crate) fn build_outlier(inputs: &NodeInputs, props: &JsonValue, reject: bool
 /// from the previous event exceeds the threshold; session_id is a cumulative sum
 /// of the new-session flag, session_seq the 1-based event index within a session.
 pub(crate) fn build_sessionize(inputs: &NodeInputs, props: &JsonValue) -> Result<String, String> {
-    let upstream = inputs.main().ok_or_else(|| missing_input_msg("xf.sessionize"))?;
-    let order_col = string_prop(props, "orderBy").filter(|s| !s.trim().is_empty())
+    let upstream = inputs
+        .main()
+        .ok_or_else(|| missing_input_msg("xf.sessionize"))?;
+    let order_col = string_prop(props, "orderBy")
+        .filter(|s| !s.trim().is_empty())
         .ok_or_else(|| "Sessionize needs an Order By column (the event timestamp)".to_string())?;
-    let gap = props.get("gap").and_then(|v| v.as_f64())
+    let gap = props
+        .get("gap")
+        .and_then(|v| v.as_f64())
         .or_else(|| num_prop(props, "gap").and_then(|s| s.parse::<f64>().ok()))
         .filter(|g| *g > 0.0)
         .ok_or_else(|| "Sessionize needs a positive inactivity gap".to_string())?;
@@ -2595,17 +3063,41 @@ pub(crate) fn build_sessionize(inputs: &NodeInputs, props: &JsonValue) -> Result
         "second" | "seconds" => 1.0_f64,
         "minute" | "minutes" => 60.0,
         "hour" | "hours" => 3_600.0,
-        other => return Err(format!("Sessionize: unknown gap unit '{}' (use seconds | minutes | hours)", other)),
+        other => {
+            return Err(format!(
+                "Sessionize: unknown gap unit '{}' (use seconds | minutes | hours)",
+                other
+            ))
+        }
     };
     let gap_seconds = gap * seconds_per;
-    let gap_literal = if gap_seconds.fract() == 0.0 { format!("{}", gap_seconds as i64) } else { format!("{}", gap_seconds) };
-    let session_col = string_prop(props, "sessionColumn").filter(|s| !s.trim().is_empty()).unwrap_or_else(|| "session_id".into());
+    let gap_literal = if gap_seconds.fract() == 0.0 {
+        format!("{}", gap_seconds as i64)
+    } else {
+        format!("{}", gap_seconds)
+    };
+    let session_col = string_prop(props, "sessionColumn")
+        .filter(|s| !s.trim().is_empty())
+        .unwrap_or_else(|| "session_id".into());
     let partition = columns_list(props, "partitionBy");
-    let emit_seq = props.get("emitSeq").and_then(JsonValue::as_bool).unwrap_or(true);
-    let seq_col = string_prop(props, "seqColumn").filter(|s| !s.trim().is_empty()).unwrap_or_else(|| "session_seq".into());
+    let emit_seq = props
+        .get("emitSeq")
+        .and_then(JsonValue::as_bool)
+        .unwrap_or(true);
+    let seq_col = string_prop(props, "seqColumn")
+        .filter(|s| !s.trim().is_empty())
+        .unwrap_or_else(|| "session_seq".into());
     let ord = quote_ident(&order_col);
-    let part_list = partition.iter().map(|c| quote_ident(c)).collect::<Vec<_>>().join(", ");
-    let part_clause = if partition.is_empty() { String::new() } else { format!("PARTITION BY {} ", part_list) };
+    let part_list = partition
+        .iter()
+        .map(|c| quote_ident(c))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let part_clause = if partition.is_empty() {
+        String::new()
+    } else {
+        format!("PARTITION BY {} ", part_list)
+    };
     let sid = quote_ident(&session_col);
     let up = quote_ident(upstream);
     let core = format!(
@@ -2632,7 +3124,9 @@ pub(crate) fn build_sessionize(inputs: &NodeInputs, props: &JsonValue) -> Result
     };
     Ok(format!(
         "{core} SELECT *, ROW_NUMBER() OVER ({seq_part}ORDER BY {ord}) AS {seq} FROM __sid",
-        seq_part = seq_part, ord = ord, seq = quote_ident(&seq_col)
+        seq_part = seq_part,
+        ord = ord,
+        seq = quote_ident(&seq_col)
     ))
 }
 
@@ -2642,25 +3136,41 @@ pub(crate) fn build_sessionize(inputs: &NodeInputs, props: &JsonValue) -> Result
 /// qa.contract). mode=report emits one row (max_timestamp, age, threshold,
 /// is_fresh). Empty / all-null input is a vacuous pass.
 pub(crate) fn build_freshness(inputs: &NodeInputs, props: &JsonValue) -> Result<String, String> {
-    let upstream = inputs.main().ok_or_else(|| missing_input_msg("qa.freshness"))?;
+    let upstream = inputs
+        .main()
+        .ok_or_else(|| missing_input_msg("qa.freshness"))?;
     let from = quote_ident(upstream);
-    let column = string_prop(props, "column").filter(|s| !s.trim().is_empty())
+    let column = string_prop(props, "column")
+        .filter(|s| !s.trim().is_empty())
         .ok_or_else(|| "Freshness Check needs a timestamp/date column".to_string())?;
     let col = quote_ident(column.trim());
-    let max_age = num_prop(props, "maxAge").ok_or_else(|| "Freshness Check needs a maxAge (a number)".to_string())?;
+    let max_age = num_prop(props, "maxAge")
+        .ok_or_else(|| "Freshness Check needs a maxAge (a number)".to_string())?;
     let unit = string_prop(props, "maxAgeUnit").unwrap_or_else(|| "hours".into());
     let (diff_unit, suffix) = match unit.as_str() {
         "minutes" => ("minute", "minutes"),
         "hours" => ("hour", "hours"),
         "days" => ("day", "days"),
-        other => return Err(format!("Freshness Check: unknown maxAgeUnit '{}' (use minutes | hours | days)", other)),
+        other => {
+            return Err(format!(
+                "Freshness Check: unknown maxAgeUnit '{}' (use minutes | hours | days)",
+                other
+            ))
+        }
     };
-    let age = format!("date_diff('{unit}', MAX(CAST({col} AS TIMESTAMP)), CURRENT_TIMESTAMP)", unit = diff_unit, col = col);
+    let age = format!(
+        "date_diff('{unit}', MAX(CAST({col} AS TIMESTAMP)), CURRENT_TIMESTAMP)",
+        unit = diff_unit,
+        col = col
+    );
     let mode = string_prop(props, "mode").unwrap_or_else(|| "gate".into());
     match mode.as_str() {
         "gate" => {
             let msg_prefix = sql_escape("Data is stale: ");
-            let msg_suffix = sql_escape(&format!(" {} old, threshold {} {}", suffix, max_age, suffix));
+            let msg_suffix = sql_escape(&format!(
+                " {} old, threshold {} {}",
+                suffix, max_age, suffix
+            ));
             Ok(format!(
                 "WITH _duckle_freshness AS MATERIALIZED (\
                    SELECT CASE \
@@ -2669,15 +3179,27 @@ pub(crate) fn build_freshness(inputs: &NodeInputs, props: &JsonValue) -> Result<
                      ELSE error('{prefix}' || {age} || '{suffix}') \
                    END AS result FROM {from}) \
                  SELECT u.* FROM {from} u WHERE (SELECT result FROM _duckle_freshness) IS NOT NULL",
-                col = col, age = age, max_age = max_age, prefix = msg_prefix, suffix = msg_suffix, from = from
+                col = col,
+                age = age,
+                max_age = max_age,
+                prefix = msg_prefix,
+                suffix = msg_suffix,
+                from = from
             ))
         }
         "report" => Ok(format!(
             "SELECT MAX(CAST({col} AS TIMESTAMP)) AS max_timestamp, {age} AS age_{suffix}, \
                     {max_age} AS threshold_{suffix}, ({age} <= {max_age}) AS is_fresh FROM {from}",
-            col = col, age = age, suffix = suffix, max_age = max_age, from = from
+            col = col,
+            age = age,
+            suffix = suffix,
+            max_age = max_age,
+            from = from
         )),
-        other => Err(format!("Freshness Check: unknown mode '{}' (use gate | report)", other)),
+        other => Err(format!(
+            "Freshness Check: unknown mode '{}' (use gate | report)",
+            other
+        )),
     }
 }
 
@@ -2690,7 +3212,9 @@ pub(crate) fn build_freshness(inputs: &NodeInputs, props: &JsonValue) -> Result<
 /// outer WHERE (the only shape DuckDB will not optimize away). Empty input is a
 /// vacuous pass.
 pub(crate) fn build_contract(inputs: &NodeInputs, props: &JsonValue) -> Result<String, String> {
-    let upstream = inputs.main().ok_or_else(|| missing_input_msg("qa.contract"))?;
+    let upstream = inputs
+        .main()
+        .ok_or_else(|| missing_input_msg("qa.contract"))?;
     let from = quote_ident(upstream);
     let rules = collect_expect_rules(props)?;
     if rules.is_empty() {
@@ -2712,23 +3236,37 @@ pub(crate) fn build_contract(inputs: &NodeInputs, props: &JsonValue) -> Result<S
             )
         } else {
             let pred = expect_predicate(&col, check, args)?;
-            format!("CAST(COUNT(*) FILTER (WHERE NOT ({pred})) AS BIGINT)", pred = pred)
+            format!(
+                "CAST(COUNT(*) FILTER (WHERE NOT ({pred})) AS BIGINT)",
+                pred = pred
+            )
         };
-        count_cols.push(format!("{expr} AS {alias}", expr = count_expr, alias = alias));
+        count_cols.push(format!(
+            "{expr} AS {alias}",
+            expr = count_expr,
+            alias = alias
+        ));
         let label = sql_escape(&expect_label(column.trim(), check, args));
         msg_parts.push(format!(
             "CASE WHEN {alias} > 0 THEN '{label}: ' || {alias} || ' row(s) failed' END",
-            alias = alias, label = label
+            alias = alias,
+            label = label
         ));
     }
-    let total = (0..rules.len()).map(|i| format!("f{}", i)).collect::<Vec<_>>().join(" + ");
+    let total = (0..rules.len())
+        .map(|i| format!("f{}", i))
+        .collect::<Vec<_>>()
+        .join(" + ");
     Ok(format!(
         "WITH _duckle_contract AS MATERIALIZED (SELECT {counts} FROM {from}) \
          SELECT u.* FROM {from} u \
          WHERE (SELECT CASE WHEN ({total}) > 0 \
            THEN error('Data contract violated: ' || concat_ws('; ', {msg})) \
            ELSE 0 END FROM _duckle_contract) IS NOT NULL",
-        counts = count_cols.join(", "), from = from, total = total, msg = msg_parts.join(", ")
+        counts = count_cols.join(", "),
+        from = from,
+        total = total,
+        msg = msg_parts.join(", ")
     ))
 }
 
@@ -2737,8 +3275,13 @@ pub(crate) fn build_contract(inputs: &NodeInputs, props: &JsonValue) -> Result<S
 /// the same surrogate across runs/systems; `sequence` -> row_number() OVER
 /// (ORDER BY key cols) as a 1..N integer. Unlike xf.uuid (random per row), this
 /// keys off the business columns. Single input, single output.
-pub(crate) fn build_surrogate_key(inputs: &NodeInputs, props: &JsonValue) -> Result<String, String> {
-    let upstream = inputs.main().ok_or_else(|| missing_input_msg("xf.surrogatekey"))?;
+pub(crate) fn build_surrogate_key(
+    inputs: &NodeInputs,
+    props: &JsonValue,
+) -> Result<String, String> {
+    let upstream = inputs
+        .main()
+        .ok_or_else(|| missing_input_msg("xf.surrogatekey"))?;
     let output = string_prop(props, "outputColumn")
         .filter(|s| !s.trim().is_empty())
         .unwrap_or_else(|| "surrogate_key".into());
@@ -2749,24 +3292,43 @@ pub(crate) fn build_surrogate_key(inputs: &NodeInputs, props: &JsonValue) -> Res
     let mode = string_prop(props, "mode").unwrap_or_else(|| "hash".into());
     let key_expr = match mode.as_str() {
         "hash" => {
-            let separator = string_prop(props, "separator").filter(|s| !s.is_empty()).unwrap_or_else(|| "||".into());
-            let parts = keys.iter().map(|c| format!("CAST({} AS VARCHAR)", quote_ident(c))).collect::<Vec<_>>().join(", ");
+            let separator = string_prop(props, "separator")
+                .filter(|s| !s.is_empty())
+                .unwrap_or_else(|| "||".into());
+            let parts = keys
+                .iter()
+                .map(|c| format!("CAST({} AS VARCHAR)", quote_ident(c)))
+                .collect::<Vec<_>>()
+                .join(", ");
             format!("md5(concat_ws('{}', {}))", sql_escape(&separator), parts)
         }
         "sequence" => {
-            let order = keys.iter().map(|c| quote_ident(c)).collect::<Vec<_>>().join(", ");
+            let order = keys
+                .iter()
+                .map(|c| quote_ident(c))
+                .collect::<Vec<_>>()
+                .join(", ");
             format!("row_number() OVER (ORDER BY {})", order)
         }
-        other => return Err(format!("Surrogate Key: unknown mode '{}' (use hash | sequence)", other)),
+        other => {
+            return Err(format!(
+                "Surrogate Key: unknown mode '{}' (use hash | sequence)",
+                other
+            ))
+        }
     };
     Ok(format!(
         "SELECT *, {key} AS {out} FROM {up}",
-        key = key_expr, out = quote_ident(&output), up = quote_ident(upstream)
+        key = key_expr,
+        out = quote_ident(&output),
+        up = quote_ident(upstream)
     ))
 }
 
 pub(crate) fn build_standardize(inputs: &NodeInputs, props: &JsonValue) -> Result<String, String> {
-    let upstream = inputs.main().ok_or_else(|| missing_input_msg("qa.standardize"))?;
+    let upstream = inputs
+        .main()
+        .ok_or_else(|| missing_input_msg("qa.standardize"))?;
     let cols = columns_list(props, "columns");
     if cols.is_empty() {
         return Err("Standardize needs at least one column".to_string());
@@ -2842,7 +3404,9 @@ pub(crate) fn similarity(props: &JsonValue) -> (String, f64) {
 /// where rows are duplicates when their key similarity meets the
 /// threshold.
 pub(crate) fn build_fuzzy_dedupe(inputs: &NodeInputs, props: &JsonValue) -> Result<String, String> {
-    let upstream = inputs.main().ok_or_else(|| missing_input_msg("qa.dedupe"))?;
+    let upstream = inputs
+        .main()
+        .ok_or_else(|| missing_input_msg("qa.dedupe"))?;
     let key = match_key(props).map_err(|e| format!("Fuzzy Deduplicate {e}"))?;
     let (score, threshold) = similarity(props);
     Ok(format!(
@@ -2878,14 +3442,20 @@ pub(crate) fn build_quality(
     component_id: &str,
     reject: bool,
 ) -> Result<String, String> {
-    let upstream = inputs.main().ok_or_else(|| "validator: missing main input".to_string())?;
+    let upstream = inputs
+        .main()
+        .ok_or_else(|| "validator: missing main input".to_string())?;
     let from = quote_ident(upstream);
     if component_id == "qa.unique" {
         let keys = columns_list(props, "columns");
         if keys.is_empty() {
             return Err("Uniqueness check needs key columns".into());
         }
-        let partition = keys.iter().map(|c| quote_ident(c)).collect::<Vec<_>>().join(", ");
+        let partition = keys
+            .iter()
+            .map(|c| quote_ident(c))
+            .collect::<Vec<_>>()
+            .join(", ");
         let cmp = if reject { ">" } else { "=" };
         // ROW_NUMBER() with no ORDER BY picks an arbitrary survivor per
         // duplicate group, which is non-deterministic under
@@ -2901,8 +3471,15 @@ pub(crate) fn build_quality(
         let window = if order.is_empty() {
             format!("ROW_NUMBER() OVER (PARTITION BY {})", partition)
         } else {
-            let ob = order.iter().map(|c| quote_ident(c)).collect::<Vec<_>>().join(", ");
-            format!("ROW_NUMBER() OVER (PARTITION BY {} ORDER BY {})", partition, ob)
+            let ob = order
+                .iter()
+                .map(|c| quote_ident(c))
+                .collect::<Vec<_>>()
+                .join(", ");
+            format!(
+                "ROW_NUMBER() OVER (PARTITION BY {} ORDER BY {})",
+                partition, ob
+            )
         };
         return Ok(format!(
             "SELECT * EXCLUDE (__dq_rn) FROM (SELECT *, {} AS __dq_rn FROM {}) WHERE __dq_rn {} 1",
@@ -2911,13 +3488,22 @@ pub(crate) fn build_quality(
     }
     let predicate = quality_pass_predicate(component_id, props)?;
     Ok(if reject {
-        format!("SELECT * FROM {} WHERE NOT COALESCE(({}), FALSE)", from, predicate)
+        format!(
+            "SELECT * FROM {} WHERE NOT COALESCE(({}), FALSE)",
+            from, predicate
+        )
     } else {
-        format!("SELECT * FROM {} WHERE COALESCE(({}), FALSE)", from, predicate)
+        format!(
+            "SELECT * FROM {} WHERE COALESCE(({}), FALSE)",
+            from, predicate
+        )
     })
 }
 
-pub(crate) fn quality_pass_predicate(component_id: &str, props: &JsonValue) -> Result<String, String> {
+pub(crate) fn quality_pass_predicate(
+    component_id: &str,
+    props: &JsonValue,
+) -> Result<String, String> {
     match component_id {
         "qa.notnull" | "qa.schemavalidate" => {
             // Schema Validate reuses the not-null predicate against the
@@ -2944,7 +3530,10 @@ pub(crate) fn quality_pass_predicate(component_id: &str, props: &JsonValue) -> R
                 .filter(|s| !s.is_empty())
                 .ok_or_else(|| "Range check needs a column".to_string())?;
             let c = quote_ident(&col);
-            let inclusive = props.get("inclusive").and_then(JsonValue::as_bool).unwrap_or(true);
+            let inclusive = props
+                .get("inclusive")
+                .and_then(JsonValue::as_bool)
+                .unwrap_or(true);
             let (ge, le) = if inclusive { (">=", "<=") } else { (">", "<") };
             let mut parts = Vec::new();
             if let Some(min) = num_prop(props, "min") {
@@ -2953,7 +3542,11 @@ pub(crate) fn quality_pass_predicate(component_id: &str, props: &JsonValue) -> R
             if let Some(max) = num_prop(props, "max") {
                 parts.push(format!("{} {} {}", c, le, max));
             }
-            Ok(if parts.is_empty() { "TRUE".into() } else { parts.join(" AND ") })
+            Ok(if parts.is_empty() {
+                "TRUE".into()
+            } else {
+                parts.join(" AND ")
+            })
         }
         "qa.regex" => {
             let col = string_prop(props, "column")
@@ -2985,10 +3578,16 @@ pub(crate) fn build_reject_sql(
         "src.csv" => Ok(build_csv_reject_sql(props, declared, false)),
         "src.tsv" => Ok(build_csv_reject_sql(props, declared, true)),
         "xf.filter" => {
-            let upstream = inputs.main().ok_or_else(|| "filter: missing main input".to_string())?;
+            let upstream = inputs
+                .main()
+                .ok_or_else(|| "filter: missing main input".to_string())?;
             let predicate = filter_predicate_sql(props.get("predicate")).unwrap_or_default();
             let predicate = predicate.trim();
-            let predicate = if predicate.is_empty() { "TRUE" } else { predicate };
+            let predicate = if predicate.is_empty() {
+                "TRUE"
+            } else {
+                predicate
+            };
             Ok(Some(format!(
                 "SELECT * FROM {} WHERE NOT COALESCE(({}), FALSE)",
                 quote_ident(upstream),
@@ -3039,7 +3638,9 @@ pub(crate) fn num_prop(props: &JsonValue, key: &str) -> Option<String> {
 }
 
 pub(crate) fn build_addcol(inputs: &NodeInputs, props: &JsonValue) -> Result<String, String> {
-    let upstream = inputs.main().ok_or_else(|| "missing main input".to_string())?;
+    let upstream = inputs
+        .main()
+        .ok_or_else(|| "missing main input".to_string())?;
     let columns = props
         .get("columns")
         .or_else(|| props.get("additions"))
@@ -3117,8 +3718,16 @@ pub(crate) fn build_addcol(inputs: &NodeInputs, props: &JsonValue) -> Result<Str
 /// value), otherwise try_strptime (NULL on a bad value), mirroring the
 /// TRY_CAST/CAST onError contract. `target_lc` is the lowercased target type.
 fn cast_with_format(cast_fn: &str, column: &str, target_lc: &str, fmt: &str) -> String {
-    let strp = if cast_fn == "CAST" { "strptime" } else { "try_strptime" };
-    let to = if target_lc.starts_with("timestamp") { "TIMESTAMP" } else { "DATE" };
+    let strp = if cast_fn == "CAST" {
+        "strptime"
+    } else {
+        "try_strptime"
+    };
+    let to = if target_lc.starts_with("timestamp") {
+        "TIMESTAMP"
+    } else {
+        "DATE"
+    };
     format!(
         "{}({}, '{}')::{} AS {}",
         strp,
@@ -3130,7 +3739,9 @@ fn cast_with_format(cast_fn: &str, column: &str, target_lc: &str, fmt: &str) -> 
 }
 
 pub(crate) fn build_cast(inputs: &NodeInputs, props: &JsonValue) -> Result<String, String> {
-    let upstream = inputs.main().ok_or_else(|| "missing main input".to_string())?;
+    let upstream = inputs
+        .main()
+        .ok_or_else(|| "missing main input".to_string())?;
     let casts = props
         .get("casts")
         .or_else(|| props.get("columns"))
@@ -3157,7 +3768,11 @@ pub(crate) fn build_cast(inputs: &NodeInputs, props: &JsonValue) -> Result<Strin
     //   SELECT * REPLACE (TRY_CAST(amount AS DECIMAL(10,2)) AS amount) FROM x
     let mut replacements: Vec<String> = Vec::new();
     for c in &casts {
-        let column = c.get("column").and_then(JsonValue::as_str).unwrap_or("").trim();
+        let column = c
+            .get("column")
+            .and_then(JsonValue::as_str)
+            .unwrap_or("")
+            .trim();
         let target = c
             .get("targetType")
             .or_else(|| c.get("type"))
@@ -3186,7 +3801,10 @@ pub(crate) fn build_cast(inputs: &NodeInputs, props: &JsonValue) -> Result<Strin
             .map(str::trim)
             .filter(|s| !s.is_empty());
         let target_lc = target.to_ascii_lowercase();
-        if let (Some(fmt), true) = (fmt, target_lc == "date" || target_lc.starts_with("timestamp")) {
+        if let (Some(fmt), true) = (
+            fmt,
+            target_lc == "date" || target_lc.starts_with("timestamp"),
+        ) {
             replacements.push(cast_with_format(cast_fn, column, &target_lc, fmt));
         } else {
             replacements.push(format!(
@@ -3208,9 +3826,10 @@ pub(crate) fn build_cast(inputs: &NodeInputs, props: &JsonValue) -> Result<Strin
             let target_lc = target.to_ascii_lowercase();
             let fmt = string_prop(props, "format").map(|s| s.trim().to_string());
             let fmt = fmt.as_deref().filter(|s| !s.is_empty());
-            if let (Some(fmt), true) =
-                (fmt, target_lc == "date" || target_lc.starts_with("timestamp"))
-            {
+            if let (Some(fmt), true) = (
+                fmt,
+                target_lc == "date" || target_lc.starts_with("timestamp"),
+            ) {
                 replacements.push(cast_with_format(cast_fn, column, &target_lc, fmt));
             } else {
                 replacements.push(format!(
@@ -3259,8 +3878,14 @@ pub(crate) fn rename_pairs(props: &JsonValue) -> Vec<(String, String)> {
         .and_then(JsonValue::as_array)
     {
         for r in arr {
-            let from = r.get("from").or_else(|| r.get("source")).and_then(JsonValue::as_str);
-            let to = r.get("to").or_else(|| r.get("target")).and_then(JsonValue::as_str);
+            let from = r
+                .get("from")
+                .or_else(|| r.get("source"))
+                .and_then(JsonValue::as_str);
+            let to = r
+                .get("to")
+                .or_else(|| r.get("target"))
+                .and_then(JsonValue::as_str);
             if let (Some(f), Some(t)) = (from, to) {
                 if !f.is_empty() && !t.is_empty() {
                     out.push((f.to_string(), t.to_string()));
@@ -3309,8 +3934,16 @@ fn parse_rename_map_file(path: &str) -> Result<Vec<(String, String)>, String> {
             JsonValue::Array(a) => Some(
                 a.iter()
                     .filter_map(|e| {
-                        let from = e.get("from").or_else(|| e.get("source")).or_else(|| e.get("old")).and_then(JsonValue::as_str);
-                        let to = e.get("to").or_else(|| e.get("target")).or_else(|| e.get("new")).and_then(JsonValue::as_str);
+                        let from = e
+                            .get("from")
+                            .or_else(|| e.get("source"))
+                            .or_else(|| e.get("old"))
+                            .and_then(JsonValue::as_str);
+                        let to = e
+                            .get("to")
+                            .or_else(|| e.get("target"))
+                            .or_else(|| e.get("new"))
+                            .and_then(JsonValue::as_str);
                         match (from, to) {
                             (Some(f), Some(t)) => Some((f.to_string(), t.to_string())),
                             _ => None,
@@ -3328,12 +3961,19 @@ fn parse_rename_map_file(path: &str) -> Result<Vec<(String, String)>, String> {
             if line.is_empty() {
                 continue;
             }
-            let cols: Vec<&str> = line.splitn(2, ',').map(|s| s.trim().trim_matches('"')).collect();
+            let cols: Vec<&str> = line
+                .splitn(2, ',')
+                .map(|s| s.trim().trim_matches('"'))
+                .collect();
             if cols.len() != 2 || cols[0].is_empty() || cols[1].is_empty() {
                 continue;
             }
             // Skip a header row like old,new / from,to / source,target.
-            if i == 0 && matches!(cols[0].to_ascii_lowercase().as_str(), "old" | "from" | "source")
+            if i == 0
+                && matches!(
+                    cols[0].to_ascii_lowercase().as_str(),
+                    "old" | "from" | "source"
+                )
             {
                 continue;
             }
@@ -3345,7 +3985,9 @@ fn parse_rename_map_file(path: &str) -> Result<Vec<(String, String)>, String> {
         "json" => serde_json::from_str::<JsonValue>(&content)
             .ok()
             .and_then(|v| from_json(&v))
-            .ok_or_else(|| "Rename: JSON mapping must be an object {old:new} or array of {from,to}".to_string())?,
+            .ok_or_else(|| {
+                "Rename: JSON mapping must be an object {old:new} or array of {from,to}".to_string()
+            })?,
         "csv" => parse_csv(&content),
         "yaml" | "yml" => content
             .lines()
@@ -3370,13 +4012,18 @@ fn parse_rename_map_file(path: &str) -> Result<Vec<(String, String)>, String> {
             .unwrap_or_else(|| parse_csv(&content)),
     };
     if pairs.is_empty() {
-        return Err(format!("Rename: mapping file '{}' yielded no old->new pairs", path));
+        return Err(format!(
+            "Rename: mapping file '{}' yielded no old->new pairs",
+            path
+        ));
     }
     Ok(pairs)
 }
 
 pub(crate) fn build_rename(inputs: &NodeInputs, props: &JsonValue) -> Result<String, String> {
-    let upstream = inputs.main().ok_or_else(|| "missing main input".to_string())?;
+    let upstream = inputs
+        .main()
+        .ok_or_else(|| "missing main input".to_string())?;
     let mut pairs = rename_pairs(props);
     // #82: a bulk mapping file (JSON / CSV / YAML) of old -> new names. File
     // entries extend the inline pairs; the first mapping for a column wins.
@@ -3422,7 +4069,9 @@ pub(crate) struct MapLookup {
 }
 
 pub(crate) fn build_mapper(inputs: &NodeInputs, props: &JsonValue) -> Result<String, String> {
-    let upstream = inputs.main().ok_or_else(|| "mapper: missing main input".to_string())?;
+    let upstream = inputs
+        .main()
+        .ok_or_else(|| "mapper: missing main input".to_string())?;
 
     // Collect the output (name, raw expression) pairs. The Map form writes
     // either `expressions` (key-value: out name -> SQL) or a structured
@@ -3430,17 +4079,33 @@ pub(crate) fn build_mapper(inputs: &NodeInputs, props: &JsonValue) -> Result<Str
     let mut outputs: Vec<(String, String)> = Vec::new();
     if let Some(pairs) = props.get("expressions").and_then(JsonValue::as_array) {
         for kv in pairs {
-            let name = kv.get("key").and_then(JsonValue::as_str).unwrap_or("").trim();
-            let expr = kv.get("value").and_then(JsonValue::as_str).unwrap_or("").trim();
+            let name = kv
+                .get("key")
+                .and_then(JsonValue::as_str)
+                .unwrap_or("")
+                .trim();
+            let expr = kv
+                .get("value")
+                .and_then(JsonValue::as_str)
+                .unwrap_or("")
+                .trim();
             if !name.is_empty() && !expr.is_empty() {
                 outputs.push((name.to_string(), expr.to_string()));
             }
         }
     }
     if outputs.is_empty() {
-        if let Some(outs) = props.get("mapper").and_then(|m| m.get("outputs")).and_then(JsonValue::as_array) {
+        if let Some(outs) = props
+            .get("mapper")
+            .and_then(|m| m.get("outputs"))
+            .and_then(JsonValue::as_array)
+        {
             for o in outs {
-                let name = o.get("name").and_then(JsonValue::as_str).unwrap_or("").trim();
+                let name = o
+                    .get("name")
+                    .and_then(JsonValue::as_str)
+                    .unwrap_or("")
+                    .trim();
                 let expr = o
                     .get("expression")
                     .or_else(|| o.get("expr"))
@@ -3456,7 +4121,13 @@ pub(crate) fn build_mapper(inputs: &NodeInputs, props: &JsonValue) -> Result<Str
 
     // Optional output filter (WHERE), from either `filter` or `mapper.filter`.
     let filter = string_prop(props, "filter")
-        .or_else(|| props.get("mapper").and_then(|m| m.get("filter")).and_then(JsonValue::as_str).map(String::from))
+        .or_else(|| {
+            props
+                .get("mapper")
+                .and_then(|m| m.get("filter"))
+                .and_then(JsonValue::as_str)
+                .map(String::from)
+        })
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty());
 
@@ -3477,22 +4148,27 @@ pub(crate) fn build_mapper(inputs: &NodeInputs, props: &JsonValue) -> Result<Str
                 .ports
                 .get(port)
                 .and_then(|v| v.first())
-                .ok_or_else(|| format!(
-                    "Map: lookup config references port '{}' but no input is wired into it",
-                    port
-                ))?
+                .ok_or_else(|| {
+                    format!(
+                        "Map: lookup config references port '{}' but no input is wired into it",
+                        port
+                    )
+                })?
                 .clone();
             let left_keys = parse_key_list(
-                entry.get("leftKey").and_then(JsonValue::as_str).unwrap_or(""),
+                entry
+                    .get("leftKey")
+                    .and_then(JsonValue::as_str)
+                    .unwrap_or(""),
             );
             let right_keys = parse_key_list(
-                entry.get("rightKey").and_then(JsonValue::as_str).unwrap_or(""),
+                entry
+                    .get("rightKey")
+                    .and_then(JsonValue::as_str)
+                    .unwrap_or(""),
             );
             if left_keys.is_empty() || right_keys.is_empty() {
-                return Err(format!(
-                    "Map: lookup '{}' needs leftKey and rightKey",
-                    port
-                ));
+                return Err(format!("Map: lookup '{}' needs leftKey and rightKey", port));
             }
             if left_keys.len() != right_keys.len() {
                 return Err(format!(
@@ -3510,7 +4186,13 @@ pub(crate) fn build_mapper(inputs: &NodeInputs, props: &JsonValue) -> Result<Str
                     ))
                 }
             };
-            lookups.push(MapLookup { port: port.to_string(), view, left_keys, right_keys, kind });
+            lookups.push(MapLookup {
+                port: port.to_string(),
+                view,
+                left_keys,
+                right_keys,
+                kind,
+            });
         }
     }
 
@@ -3568,21 +4250,39 @@ pub(crate) fn build_mapper(inputs: &NodeInputs, props: &JsonValue) -> Result<Str
     }
     let terms: Vec<String> = outputs
         .iter()
-        .map(|(name, expr)| format!("{} AS {}", qualify_port_refs(expr, &aliases), quote_ident(name)))
+        .map(|(name, expr)| {
+            format!(
+                "{} AS {}",
+                qualify_port_refs(expr, &aliases),
+                quote_ident(name)
+            )
+        })
         .collect();
 
     // FROM main JOIN lookup_1 ON main.k = lookup_1.k [AND ...] JOIN ...
     // Left keys qualify against main; right keys against the lookup view.
-    let main_alias = aliases.get("main").cloned().unwrap_or_else(|| quote_ident(upstream));
+    let main_alias = aliases
+        .get("main")
+        .cloned()
+        .unwrap_or_else(|| quote_ident(upstream));
     let mut from = quote_ident(upstream);
     for l in &lookups {
-        let look_alias = aliases.get(&l.port).cloned().unwrap_or_else(|| quote_ident(&l.view));
+        let look_alias = aliases
+            .get(&l.port)
+            .cloned()
+            .unwrap_or_else(|| quote_ident(&l.view));
         let on = l
             .left_keys
             .iter()
             .zip(l.right_keys.iter())
             .map(|(lk, rk)| {
-                format!("{}.{} = {}.{}", main_alias, quote_ident(lk), look_alias, quote_ident(rk))
+                format!(
+                    "{}.{} = {}.{}",
+                    main_alias,
+                    quote_ident(lk),
+                    look_alias,
+                    quote_ident(rk)
+                )
             })
             .collect::<Vec<_>>()
             .join(" AND ");
@@ -3725,7 +4425,8 @@ pub(crate) fn qualify_port_refs(
                     let mut j = i + 1;
                     let col_start = j;
                     // ASCII-only so `&expr[col_start..j]` stays char-safe.
-                    while j < bytes.len() && (bytes[j].is_ascii_alphanumeric() || bytes[j] == b'_') {
+                    while j < bytes.len() && (bytes[j].is_ascii_alphanumeric() || bytes[j] == b'_')
+                    {
                         j += 1;
                     }
                     if j > col_start {
@@ -3770,8 +4471,14 @@ pub(crate) fn parse_key_list(raw: &str) -> Vec<String> {
         .collect()
 }
 
-pub(crate) fn build_join(inputs: &NodeInputs, props: &JsonValue, kind: &str) -> Result<String, String> {
-    let left = inputs.main().ok_or_else(|| "join: missing main input".to_string())?;
+pub(crate) fn build_join(
+    inputs: &NodeInputs,
+    props: &JsonValue,
+    kind: &str,
+) -> Result<String, String> {
+    let left = inputs
+        .main()
+        .ok_or_else(|| "join: missing main input".to_string())?;
     let right = inputs
         .first_lookup()
         .ok_or_else(|| "join: missing lookup input".to_string())?;
@@ -3880,8 +4587,14 @@ pub(crate) fn build_join(inputs: &NodeInputs, props: &JsonValue, kind: &str) -> 
     }
 }
 
-pub(crate) fn build_semi(inputs: &NodeInputs, props: &JsonValue, anti: bool) -> Result<String, String> {
-    let left = inputs.main().ok_or_else(|| "semi: missing main input".to_string())?;
+pub(crate) fn build_semi(
+    inputs: &NodeInputs,
+    props: &JsonValue,
+    anti: bool,
+) -> Result<String, String> {
+    let left = inputs
+        .main()
+        .ok_or_else(|| "semi: missing main input".to_string())?;
     let right = inputs
         .first_lookup()
         .ok_or_else(|| "semi: missing lookup input".to_string())?;
@@ -3977,7 +4690,11 @@ fn csv_read_args_base(props: &JsonValue) -> Vec<String> {
     // globbing a folder); `readOptions` is a passthrough key-value list of any
     // other read_csv argument (e.g. union_by_name=true, sample_size=-1) written
     // verbatim, for power users who want full control of the reader.
-    if props.get("filename").and_then(JsonValue::as_bool).unwrap_or(false) {
+    if props
+        .get("filename")
+        .and_then(JsonValue::as_bool)
+        .unwrap_or(false)
+    {
         args.push("filename=true".to_string());
     }
     for (k, v) in kv_pairs(props, "readOptions") {
@@ -3989,7 +4706,10 @@ fn csv_read_args_base(props: &JsonValue) -> Vec<String> {
     args
 }
 
-pub(crate) fn build_csv_source(props: &JsonValue, declared: Option<&[duckle_metadata::Column]>) -> String {
+pub(crate) fn build_csv_source(
+    props: &JsonValue,
+    declared: Option<&[duckle_metadata::Column]>,
+) -> String {
     let mut args = csv_read_args_base(props);
     // Explicit date / timestamp parsing format. DuckDB's strptime tokens
     // (%d, %m, %Y, etc.) - the most common pain point is dd/mm/yyyy which
@@ -4088,14 +4808,14 @@ pub(crate) fn data_type_to_duckdb_sql(t: &duckle_metadata::DataType) -> &'static
     }
 }
 
-pub(crate) fn build_tsv_source(props: &JsonValue, declared: Option<&[duckle_metadata::Column]>) -> String {
+pub(crate) fn build_tsv_source(
+    props: &JsonValue,
+    declared: Option<&[duckle_metadata::Column]>,
+) -> String {
     // TSV is just CSV with delim='\t'. Force it.
     let mut p = props.clone();
     if let Some(obj) = p.as_object_mut() {
-        obj.insert(
-            "delimiter".into(),
-            JsonValue::String("\t".into()),
-        );
+        obj.insert("delimiter".into(), JsonValue::String("\t".into()));
     }
     build_csv_source(&p, declared)
 }
@@ -4118,10 +4838,19 @@ fn csv_typed_col_exprs(c: &duckle_metadata::Column) -> Option<(String, String)> 
     let datey = matches!(c.data_type, DataType::Date | DataType::Timestamp);
     let (parse_expr, cast_expr) = match (fmt, datey) {
         (Some(fmt), true) => {
-            let cast = if matches!(c.data_type, DataType::Date) { "DATE" } else { "TIMESTAMP" };
+            let cast = if matches!(c.data_type, DataType::Date) {
+                "DATE"
+            } else {
+                "TIMESTAMP"
+            };
             (
                 format!("try_strptime({id}, '{f}')", id = id, f = sql_escape(fmt)),
-                format!("try_strptime({id}, '{f}')::{c} AS {id}", id = id, f = sql_escape(fmt), c = cast),
+                format!(
+                    "try_strptime({id}, '{f}')::{c} AS {id}",
+                    id = id,
+                    f = sql_escape(fmt),
+                    c = cast
+                ),
             )
         }
         _ => (
@@ -4140,7 +4869,11 @@ fn csv_typed_col_exprs(c: &duckle_metadata::Column) -> Option<(String, String)> 
 /// read_csv_auto args for the reject / split path: base args + force every
 /// declared column to raw VARCHAR so a bad value never aborts the read. TSV
 /// forces a tab delimiter, matching build_tsv_source.
-fn csv_raw_args(props: &JsonValue, declared: &[duckle_metadata::Column], is_tsv: bool) -> Vec<String> {
+fn csv_raw_args(
+    props: &JsonValue,
+    declared: &[duckle_metadata::Column],
+    is_tsv: bool,
+) -> Vec<String> {
     let owned;
     let p: &JsonValue = if is_tsv {
         let mut c = props.clone();
@@ -4173,7 +4906,10 @@ pub(crate) fn build_csv_reject_sql(
     is_tsv: bool,
 ) -> Option<String> {
     let cols = declared.filter(|c| !c.is_empty())?;
-    let fails: Vec<String> = cols.iter().filter_map(|c| csv_typed_col_exprs(c).map(|(f, _)| f)).collect();
+    let fails: Vec<String> = cols
+        .iter()
+        .filter_map(|c| csv_typed_col_exprs(c).map(|(f, _)| f))
+        .collect();
     if fails.is_empty() {
         return None;
     }
@@ -4216,7 +4952,11 @@ pub(crate) fn build_csv_source_split(
 }
 
 /// Dispatch to build_csv_source / build_tsv_source by the TSV flag.
-fn csv_source_for(props: &JsonValue, declared: Option<&[duckle_metadata::Column]>, is_tsv: bool) -> String {
+fn csv_source_for(
+    props: &JsonValue,
+    declared: Option<&[duckle_metadata::Column]>,
+    is_tsv: bool,
+) -> String {
     if is_tsv {
         build_tsv_source(props, declared)
     } else {
@@ -4236,7 +4976,11 @@ pub(crate) fn build_parquet_source(props: &JsonValue) -> String {
                 .join(", ")
         })
         .unwrap_or_else(|| "*".into());
-    format!("SELECT {} FROM read_parquet('{}')", select, sql_escape(&path))
+    format!(
+        "SELECT {} FROM read_parquet('{}')",
+        select,
+        sql_escape(&path)
+    )
 }
 
 pub(crate) fn build_json_source(props: &JsonValue) -> String {
@@ -4275,9 +5019,7 @@ pub(crate) fn build_sqlite_source(props: &JsonValue) -> String {
     let database = string_prop(props, "database").unwrap_or_default();
     let table = string_prop(props, "tableName").unwrap_or_default();
     let sql = string_prop(props, "sql");
-    let from_arg = sql
-        .filter(|s| !s.is_empty())
-        .unwrap_or(table);
+    let from_arg = sql.filter(|s| !s.is_empty()).unwrap_or(table);
     format!(
         "SELECT * FROM sqlite_scan('{}', '{}')",
         sql_escape(&database),
@@ -4316,8 +5058,7 @@ fn references_spatial(sql: &str) -> bool {
     let mut i = 0;
     while let Some(pos) = lower[i..].find("st_") {
         let at = i + pos;
-        let prev_ok = at == 0
-            || !matches!(bytes[at - 1], b'a'..=b'z' | b'0'..=b'9' | b'_');
+        let prev_ok = at == 0 || !matches!(bytes[at - 1], b'a'..=b'z' | b'0'..=b'9' | b'_');
         if prev_ok {
             return true;
         }
@@ -4331,8 +5072,13 @@ pub(crate) fn attach_prelude(component_id: &str, props: &JsonValue) -> String {
     // over any source (e.g. lon/lat from a CSV). Load the spatial extension when
     // the user opts in (loadSpatial) or the SQL references an ST_ function.
     if matches!(component_id, "code.sql" | "code.sqltemplate") {
-        let opt_in = props.get("loadSpatial").and_then(JsonValue::as_bool).unwrap_or(false);
-        let auto = string_prop(props, "sql").map(|s| references_spatial(&s)).unwrap_or(false);
+        let opt_in = props
+            .get("loadSpatial")
+            .and_then(JsonValue::as_bool)
+            .unwrap_or(false);
+        let auto = string_prop(props, "sql")
+            .map(|s| references_spatial(&s))
+            .unwrap_or(false);
         if opt_in || auto {
             return "INSTALL spatial; LOAD spatial; ".into();
         }
@@ -4346,7 +5092,10 @@ pub(crate) fn attach_prelude(component_id: &str, props: &JsonValue) -> String {
     // the user sets bulk=false the tiberius driver handles the write instead
     // (no prelude, see plan/mod.rs), so emit nothing here in that case.
     if matches!(component_id, "snk.sqlserver" | "snk.synapse")
-        && props.get("bulk").and_then(JsonValue::as_bool).unwrap_or(true)
+        && props
+            .get("bulk")
+            .and_then(JsonValue::as_bool)
+            .unwrap_or(true)
     {
         return mssql_attach(props);
     }
@@ -4355,11 +5104,19 @@ pub(crate) fn attach_prelude(component_id: &str, props: &JsonValue) -> String {
             // Redshift speaks the Postgres wire protocol with a different
             // default port (5439). The DuckDB postgres extension is happy
             // pointed at any pg-compatible endpoint.
-            let default_port = if component_id == "src.redshift" { 5439 } else { 5432 };
+            let default_port = if component_id == "src.redshift" {
+                5439
+            } else {
+                5432
+            };
             return db_attach(props, "postgres", default_port, true);
         }
         "snk.postgres" | "snk.cockroach" | "snk.pgvector" | "snk.redshift" => {
-            let default_port = if component_id == "snk.redshift" { 5439 } else { 5432 };
+            let default_port = if component_id == "snk.redshift" {
+                5439
+            } else {
+                5432
+            };
             return db_attach(props, "postgres", default_port, false);
         }
         "src.mysql" | "src.mariadb" => return db_attach(props, "mysql", 3306, true),
@@ -4395,12 +5152,8 @@ pub(crate) fn attach_prelude(component_id: &str, props: &JsonValue) -> String {
         // the first-launch DUCKDB_EXTENSIONS pre-fetch so the install
         // stays small. INSTALL runs lazily on first use, then LOAD on
         // every subsequent run.
-        "src.spatial"
-        | "snk.spatial"
-        | "xf.geo.distance"
-        | "xf.geo.buffer"
-        | "xf.geo.intersects"
-        | "xf.join.spatial" => {
+        "src.spatial" | "snk.spatial" | "xf.geo.distance" | "xf.geo.buffer"
+        | "xf.geo.intersects" | "xf.join.spatial" => {
             return "INSTALL spatial; LOAD spatial; ".into();
         }
         // inet is a small built-in extension. INSTALL is a no-op once
@@ -4465,7 +5218,12 @@ fn mssql_attach(props: &JsonValue) -> String {
     )
 }
 
-pub(crate) fn db_attach(props: &JsonValue, extension: &str, default_port: u64, read_only: bool) -> String {
+pub(crate) fn db_attach(
+    props: &JsonValue,
+    extension: &str,
+    default_port: u64,
+    read_only: bool,
+) -> String {
     let host = string_prop(props, "host").unwrap_or_default();
     if host.is_empty() {
         return String::new();
@@ -4475,7 +5233,11 @@ pub(crate) fn db_attach(props: &JsonValue, extension: &str, default_port: u64, r
         .and_then(|v| v.as_u64())
         .filter(|p| *p > 0)
         .unwrap_or(default_port);
-    let db_key = if extension == "postgres" { "dbname" } else { "database" };
+    let db_key = if extension == "postgres" {
+        "dbname"
+    } else {
+        "database"
+    };
     let mut parts = vec![format!("host={}", host), format!("port={}", port)];
     if let Some(db) = string_prop(props, "database").filter(|s| !s.is_empty()) {
         parts.push(format!("{}={}", db_key, db));
@@ -4540,7 +5302,9 @@ fn time_travel_clause(props: &JsonValue) -> String {
 /// (the catalog is ATTACHed as duckle_src by attach_prelude); pick them with
 /// the Browse button.
 pub(crate) fn build_ducklake_diff(props: &JsonValue) -> String {
-    let table = string_prop(props, "table").filter(|s| !s.is_empty()).unwrap_or_default();
+    let table = string_prop(props, "table")
+        .filter(|s| !s.is_empty())
+        .unwrap_or_default();
     let schema = string_prop(props, "schema")
         .filter(|s| !s.is_empty())
         .unwrap_or_else(|| "main".into());
@@ -4560,7 +5324,10 @@ pub(crate) fn build_ducklake_diff(props: &JsonValue) -> String {
     )
 }
 
-pub(crate) fn build_relational_source(component_id: &str, props: &JsonValue) -> Result<String, String> {
+pub(crate) fn build_relational_source(
+    component_id: &str,
+    props: &JsonValue,
+) -> Result<String, String> {
     let mode = string_prop(props, "mode").unwrap_or_else(|| "table".into());
     if mode == "incremental" {
         return Err(format!(
@@ -4837,7 +5604,12 @@ pub(crate) fn build_relational_sink(
 /// catalog.schema.table with default schema `main`; MySQL / MariaDB
 /// use catalog.table (the MySQL database is selected at ATTACH time,
 /// though we honour an explicit schemaName as a 3-level qualifier).
-pub(crate) fn relational_qualified(alias: &str, component_id: &str, schema: Option<&str>, table: &str) -> String {
+pub(crate) fn relational_qualified(
+    alias: &str,
+    component_id: &str,
+    schema: Option<&str>,
+    table: &str,
+) -> String {
     let default_schema: Option<&str> = if component_id.ends_with(".postgres")
         || component_id.ends_with(".cockroach")
         || component_id.ends_with(".pgvector")
@@ -4916,7 +5688,9 @@ pub(crate) fn bigquery_attach(props: &JsonValue, read_only: bool) -> String {
     // DuckDB to fetch from the community-extensions repo.
     format!(
         "INSTALL bigquery FROM community; LOAD bigquery; ATTACH '{}' AS {} (TYPE bigquery{}); ",
-        sql_escape(&attach_target), alias, mode
+        sql_escape(&attach_target),
+        alias,
+        mode
     )
 }
 
@@ -4991,7 +5765,13 @@ pub(crate) fn quack_attach(props: &JsonValue, read_only: bool) -> String {
         None => String::new(),
     };
 
-    format!("{}ATTACH '{}' AS {}{}; ", secret, sql_escape(&url), alias, mode)
+    format!(
+        "{}ATTACH '{}' AS {}{}; ",
+        secret,
+        sql_escape(&url),
+        alias,
+        mode
+    )
 }
 
 /// Excel sink: COPY ... TO '<path>' (FORMAT 'xlsx'). The form's
@@ -5119,13 +5899,7 @@ pub(crate) fn build_db_sink(
             sel = sel,
             up = up,
         );
-        let merge = build_merge_stmt(
-            component_id,
-            &format!("duckle_dst.{}", t),
-            &up,
-            props,
-            cols,
-        )?;
+        let merge = build_merge_stmt(component_id, &format!("duckle_dst.{}", t), &up, props, cols)?;
         return Ok(format!("{}{}", create, merge));
     }
     if mode == "append" {
@@ -5174,7 +5948,11 @@ pub(crate) fn build_avro_source(props: &JsonValue) -> String {
 
 /// Validate the text-search form and produce the spec the executor
 /// uses to run the two CLI calls (stage table -> index + final query).
-pub(crate) fn build_text_search_spec(node_id: &str, inputs: &NodeInputs, props: &JsonValue) -> Result<TextSearchSpec, String> {
+pub(crate) fn build_text_search_spec(
+    node_id: &str,
+    inputs: &NodeInputs,
+    props: &JsonValue,
+) -> Result<TextSearchSpec, String> {
     let upstream = inputs
         .main()
         .ok_or_else(|| missing_input_msg("xf.ai.text_search"))?;
@@ -5216,13 +5994,17 @@ pub(crate) fn build_text_search_spec(node_id: &str, inputs: &NodeInputs, props: 
 /// ST_Distance over CAST geometries. Units come from the SRS of the
 /// input geometry (degrees for plain WGS84, metres for projected SRS).
 pub(crate) fn build_geo_distance(inputs: &NodeInputs, props: &JsonValue) -> Result<String, String> {
-    let upstream = inputs.main().ok_or_else(|| missing_input_msg("xf.geo.distance"))?;
+    let upstream = inputs
+        .main()
+        .ok_or_else(|| missing_input_msg("xf.geo.distance"))?;
     let column = string_prop(props, "geomColumn")
         .filter(|s| !s.is_empty())
         .ok_or_else(|| "Geo Distance needs a geometry column".to_string())?;
     let target = string_prop(props, "targetWkt")
         .filter(|s| !s.trim().is_empty())
-        .ok_or_else(|| "Geo Distance needs a target geometry (WKT, e.g. 'POINT(0 0)')".to_string())?;
+        .ok_or_else(|| {
+            "Geo Distance needs a target geometry (WKT, e.g. 'POINT(0 0)')".to_string()
+        })?;
     let output = string_prop(props, "outputColumn")
         .filter(|s| !s.is_empty())
         .unwrap_or_else(|| "distance".into());
@@ -5238,7 +6020,9 @@ pub(crate) fn build_geo_distance(inputs: &NodeInputs, props: &JsonValue) -> Resu
 /// Spatial Buffer: add a column with ST_Buffer(geom, distance) - the
 /// area within `distance` of each row's geometry.
 pub(crate) fn build_geo_buffer(inputs: &NodeInputs, props: &JsonValue) -> Result<String, String> {
-    let upstream = inputs.main().ok_or_else(|| missing_input_msg("xf.geo.buffer"))?;
+    let upstream = inputs
+        .main()
+        .ok_or_else(|| missing_input_msg("xf.geo.buffer"))?;
     let column = string_prop(props, "geomColumn")
         .filter(|s| !s.is_empty())
         .ok_or_else(|| "Geo Buffer needs a geometry column".to_string())?;
@@ -5262,7 +6046,9 @@ pub(crate) fn build_geo_buffer(inputs: &NodeInputs, props: &JsonValue) -> Result
 /// column back to bytes (returned as VARCHAR for downstream
 /// compatibility - the actual underlying type is BLOB).
 pub(crate) fn build_base64(inputs: &NodeInputs, props: &JsonValue) -> Result<String, String> {
-    let upstream = inputs.main().ok_or_else(|| missing_input_msg("xf.text.base64"))?;
+    let upstream = inputs
+        .main()
+        .ok_or_else(|| missing_input_msg("xf.text.base64"))?;
     let column = string_prop(props, "column")
         .filter(|s| !s.is_empty())
         .ok_or_else(|| "Base64 needs a column".to_string())?;
@@ -5296,7 +6082,9 @@ pub(crate) fn build_base64(inputs: &NodeInputs, props: &JsonValue) -> Result<Str
 /// extra stage. If stddev is 0 (all values equal), the result is NULL
 /// rather than divide-by-zero.
 pub(crate) fn build_zscore(inputs: &NodeInputs, props: &JsonValue) -> Result<String, String> {
-    let upstream = inputs.main().ok_or_else(|| missing_input_msg("xf.num.zscore"))?;
+    let upstream = inputs
+        .main()
+        .ok_or_else(|| missing_input_msg("xf.num.zscore"))?;
     let column = string_prop(props, "column")
         .filter(|s| !s.is_empty())
         .ok_or_else(|| "Z-Score needs a column".to_string())?;
@@ -5316,7 +6104,9 @@ pub(crate) fn build_zscore(inputs: &NodeInputs, props: &JsonValue) -> Result<Str
 /// Different from xf.regex - this is a literal substring swap, no
 /// regex metacharacters.
 pub(crate) fn build_text_replace(inputs: &NodeInputs, props: &JsonValue) -> Result<String, String> {
-    let upstream = inputs.main().ok_or_else(|| missing_input_msg("xf.text.replace"))?;
+    let upstream = inputs
+        .main()
+        .ok_or_else(|| missing_input_msg("xf.text.replace"))?;
     let column = string_prop(props, "column")
         .filter(|s| !s.is_empty())
         .ok_or_else(|| "Replace needs a column".to_string())?;
@@ -5355,7 +6145,9 @@ pub(crate) fn build_text_replace(inputs: &NodeInputs, props: &JsonValue) -> Resu
 /// whitespace into single hyphens + trim leading/trailing hyphens.
 /// "Hello, World!" -> "hello-world".
 pub(crate) fn build_text_slug(inputs: &NodeInputs, props: &JsonValue) -> Result<String, String> {
-    let upstream = inputs.main().ok_or_else(|| missing_input_msg("xf.text.slug"))?;
+    let upstream = inputs
+        .main()
+        .ok_or_else(|| missing_input_msg("xf.text.slug"))?;
     let column = string_prop(props, "column")
         .filter(|s| !s.is_empty())
         .ok_or_else(|| "Slug needs a column".to_string())?;
@@ -5379,8 +6171,13 @@ pub(crate) fn build_text_slug(inputs: &NodeInputs, props: &JsonValue) -> Result<
 
 /// Strip HTML: remove all <...> tag spans via regex. Leaves the text
 /// content. Standard newsletter / scrape-cleanup helper.
-pub(crate) fn build_text_strip_html(inputs: &NodeInputs, props: &JsonValue) -> Result<String, String> {
-    let upstream = inputs.main().ok_or_else(|| missing_input_msg("xf.text.strip_html"))?;
+pub(crate) fn build_text_strip_html(
+    inputs: &NodeInputs,
+    props: &JsonValue,
+) -> Result<String, String> {
+    let upstream = inputs
+        .main()
+        .ok_or_else(|| missing_input_msg("xf.text.strip_html"))?;
     let column = string_prop(props, "column")
         .filter(|s| !s.is_empty())
         .ok_or_else(|| "Strip HTML needs a column".to_string())?;
@@ -5412,7 +6209,9 @@ pub(crate) fn build_text_strip_html(inputs: &NodeInputs, props: &JsonValue) -> R
 /// Text Reverse: reverse the characters in a string column.
 /// DuckDB reverse() function.
 pub(crate) fn build_text_reverse(inputs: &NodeInputs, props: &JsonValue) -> Result<String, String> {
-    let upstream = inputs.main().ok_or_else(|| missing_input_msg("xf.text.reverse"))?;
+    let upstream = inputs
+        .main()
+        .ok_or_else(|| missing_input_msg("xf.text.reverse"))?;
     let column = string_prop(props, "column")
         .filter(|s| !s.is_empty())
         .ok_or_else(|| "Reverse needs a column".to_string())?;
@@ -5429,7 +6228,9 @@ pub(crate) fn build_text_reverse(inputs: &NodeInputs, props: &JsonValue) -> Resu
 
 /// Text Repeat: repeat a string column N times via DuckDB repeat().
 pub(crate) fn build_text_repeat(inputs: &NodeInputs, props: &JsonValue) -> Result<String, String> {
-    let upstream = inputs.main().ok_or_else(|| missing_input_msg("xf.text.repeat"))?;
+    let upstream = inputs
+        .main()
+        .ok_or_else(|| missing_input_msg("xf.text.repeat"))?;
     let column = string_prop(props, "column")
         .filter(|s| !s.is_empty())
         .ok_or_else(|| "Repeat needs a column".to_string())?;
@@ -5454,7 +6255,9 @@ pub(crate) fn build_text_repeat(inputs: &NodeInputs, props: &JsonValue) -> Resul
 /// upstream columns. op = eq / neq / lt / le / gt / ge. Useful for
 /// flagging mismatches between expected/actual columns.
 pub(crate) fn build_compare(inputs: &NodeInputs, props: &JsonValue) -> Result<String, String> {
-    let upstream = inputs.main().ok_or_else(|| missing_input_msg("xf.compare"))?;
+    let upstream = inputs
+        .main()
+        .ok_or_else(|| missing_input_msg("xf.compare"))?;
     let left = string_prop(props, "leftColumn")
         .filter(|s| !s.is_empty())
         .ok_or_else(|| "Compare needs a left column".to_string())?;
@@ -5487,7 +6290,9 @@ pub(crate) fn build_compare(inputs: &NodeInputs, props: &JsonValue) -> Result<St
 /// DuckDB's contains / starts_with / ends_with. Adds a boolean
 /// column - pair with Filter Rows downstream to keep only matches.
 pub(crate) fn build_text_match(inputs: &NodeInputs, props: &JsonValue) -> Result<String, String> {
-    let upstream = inputs.main().ok_or_else(|| missing_input_msg("xf.text.match"))?;
+    let upstream = inputs
+        .main()
+        .ok_or_else(|| missing_input_msg("xf.text.match"))?;
     let column = string_prop(props, "column")
         .filter(|s| !s.is_empty())
         .ok_or_else(|| "Text Match needs a column".to_string())?;
@@ -5516,7 +6321,9 @@ pub(crate) fn build_text_match(inputs: &NodeInputs, props: &JsonValue) -> Result
 /// Sign: -1 for negative, 0 for zero, +1 for positive. DuckDB's
 /// sign() function on a DOUBLE input.
 pub(crate) fn build_sign(inputs: &NodeInputs, props: &JsonValue) -> Result<String, String> {
-    let upstream = inputs.main().ok_or_else(|| missing_input_msg("xf.num.sign"))?;
+    let upstream = inputs
+        .main()
+        .ok_or_else(|| missing_input_msg("xf.num.sign"))?;
     let column = string_prop(props, "column")
         .filter(|s| !s.is_empty())
         .ok_or_else(|| "Sign needs a column".to_string())?;
@@ -5535,7 +6342,9 @@ pub(crate) fn build_sign(inputs: &NodeInputs, props: &JsonValue) -> Result<Strin
 /// GREATEST. Values below low become low; above high become high.
 /// Useful for capping outliers before downstream stats.
 pub(crate) fn build_clamp(inputs: &NodeInputs, props: &JsonValue) -> Result<String, String> {
-    let upstream = inputs.main().ok_or_else(|| missing_input_msg("xf.num.clamp"))?;
+    let upstream = inputs
+        .main()
+        .ok_or_else(|| missing_input_msg("xf.num.clamp"))?;
     let column = string_prop(props, "column")
         .filter(|s| !s.is_empty())
         .ok_or_else(|| "Clamp needs a column".to_string())?;
@@ -5564,7 +6373,9 @@ pub(crate) fn build_clamp(inputs: &NodeInputs, props: &JsonValue) -> Result<Stri
 /// or right with a fill character. Default fills with space, mode
 /// 'left' (lpad) is the classic 'zero-pad numeric IDs' pattern.
 pub(crate) fn build_padding(inputs: &NodeInputs, props: &JsonValue) -> Result<String, String> {
-    let upstream = inputs.main().ok_or_else(|| missing_input_msg("xf.text.padding"))?;
+    let upstream = inputs
+        .main()
+        .ok_or_else(|| missing_input_msg("xf.text.padding"))?;
     let column = string_prop(props, "column")
         .filter(|s| !s.is_empty())
         .ok_or_else(|| "Padding needs a column".to_string())?;
@@ -5609,7 +6420,9 @@ pub(crate) fn build_padding(inputs: &NodeInputs, props: &JsonValue) -> Result<St
 /// (mode 'to') or epoch seconds back to TIMESTAMP (mode 'from').
 /// Both directions use DuckDB core functions, no extension needed.
 pub(crate) fn build_dt_epoch(inputs: &NodeInputs, props: &JsonValue) -> Result<String, String> {
-    let upstream = inputs.main().ok_or_else(|| missing_input_msg("xf.dt.epoch"))?;
+    let upstream = inputs
+        .main()
+        .ok_or_else(|| missing_input_msg("xf.dt.epoch"))?;
     let column = string_prop(props, "column")
         .filter(|s| !s.is_empty())
         .ok_or_else(|| "Epoch needs a column".to_string())?;
@@ -5649,7 +6462,9 @@ pub(crate) fn build_dt_epoch(inputs: &NodeInputs, props: &JsonValue) -> Result<S
 /// serializes with a session-timezone offset and confuses
 /// downstream readers.
 pub(crate) fn build_dt_now(inputs: &NodeInputs, props: &JsonValue) -> Result<String, String> {
-    let upstream = inputs.main().ok_or_else(|| missing_input_msg("xf.dt.now"))?;
+    let upstream = inputs
+        .main()
+        .ok_or_else(|| missing_input_msg("xf.dt.now"))?;
     let output = string_prop(props, "outputColumn")
         .filter(|s| !s.is_empty())
         .unwrap_or_else(|| "loaded_at".into());
@@ -5682,14 +6497,18 @@ pub(crate) fn build_uuid(inputs: &NodeInputs, props: &JsonValue) -> Result<Strin
 /// PRECEDING AND CURRENT ROW frame so the value at each row reflects
 /// everything seen so far in scan order.
 pub(crate) fn build_cumulative(inputs: &NodeInputs, props: &JsonValue) -> Result<String, String> {
-    let upstream = inputs.main().ok_or_else(|| missing_input_msg("xf.cumulative"))?;
+    let upstream = inputs
+        .main()
+        .ok_or_else(|| missing_input_msg("xf.cumulative"))?;
     let column = string_prop(props, "column")
         .filter(|s| !s.is_empty())
         .ok_or_else(|| "Cumulative needs a column".to_string())?;
     let order_col = string_prop(props, "orderBy")
         .filter(|s| !s.is_empty())
         .ok_or_else(|| "Cumulative needs an orderBy column".to_string())?;
-    let func = string_prop(props, "function").unwrap_or_else(|| "sum".into()).to_lowercase();
+    let func = string_prop(props, "function")
+        .unwrap_or_else(|| "sum".into())
+        .to_lowercase();
     let fn_name = match func.as_str() {
         "avg" => "avg",
         "count" => "count",
@@ -5727,7 +6546,9 @@ pub(crate) fn build_cumulative(inputs: &NodeInputs, props: &JsonValue) -> Result
 /// time-series grouping. Done via epoch math so any (unit, count)
 /// combination works, not just the standard date_trunc units.
 pub(crate) fn build_dt_bin(inputs: &NodeInputs, props: &JsonValue) -> Result<String, String> {
-    let upstream = inputs.main().ok_or_else(|| missing_input_msg("xf.dt.bin"))?;
+    let upstream = inputs
+        .main()
+        .ok_or_else(|| missing_input_msg("xf.dt.bin"))?;
     let column = string_prop(props, "column")
         .filter(|s| !s.is_empty())
         .ok_or_else(|| "Time Bin needs a timestamp column".to_string())?;
@@ -5764,7 +6585,9 @@ pub(crate) fn build_dt_bin(inputs: &NodeInputs, props: &JsonValue) -> Result<Str
 
 /// Array Length: scalar length of an array / list column.
 pub(crate) fn build_arr_length(inputs: &NodeInputs, props: &JsonValue) -> Result<String, String> {
-    let upstream = inputs.main().ok_or_else(|| missing_input_msg("xf.arr.length"))?;
+    let upstream = inputs
+        .main()
+        .ok_or_else(|| missing_input_msg("xf.arr.length"))?;
     let column = string_prop(props, "column")
         .filter(|s| !s.is_empty())
         .ok_or_else(|| "Array Length needs a column".to_string())?;
@@ -5785,7 +6608,9 @@ pub(crate) fn build_arr_length(inputs: &NodeInputs, props: &JsonValue) -> Result
 /// (partitionBy, orderBy DESC|ASC) window in a subquery, then
 /// WHERE filters to rank <= N. desc defaults to true (top N).
 pub(crate) fn build_rank_filter(inputs: &NodeInputs, props: &JsonValue) -> Result<String, String> {
-    let upstream = inputs.main().ok_or_else(|| missing_input_msg("xf.rank.filter"))?;
+    let upstream = inputs
+        .main()
+        .ok_or_else(|| missing_input_msg("xf.rank.filter"))?;
     let order_col = string_prop(props, "orderBy")
         .filter(|s| !s.is_empty())
         .ok_or_else(|| "Rank Filter needs an orderBy column".to_string())?;
@@ -5834,7 +6659,9 @@ pub(crate) fn build_rank_filter(inputs: &NodeInputs, props: &JsonValue) -> Resul
 /// Uses last_value(col IGNORE NULLS) over an unbounded preceding
 /// window - DuckDB evaluates this in one pass.
 pub(crate) fn build_fill_forward(inputs: &NodeInputs, props: &JsonValue) -> Result<String, String> {
-    let upstream = inputs.main().ok_or_else(|| missing_input_msg("xf.fill_forward"))?;
+    let upstream = inputs
+        .main()
+        .ok_or_else(|| missing_input_msg("xf.fill_forward"))?;
     let column = string_prop(props, "column")
         .filter(|s| !s.is_empty())
         .ok_or_else(|| "Forward Fill needs a column".to_string())?;
@@ -5877,7 +6704,9 @@ pub(crate) fn build_fill_forward(inputs: &NodeInputs, props: &JsonValue) -> Resu
 /// hash equal regardless of which optional fields were missing -
 /// usually what you want for change detection.
 pub(crate) fn build_row_hash(inputs: &NodeInputs, props: &JsonValue) -> Result<String, String> {
-    let upstream = inputs.main().ok_or_else(|| missing_input_msg("xf.row_hash"))?;
+    let upstream = inputs
+        .main()
+        .ok_or_else(|| missing_input_msg("xf.row_hash"))?;
     let cols: Vec<String> = columns_from_props(props, "columns").unwrap_or_default();
     if cols.is_empty() {
         return Err("Row Hash needs at least one column".to_string());
@@ -5920,11 +6749,18 @@ pub(crate) fn build_row_hash(inputs: &NodeInputs, props: &JsonValue) -> Result<S
 pub(crate) fn build_audit(inputs: &NodeInputs, props: &JsonValue) -> Result<String, String> {
     let upstream = inputs.main().ok_or_else(|| missing_input_msg("xf.audit"))?;
     let mut adds: Vec<String> = Vec::new();
-    let loaded_at = props.get("loadedAt").and_then(JsonValue::as_bool).unwrap_or(true);
+    let loaded_at = props
+        .get("loadedAt")
+        .and_then(JsonValue::as_bool)
+        .unwrap_or(true);
     if loaded_at {
         adds.push("current_timestamp AS _loaded_at".to_string());
     }
-    if props.get("loadedDate").and_then(JsonValue::as_bool).unwrap_or(false) {
+    if props
+        .get("loadedDate")
+        .and_then(JsonValue::as_bool)
+        .unwrap_or(false)
+    {
         adds.push("current_date AS _loaded_date".to_string());
     }
     if let Some(s) = string_prop(props, "source").filter(|s| !s.is_empty()) {
@@ -5951,8 +6787,13 @@ pub(crate) fn build_audit(inputs: &NodeInputs, props: &JsonValue) -> Result<Stri
 /// user know SQL quoting rules. The COALESCE expression takes the
 /// column's type from the column itself, so numeric vs text doesn't
 /// need a separate type hint.
-pub(crate) fn build_fill_constant(inputs: &NodeInputs, props: &JsonValue) -> Result<String, String> {
-    let upstream = inputs.main().ok_or_else(|| missing_input_msg("xf.fill_constant"))?;
+pub(crate) fn build_fill_constant(
+    inputs: &NodeInputs,
+    props: &JsonValue,
+) -> Result<String, String> {
+    let upstream = inputs
+        .main()
+        .ok_or_else(|| missing_input_msg("xf.fill_constant"))?;
     let column = string_prop(props, "column")
         .filter(|s| !s.is_empty())
         .ok_or_else(|| "Fill Constant needs a column".to_string())?;
@@ -5991,8 +6832,13 @@ pub(crate) fn build_fill_constant(inputs: &NodeInputs, props: &JsonValue) -> Res
 /// and you'd rather impute from the future than leave them null.
 /// Uses first_value(col IGNORE NULLS) over an unbounded following
 /// window so the current row sees the nearest non-null ahead of it.
-pub(crate) fn build_fill_backward(inputs: &NodeInputs, props: &JsonValue) -> Result<String, String> {
-    let upstream = inputs.main().ok_or_else(|| missing_input_msg("xf.fill_backward"))?;
+pub(crate) fn build_fill_backward(
+    inputs: &NodeInputs,
+    props: &JsonValue,
+) -> Result<String, String> {
+    let upstream = inputs
+        .main()
+        .ok_or_else(|| missing_input_msg("xf.fill_backward"))?;
     let column = string_prop(props, "column")
         .filter(|s| !s.is_empty())
         .ok_or_else(|| "Backward Fill needs a column".to_string())?;
@@ -6028,7 +6874,9 @@ pub(crate) fn build_fill_backward(inputs: &NodeInputs, props: &JsonValue) -> Res
 /// to the explicit floor((v - low) / step) + 1 form, which works on
 /// every DuckDB build.
 pub(crate) fn build_bucketize(inputs: &NodeInputs, props: &JsonValue) -> Result<String, String> {
-    let upstream = inputs.main().ok_or_else(|| missing_input_msg("xf.num.bucketize"))?;
+    let upstream = inputs
+        .main()
+        .ok_or_else(|| missing_input_msg("xf.num.bucketize"))?;
     let column = string_prop(props, "column")
         .filter(|s| !s.is_empty())
         .ok_or_else(|| "Bucketize needs a column".to_string())?;
@@ -6040,7 +6888,10 @@ pub(crate) fn build_bucketize(inputs: &NodeInputs, props: &JsonValue) -> Result<
     let bounds: Vec<f64> = match props.get("bounds") {
         Some(JsonValue::Array(a)) => a
             .iter()
-            .filter_map(|v| v.as_f64().or_else(|| v.as_str().and_then(|s| s.trim().parse::<f64>().ok())))
+            .filter_map(|v| {
+                v.as_f64()
+                    .or_else(|| v.as_str().and_then(|s| s.trim().parse::<f64>().ok()))
+            })
             .collect(),
         Some(JsonValue::String(s)) => s
             .split(',')
@@ -6056,8 +6907,15 @@ pub(crate) fn build_bucketize(inputs: &NodeInputs, props: &JsonValue) -> Result<
             .filter(|s| !s.is_empty())
             .unwrap_or_else(|| format!("{}_bucket", column));
         let labels: Vec<String> = match props.get("labels") {
-            Some(JsonValue::Array(a)) => a.iter().filter_map(|v| v.as_str().map(|s| s.to_string())).collect(),
-            Some(JsonValue::String(s)) => s.split(',').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect(),
+            Some(JsonValue::Array(a)) => a
+                .iter()
+                .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                .collect(),
+            Some(JsonValue::String(s)) => s
+                .split(',')
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+                .collect(),
             _ => Vec::new(),
         };
         if !labels.is_empty() && labels.len() != bounds.len() + 1 {
@@ -6069,7 +6927,11 @@ pub(crate) fn build_bucketize(inputs: &NodeInputs, props: &JsonValue) -> Result<
         }
         let g = |n: f64| -> String {
             // Render a breakpoint without a trailing .0 for whole numbers.
-            if n.fract() == 0.0 { format!("{}", n as i64) } else { format!("{}", n) }
+            if n.fract() == 0.0 {
+                format!("{}", n as i64)
+            } else {
+                format!("{}", n)
+            }
         };
         let label_for = |i: usize, auto: String| -> String {
             if labels.len() == bounds.len() + 1 {
@@ -6081,12 +6943,16 @@ pub(crate) fn build_bucketize(inputs: &NodeInputs, props: &JsonValue) -> Result<
         let mut whens: Vec<String> = Vec::new();
         whens.push(format!(
             "WHEN CAST({col} AS DOUBLE) < {b} THEN {lbl}",
-            col = qcol, b = g(bounds[0]), lbl = label_for(0, format!("<{}", g(bounds[0])))
+            col = qcol,
+            b = g(bounds[0]),
+            lbl = label_for(0, format!("<{}", g(bounds[0])))
         ));
         for i in 1..bounds.len() {
             whens.push(format!(
                 "WHEN CAST({col} AS DOUBLE) < {b} THEN {lbl}",
-                col = qcol, b = g(bounds[i]), lbl = label_for(i, format!("{}-{}", g(bounds[i - 1]), g(bounds[i])))
+                col = qcol,
+                b = g(bounds[i]),
+                lbl = label_for(i, format!("{}-{}", g(bounds[i - 1]), g(bounds[i])))
             ));
         }
         let last = label_for(bounds.len(), format!(">={}", g(bounds[bounds.len() - 1])));
@@ -6131,8 +6997,13 @@ pub(crate) fn build_bucketize(inputs: &NodeInputs, props: &JsonValue) -> Result<
 /// JSON Array Agg: collapse multiple rows into a JSON array per group
 /// via json_group_array. With no groupBy, produces one row with the
 /// whole input as a single array.
-pub(crate) fn build_json_array_agg(inputs: &NodeInputs, props: &JsonValue) -> Result<String, String> {
-    let upstream = inputs.main().ok_or_else(|| missing_input_msg("xf.json.array_agg"))?;
+pub(crate) fn build_json_array_agg(
+    inputs: &NodeInputs,
+    props: &JsonValue,
+) -> Result<String, String> {
+    let upstream = inputs
+        .main()
+        .ok_or_else(|| missing_input_msg("xf.json.array_agg"))?;
     let column = string_prop(props, "column")
         .filter(|s| !s.is_empty())
         .ok_or_else(|| "JSON Array Agg needs a column".to_string())?;
@@ -6174,8 +7045,13 @@ pub(crate) fn build_json_array_agg(inputs: &NodeInputs, props: &JsonValue) -> Re
 /// jaro_winkler_similarity (0..1, weighted toward shared prefixes).
 /// The first two are integer distances (lower = more similar); the
 /// last two are normalized similarities (higher = more similar).
-pub(crate) fn build_text_similarity(inputs: &NodeInputs, props: &JsonValue) -> Result<String, String> {
-    let upstream = inputs.main().ok_or_else(|| missing_input_msg("xf.text.similarity"))?;
+pub(crate) fn build_text_similarity(
+    inputs: &NodeInputs,
+    props: &JsonValue,
+) -> Result<String, String> {
+    let upstream = inputs
+        .main()
+        .ok_or_else(|| missing_input_msg("xf.text.similarity"))?;
     let left_col = string_prop(props, "leftColumn")
         .filter(|s| !s.is_empty())
         .ok_or_else(|| "Text Similarity needs a left column".to_string())?;
@@ -6262,8 +7138,13 @@ pub(crate) fn build_spatial_join(inputs: &NodeInputs, props: &JsonValue) -> Resu
 /// target). Pair with xf.filter downstream to keep only the rows that
 /// overlap a polygon (e.g. "orders inside a delivery zone"). Two-input
 /// spatial joins land later as xf.join.spatial.
-pub(crate) fn build_geo_intersects(inputs: &NodeInputs, props: &JsonValue) -> Result<String, String> {
-    let upstream = inputs.main().ok_or_else(|| missing_input_msg("xf.geo.intersects"))?;
+pub(crate) fn build_geo_intersects(
+    inputs: &NodeInputs,
+    props: &JsonValue,
+) -> Result<String, String> {
+    let upstream = inputs
+        .main()
+        .ok_or_else(|| missing_input_msg("xf.geo.intersects"))?;
     let column = string_prop(props, "geomColumn")
         .filter(|s| !s.is_empty())
         .ok_or_else(|| "Spatial Intersects needs a geometry column".to_string())?;
@@ -6317,7 +7198,9 @@ pub(crate) fn build_hash(inputs: &NodeInputs, props: &JsonValue) -> Result<Strin
 /// EXCLUDE strips the temporary marker column so downstream stages
 /// see the original schema.
 pub(crate) fn build_assert(inputs: &NodeInputs, props: &JsonValue) -> Result<String, String> {
-    let upstream = inputs.main().ok_or_else(|| missing_input_msg("xf.assert"))?;
+    let upstream = inputs
+        .main()
+        .ok_or_else(|| missing_input_msg("xf.assert"))?;
     let predicate = string_prop(props, "predicate")
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty())
@@ -6350,7 +7233,9 @@ pub(crate) fn build_assert(inputs: &NodeInputs, props: &JsonValue) -> Result<Str
 /// a fixed regex. Picks one of scheme / host / port / path / query /
 /// fragment with the `kind` prop, mirrors xf.ip.parse's shape.
 pub(crate) fn build_url_parse(inputs: &NodeInputs, props: &JsonValue) -> Result<String, String> {
-    let upstream = inputs.main().ok_or_else(|| missing_input_msg("xf.url.parse"))?;
+    let upstream = inputs
+        .main()
+        .ok_or_else(|| missing_input_msg("xf.url.parse"))?;
     let column = string_prop(props, "column")
         .filter(|s| !s.is_empty())
         .ok_or_else(|| "URL Parse needs an input column".to_string())?;
@@ -6387,7 +7272,9 @@ pub(crate) fn build_url_parse(inputs: &NodeInputs, props: &JsonValue) -> Result<
 /// schema is untouched. The CAST handles both bare addresses
 /// (1.2.3.4 / ::1) and CIDR notation (10.0.0.0/8).
 pub(crate) fn build_ip_parse(inputs: &NodeInputs, props: &JsonValue) -> Result<String, String> {
-    let upstream = inputs.main().ok_or_else(|| missing_input_msg("xf.ip.parse"))?;
+    let upstream = inputs
+        .main()
+        .ok_or_else(|| missing_input_msg("xf.ip.parse"))?;
     let column = string_prop(props, "column")
         .filter(|s| !s.is_empty())
         .ok_or_else(|| "IP Parse needs an input column".to_string())?;
@@ -6418,7 +7305,10 @@ pub(crate) fn build_ip_parse(inputs: &NodeInputs, props: &JsonValue) -> Result<S
 /// The vector column is CAST to FLOAT[dim] so vss accepts it; the
 /// target vector is embedded as an array literal (validated as a JSON
 /// array of numbers at plan time).
-pub(crate) fn build_vector_search(inputs: &NodeInputs, props: &JsonValue) -> Result<String, String> {
+pub(crate) fn build_vector_search(
+    inputs: &NodeInputs,
+    props: &JsonValue,
+) -> Result<String, String> {
     let upstream = inputs
         .main()
         .ok_or_else(|| missing_input_msg("xf.ai.vector_search"))?;
@@ -6442,8 +7332,12 @@ pub(crate) fn build_vector_search(inputs: &NodeInputs, props: &JsonValue) -> Res
         .filter(|s| !s.is_empty())
         .unwrap_or_else(|| "similarity_score".into());
 
-    let vec_vals: Vec<f64> = serde_json::from_str(&target)
-        .map_err(|e| format!("Vector Search: targetVector must be a JSON array of numbers ({})", e))?;
+    let vec_vals: Vec<f64> = serde_json::from_str(&target).map_err(|e| {
+        format!(
+            "Vector Search: targetVector must be a JSON array of numbers ({})",
+            e
+        )
+    })?;
     if vec_vals.len() as u64 != dim {
         return Err(format!(
             "Vector Search: target vector has {} elements but dimension is {}",
@@ -6514,10 +7408,7 @@ pub(crate) fn build_fixedwidth_source(props: &JsonValue) -> Result<String, Strin
     if cols.is_empty() {
         return Err("Fixed-width source: at least one column required".into());
     }
-    let trim = props
-        .get("trim")
-        .and_then(|v| v.as_bool())
-        .unwrap_or(true);
+    let trim = props.get("trim").and_then(|v| v.as_bool()).unwrap_or(true);
     let projections: Vec<String> = cols
         .iter()
         .map(|c| {
@@ -6529,11 +7420,7 @@ pub(crate) fn build_fixedwidth_source(props: &JsonValue) -> Result<String, Strin
             let start = c.get("start").and_then(|v| v.as_i64()).unwrap_or(1);
             let width = c.get("width").and_then(|v| v.as_i64()).unwrap_or(1);
             let raw = format!("substr(line, {}, {})", start, width);
-            let expr = if trim {
-                format!("rtrim({})", raw)
-            } else {
-                raw
-            };
+            let expr = if trim { format!("rtrim({})", raw) } else { raw };
             format!("{} AS {}", expr, quote_ident(&name))
         })
         .collect();
@@ -6624,7 +7511,11 @@ pub(crate) fn build_excel_source(
             let fmt = c.format.as_deref().filter(|s| !s.is_empty());
             match (fmt, c.data_type) {
                 (Some(fmt), DataType::Date) => {
-                    format!("try_strptime({id}, '{f}')::DATE AS {id}", id = id, f = sql_escape(fmt))
+                    format!(
+                        "try_strptime({id}, '{f}')::DATE AS {id}",
+                        id = id,
+                        f = sql_escape(fmt)
+                    )
                 }
                 (Some(fmt), DataType::Timestamp) => format!(
                     "try_strptime({id}, '{f}')::TIMESTAMP AS {id}",
@@ -6633,7 +7524,11 @@ pub(crate) fn build_excel_source(
                 ),
                 // String is already VARCHAR from all_varchar - select as-is.
                 _ if matches!(c.data_type, DataType::String) => id.clone(),
-                _ => format!("CAST({id} AS {ty}) AS {id}", id = id, ty = data_type_to_duckdb_sql(&c.data_type)),
+                _ => format!(
+                    "CAST({id} AS {ty}) AS {id}",
+                    id = id,
+                    ty = data_type_to_duckdb_sql(&c.data_type)
+                ),
             }
         })
         .collect::<Vec<_>>()
@@ -6676,7 +7571,10 @@ fn expand_excel_paths(path: &str) -> Vec<String> {
     }
     // Wildcard in the final segment: match siblings in the parent directory.
     if path.contains('*') || path.contains('?') {
-        let parent = p.parent().filter(|d| !d.as_os_str().is_empty()).unwrap_or_else(|| Path::new("."));
+        let parent = p
+            .parent()
+            .filter(|d| !d.as_os_str().is_empty())
+            .unwrap_or_else(|| Path::new("."));
         if let Some(pat) = p.file_name().and_then(|s| s.to_str()) {
             return collect_dir(parent, Some(pat));
         }
@@ -6737,7 +7635,12 @@ pub(crate) fn build_cloud_source(
                 "azureblob" => "az://",
                 _ => "https://",
             };
-            Some(format!("{}{}/{}", prefix, bucket, key.trim_start_matches('/')))
+            Some(format!(
+                "{}{}/{}",
+                prefix,
+                bucket,
+                key.trim_start_matches('/')
+            ))
         })
         .unwrap_or_default();
     let override_fmt = string_prop(props, "format");
@@ -6842,7 +7745,10 @@ pub(crate) fn build_cloud_sink(props: &JsonValue, from_view: &str) -> Result<Str
     let chosen = override_fmt.unwrap_or_else(|| {
         if lower.ends_with(".parquet") || lower.ends_with(".pq") {
             "parquet".into()
-        } else if lower.ends_with(".json") || lower.ends_with(".jsonl") || lower.ends_with(".ndjson") {
+        } else if lower.ends_with(".json")
+            || lower.ends_with(".jsonl")
+            || lower.ends_with(".ndjson")
+        {
             "json".into()
         } else {
             "csv".into()
@@ -7032,21 +7938,15 @@ pub(crate) fn build_json_sink(props: &JsonValue, from_view: &str) -> String {
 // ---- Helpers ------------------------------------------------------------
 
 pub(crate) fn columns_from_props(props: &JsonValue, key: &str) -> Option<Vec<String>> {
-    props
-        .get(key)
-        .and_then(JsonValue::as_array)
-        .map(|arr| {
-            arr.iter()
-                .filter_map(|v| v.as_str().map(String::from))
-                .collect::<Vec<_>>()
-        })
+    props.get(key).and_then(JsonValue::as_array).map(|arr| {
+        arr.iter()
+            .filter_map(|v| v.as_str().map(String::from))
+            .collect::<Vec<_>>()
+    })
 }
 
 pub(crate) fn string_prop(props: &JsonValue, key: &str) -> Option<String> {
-    props
-        .get(key)
-        .and_then(JsonValue::as_str)
-        .map(String::from)
+    props.get(key).and_then(JsonValue::as_str).map(String::from)
 }
 
 /// Reads the `headers` key-value pairs from a HTTP connector's props.
@@ -7063,7 +7963,10 @@ pub(crate) fn kv_pairs(props: &JsonValue, key: &str) -> Vec<(String, String)> {
         return obj
             .iter()
             .filter_map(|(k, v)| {
-                let val = v.as_str().map(String::from).unwrap_or_else(|| v.to_string());
+                let val = v
+                    .as_str()
+                    .map(String::from)
+                    .unwrap_or_else(|| v.to_string());
                 (!k.is_empty()).then(|| (k.clone(), val))
             })
             .collect();
@@ -7167,7 +8070,9 @@ fn split_header_token(token: &str) -> Option<(String, String)> {
     if name.is_empty()
         || value.is_empty()
         || !name.contains('-')
-        || !name.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+        || !name
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
     {
         return None;
     }

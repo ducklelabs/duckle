@@ -167,7 +167,9 @@ pub fn write_metrics_textfile(workspace: &Path) -> std::io::Result<()> {
 
 /// Escape a value for a Prometheus label: backslash, quote, newline.
 fn escape_label(v: &str) -> String {
-    v.replace('\\', "\\\\").replace('"', "\\\"").replace('\n', "\\n")
+    v.replace('\\', "\\\\")
+        .replace('"', "\\\"")
+        .replace('\n', "\\n")
 }
 
 #[cfg(test)]
@@ -203,7 +205,11 @@ mod tests {
         assert!(text.contains("duckle_runs_window{pipeline=\"orders_etl\",status=\"error\"} 1"));
         assert!(text.contains("# TYPE duckle_run_last_rows gauge"));
         // No half-written temp file left behind.
-        assert!(!ws.path().join("logs").join("duckle_metrics.prom.tmp").exists());
+        assert!(!ws
+            .path()
+            .join("logs")
+            .join("duckle_metrics.prom.tmp")
+            .exists());
     }
 
     #[test]

@@ -107,7 +107,12 @@ pub fn set_snapshot(
     node_id: &str,
     snapshot_id: u64,
 ) -> std::io::Result<()> {
-    write_state(workspace, pipeline, node_id, &json!({ "snapshot_id": snapshot_id }))
+    write_state(
+        workspace,
+        pipeline,
+        node_id,
+        &json!({ "snapshot_id": snapshot_id }),
+    )
 }
 
 /// Remove a node's state file so the next run starts from its initial value
@@ -192,6 +197,8 @@ mod tests {
         let ws = tempfile::tempdir().unwrap();
         let p = state_path(ws.path(), "My Pipe", "node/1");
         // pipeline + node sanitized; under <ws>/state/.
-        assert!(p.ends_with("state/My Pipe/node_1.json") || p.ends_with("state\\My Pipe\\node_1.json"));
+        assert!(
+            p.ends_with("state/My Pipe/node_1.json") || p.ends_with("state\\My Pipe\\node_1.json")
+        );
     }
 }

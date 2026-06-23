@@ -190,7 +190,11 @@ pub(crate) fn validate_column_refs(
         }
         "xf.cast" => {
             // Multi-row form
-            if let Some(arr) = p.get("casts").or_else(|| p.get("columns")).and_then(JsonValue::as_array) {
+            if let Some(arr) = p
+                .get("casts")
+                .or_else(|| p.get("columns"))
+                .and_then(JsonValue::as_array)
+            {
                 for entry in arr {
                     if let Some(c) = entry.get("column").and_then(JsonValue::as_str) {
                         let c = c.trim();
@@ -214,15 +218,12 @@ pub(crate) fn validate_column_refs(
             // an array of {column, direction} objects. Validate both.
             if let Some(arr) = p.get("orderBy").and_then(JsonValue::as_array) {
                 for entry in arr {
-                    let c = entry
-                        .as_str()
-                        .map(|s| s.to_string())
-                        .or_else(|| {
-                            entry
-                                .get("column")
-                                .and_then(JsonValue::as_str)
-                                .map(|s| s.to_string())
-                        });
+                    let c = entry.as_str().map(|s| s.to_string()).or_else(|| {
+                        entry
+                            .get("column")
+                            .and_then(JsonValue::as_str)
+                            .map(|s| s.to_string())
+                    });
                     if let Some(c) = c {
                         let c = c.trim();
                         if !c.is_empty() {
@@ -278,17 +279,8 @@ pub(crate) fn validate_column_refs(
         // Window family: partitionBy + orderBy are upstream columns.
         // `column` is the column the function operates on (lead/lag/
         // first/last) - present on a subset.
-        "xf.window"
-        | "xf.rownum"
-        | "xf.rank"
-        | "xf.denserank"
-        | "xf.lead"
-        | "xf.lag"
-        | "xf.first"
-        | "xf.last"
-        | "xf.ntile"
-        | "xf.rank.filter"
-        | "xf.cumulative"
+        "xf.window" | "xf.rownum" | "xf.rank" | "xf.denserank" | "xf.lead" | "xf.lag"
+        | "xf.first" | "xf.last" | "xf.ntile" | "xf.rank.filter" | "xf.cumulative"
         | "xf.aggwin" => {
             check_list("partitionBy")?;
             check_list("orderBy")?;
@@ -298,13 +290,8 @@ pub(crate) fn validate_column_refs(
         // lookup input, whose columns we don't currently propagate
         // through the planner; skip those rather than emit a false
         // positive.
-        "xf.join"
-        | "xf.join.left"
-        | "xf.join.right"
-        | "xf.join.full"
-        | "xf.join.cross"
-        | "xf.semi"
-        | "xf.anti" => {
+        "xf.join" | "xf.join.left" | "xf.join.right" | "xf.join.full" | "xf.join.cross"
+        | "xf.semi" | "xf.anti" => {
             if let Some(s) = p.get("leftKey").and_then(JsonValue::as_str) {
                 for k in s.split(',') {
                     let k = k.trim();
@@ -327,7 +314,10 @@ pub(crate) struct NodeInputs {
 
 impl NodeInputs {
     pub(crate) fn main(&self) -> Option<&str> {
-        self.ports.get("main").and_then(|v| v.first()).map(|s| s.as_str())
+        self.ports
+            .get("main")
+            .and_then(|v| v.first())
+            .map(|s| s.as_str())
     }
 
     /// Inputs across the `main` and `main_N` ports (used by set ops,
@@ -349,7 +339,10 @@ impl NodeInputs {
         } else {
             format!("lookup_{}", idx + 1)
         };
-        self.ports.get(&key).and_then(|v| v.first()).map(|s| s.as_str())
+        self.ports
+            .get(&key)
+            .and_then(|v| v.first())
+            .map(|s| s.as_str())
     }
 
     pub(crate) fn first_lookup(&self) -> Option<&str> {
@@ -504,28 +497,28 @@ pub(crate) fn build_parallelize_branches(
         })];
         for n in &order {
             let node = node_by_id.get(n.as_str()).ok_or_else(|| {
-                EngineError::Config(format!("ctl.parallelize ({}): unknown branch node '{}'", p_id, n))
+                EngineError::Config(format!(
+                    "ctl.parallelize ({}): unknown branch node '{}'",
+                    p_id, n
+                ))
             })?;
-            sub_nodes.push(
-                serde_json::to_value(node)
-                    .map_err(|e| EngineError::Config(format!("ctl.parallelize: serialize node: {}", e)))?,
-            );
+            sub_nodes.push(serde_json::to_value(node).map_err(|e| {
+                EngineError::Config(format!("ctl.parallelize: serialize node: {}", e))
+            })?);
         }
         let mut sub_edges: Vec<serde_json::Value> = Vec::new();
         for e in data_edges {
             let src_in = e.source == p_id || branch_set.contains(e.source.as_str());
             if src_in && branch_set.contains(e.target.as_str()) {
-                sub_edges.push(
-                    serde_json::to_value(e)
-                        .map_err(|e| EngineError::Config(format!("ctl.parallelize: serialize edge: {}", e)))?,
-                );
+                sub_edges.push(serde_json::to_value(e).map_err(|e| {
+                    EngineError::Config(format!("ctl.parallelize: serialize edge: {}", e))
+                })?);
             }
         }
         let sub_doc = serde_json::json!({ "nodes": sub_nodes, "edges": sub_edges });
-        branches.push(
-            serde_json::to_string(&sub_doc)
-                .map_err(|e| EngineError::Config(format!("ctl.parallelize: serialize branch: {}", e)))?,
-        );
+        branches.push(serde_json::to_string(&sub_doc).map_err(|e| {
+            EngineError::Config(format!("ctl.parallelize: serialize branch: {}", e))
+        })?);
         for n in order {
             all_branch.insert(n);
         }

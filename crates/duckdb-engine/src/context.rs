@@ -95,9 +95,15 @@ pub(crate) fn insert_time_builtins(vars: &mut HashMap<String, String>) {
     let now = chrono::Utc::now();
     vars.insert("date".to_string(), now.format("%Y-%m-%d").to_string());
     vars.insert("time".to_string(), now.format("%H%M%S").to_string());
-    vars.insert("datetime".to_string(), now.format("%Y-%m-%d_%H%M%S").to_string());
+    vars.insert(
+        "datetime".to_string(),
+        now.format("%Y-%m-%d_%H%M%S").to_string(),
+    );
     vars.insert("timestamp".to_string(), now.timestamp().to_string());
-    vars.insert("now".to_string(), now.format("%Y-%m-%dT%H:%M:%SZ").to_string());
+    vars.insert(
+        "now".to_string(),
+        now.format("%Y-%m-%dT%H:%M:%SZ").to_string(),
+    );
 }
 
 /// Resolve the dynamic date/time builtins (see [`insert_time_builtins`]) in
@@ -169,8 +175,8 @@ fn build_context_vars(
             // Missing file -> skip (mirrors TS `if (!payload?.variables)`).
             Err(_) => continue,
         };
-        let payload: ContextPayload = serde_json::from_str(&text)
-            .map_err(|e| format!("parse {}: {}", path.display(), e))?;
+        let payload: ContextPayload =
+            serde_json::from_str(&text).map_err(|e| format!("parse {}: {}", path.display(), e))?;
 
         for v in &payload.variables {
             // Both the bare key and a context-namespaced key resolve;
@@ -225,7 +231,9 @@ fn build_pipeline_paths(workspace: &Path, repo: &[RepoItem]) -> HashMap<String, 
         if item.kind != "pipeline" {
             continue;
         }
-        let file: PathBuf = workspace.join("pipelines").join(format!("{}.json", item.id));
+        let file: PathBuf = workspace
+            .join("pipelines")
+            .join(format!("{}.json", item.id));
         // Normalize to forward slashes to match the TS joinPath (run-resolve.ts)
         // so the rewritten ref string is byte-identical to the canvas/run path.
         // The engine reads the value via fs::read_to_string, which accepts both
@@ -273,8 +281,8 @@ pub fn resolve_workspace(
         .join(format!("{}.json", pipeline_id));
     let text = std::fs::read_to_string(&pipe_path)
         .map_err(|e| format!("read {}: {}", pipe_path.display(), e))?;
-    let mut doc: PipelineDoc = serde_json::from_str(&text)
-        .map_err(|e| format!("parse {}: {}", pipe_path.display(), e))?;
+    let mut doc: PipelineDoc =
+        serde_json::from_str(&text).map_err(|e| format!("parse {}: {}", pipe_path.display(), e))?;
 
     // Compile the placeholder regex once and capture vars for the closure.
     let re = regex::Regex::new(r"\$\{([^}]+)\}").map_err(|e| e.to_string())?;
@@ -299,7 +307,10 @@ pub fn resolve_workspace(
         // need to materialize an object when properties was None.
         let inline_code: Option<String> = if is_sql {
             node.data.properties.as_ref().and_then(|p| {
-                let r#ref = p.get("routineRef").and_then(JsonValue::as_str).unwrap_or("");
+                let r#ref = p
+                    .get("routineRef")
+                    .and_then(JsonValue::as_str)
+                    .unwrap_or("");
                 let inline = p
                     .get("sql")
                     .and_then(JsonValue::as_str)

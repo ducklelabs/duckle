@@ -550,6 +550,15 @@ export function portsForComponent(comp: ComponentDef): NodePorts {
         };
     }
 
+    // Inline SQL can either transform upstream rows through the `input` alias
+    // or start a graph with a literal SELECT such as `select 'rates' repo_key`.
+    if (id === 'code.sql' || id === 'code.sqltemplate') {
+        return {
+            inputs: [{ id: 'main', label: 'main', type: 'main', optional: true }],
+            outputs: [MAIN_OUT],
+        };
+    }
+
     // Quality validators - pass + reject
     if (comp.kind === 'quality') {
         return {

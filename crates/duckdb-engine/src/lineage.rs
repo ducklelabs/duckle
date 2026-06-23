@@ -82,8 +82,10 @@ fn collect_column_refs(expr: &JsonValue, out: &mut Vec<ColumnSource>) {
         JsonValue::Object(map) => {
             if map.get("type").and_then(|t| t.as_str()) == Some("COLUMN_REF") {
                 if let Some(names) = map.get("column_names").and_then(|n| n.as_array()) {
-                    let parts: Vec<String> =
-                        names.iter().filter_map(|n| n.as_str().map(String::from)).collect();
+                    let parts: Vec<String> = names
+                        .iter()
+                        .filter_map(|n| n.as_str().map(String::from))
+                        .collect();
                     if let Some(column) = parts.last().cloned() {
                         let table = if parts.len() > 1 {
                             Some(parts[parts.len() - 2].clone())
@@ -158,7 +160,10 @@ fn resolve_inner(
         return; // cycle guard
     }
     let push_root = |roots: &mut Vec<RootColumn>, n: &str, c: &str| {
-        let r = RootColumn { node: n.to_string(), column: c.to_string() };
+        let r = RootColumn {
+            node: n.to_string(),
+            column: c.to_string(),
+        };
         if !roots.contains(&r) {
             roots.push(r);
         }
@@ -257,13 +262,25 @@ mod tests {
         let lin = lineage_from_serialized_sql(&a);
         assert_eq!(lin.len(), 2);
         assert_eq!(lin[0].name, "a");
-        assert_eq!(lin[0].sources, vec![ColumnSource { table: None, column: "a".into() }]);
+        assert_eq!(
+            lin[0].sources,
+            vec![ColumnSource {
+                table: None,
+                column: "a".into()
+            }]
+        );
         assert_eq!(lin[1].name, "total");
         assert_eq!(
             lin[1].sources,
             vec![
-                ColumnSource { table: None, column: "b".into() },
-                ColumnSource { table: None, column: "c".into() },
+                ColumnSource {
+                    table: None,
+                    column: "b".into()
+                },
+                ColumnSource {
+                    table: None,
+                    column: "c".into()
+                },
             ]
         );
     }
@@ -281,17 +298,28 @@ mod tests {
         let lin = lineage_from_serialized_sql(&a);
         assert_eq!(lin[0].name, "region");
         assert_eq!(lin[1].name, "total");
-        assert_eq!(lin[1].sources, vec![ColumnSource { table: None, column: "amount".into() }]);
+        assert_eq!(
+            lin[1].sources,
+            vec![ColumnSource {
+                table: None,
+                column: "amount".into()
+            }]
+        );
         assert_eq!(lin[2].name, "cust");
         assert_eq!(
             lin[2].sources,
-            vec![ColumnSource { table: Some("c".into()), column: "name".into() }]
+            vec![ColumnSource {
+                table: Some("c".into()),
+                column: "name".into()
+            }]
         );
     }
 
     #[test]
     fn non_select_yields_empty() {
-        assert!(lineage_from_serialized_sql(&json!({ "error": false, "statements": [] })).is_empty());
+        assert!(
+            lineage_from_serialized_sql(&json!({ "error": false, "statements": [] })).is_empty()
+        );
         assert!(lineage_from_serialized_sql(&json!({})).is_empty());
     }
 
@@ -300,7 +328,10 @@ mod tests {
             name: name.into(),
             sources: sources
                 .iter()
-                .map(|(t, c)| ColumnSource { table: t.map(String::from), column: (*c).into() })
+                .map(|(t, c)| ColumnSource {
+                    table: t.map(String::from),
+                    column: (*c).into(),
+                })
                 .collect(),
         }
     }
@@ -309,18 +340,30 @@ mod tests {
     fn stitches_lineage_across_stages_to_root_sources() {
         // s (source) -> t1: total = b + c, region passthrough -> t2: grand = total
         let mut g: HashMap<String, NodeLineage> = HashMap::new();
-        g.insert("s".into(), NodeLineage { outputs: vec![], upstreams: vec![] });
+        g.insert(
+            "s".into(),
+            NodeLineage {
+                outputs: vec![],
+                upstreams: vec![],
+            },
+        );
         g.insert(
             "t1".into(),
             NodeLineage {
-                outputs: vec![oc("total", &[(None, "b"), (None, "c")]), oc("region", &[(None, "region")])],
+                outputs: vec![
+                    oc("total", &[(None, "b"), (None, "c")]),
+                    oc("region", &[(None, "region")]),
+                ],
                 upstreams: vec!["s".into()],
             },
         );
         g.insert(
             "t2".into(),
             NodeLineage {
-                outputs: vec![oc("grand", &[(None, "total")]), oc("reg", &[(None, "region")])],
+                outputs: vec![
+                    oc("grand", &[(None, "total")]),
+                    oc("reg", &[(None, "region")]),
+                ],
                 upstreams: vec!["t1".into()],
             },
         );
@@ -329,13 +372,22 @@ mod tests {
         assert_eq!(
             grand,
             vec![
-                RootColumn { node: "s".into(), column: "b".into() },
-                RootColumn { node: "s".into(), column: "c".into() },
+                RootColumn {
+                    node: "s".into(),
+                    column: "b".into()
+                },
+                RootColumn {
+                    node: "s".into(),
+                    column: "c".into()
+                },
             ]
         );
         assert_eq!(
             resolve_roots("t2", "reg", &g),
-            vec![RootColumn { node: "s".into(), column: "region".into() }]
+            vec![RootColumn {
+                node: "s".into(),
+                column: "region".into()
+            }]
         );
     }
 
@@ -343,22 +395,43 @@ mod tests {
     fn stitch_join_uses_qualifier_to_pick_upstream() {
         // j joins a and b; id <- a.id, cust <- b.name (qualifier disambiguates).
         let mut g: HashMap<String, NodeLineage> = HashMap::new();
-        g.insert("a".into(), NodeLineage { outputs: vec![], upstreams: vec![] });
-        g.insert("b".into(), NodeLineage { outputs: vec![], upstreams: vec![] });
+        g.insert(
+            "a".into(),
+            NodeLineage {
+                outputs: vec![],
+                upstreams: vec![],
+            },
+        );
+        g.insert(
+            "b".into(),
+            NodeLineage {
+                outputs: vec![],
+                upstreams: vec![],
+            },
+        );
         g.insert(
             "j".into(),
             NodeLineage {
-                outputs: vec![oc("id", &[(Some("a"), "id")]), oc("cust", &[(Some("b"), "name")])],
+                outputs: vec![
+                    oc("id", &[(Some("a"), "id")]),
+                    oc("cust", &[(Some("b"), "name")]),
+                ],
                 upstreams: vec!["a".into(), "b".into()],
             },
         );
         assert_eq!(
             resolve_roots("j", "cust", &g),
-            vec![RootColumn { node: "b".into(), column: "name".into() }]
+            vec![RootColumn {
+                node: "b".into(),
+                column: "name".into()
+            }]
         );
         assert_eq!(
             resolve_roots("j", "id", &g),
-            vec![RootColumn { node: "a".into(), column: "id".into() }]
+            vec![RootColumn {
+                node: "a".into(),
+                column: "id".into()
+            }]
         );
     }
 
@@ -372,7 +445,10 @@ mod tests {
             select_body("CREATE OR REPLACE TABLE \"n\" AS SELECT a FROM t;").as_deref(),
             Some("SELECT a FROM t")
         );
-        assert_eq!(select_body("SELECT a FROM t").as_deref(), Some("SELECT a FROM t"));
+        assert_eq!(
+            select_body("SELECT a FROM t").as_deref(),
+            Some("SELECT a FROM t")
+        );
         // A COPY sink (or other non-query) has no SELECT body.
         assert_eq!(select_body("COPY (SELECT * FROM t) TO 'x.csv'"), None);
     }
