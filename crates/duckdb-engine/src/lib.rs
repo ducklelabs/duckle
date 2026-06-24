@@ -889,6 +889,7 @@ impl DuckdbEngine {
                                         rows: st.rows,
                                         duration_ms: st.duration_ms.unwrap_or(0),
                                         error: st.error.clone(),
+                                        sql: st.sql.clone(),
                                     });
                                     nodes.insert(
                                         nid.clone(),
@@ -899,6 +900,7 @@ impl DuckdbEngine {
                                             duration_ms: st.duration_ms,
                                             error: st.error.clone(),
                                             category: st.category.clone(),
+                                            sql: st.sql.clone(),
                                         },
                                     );
                                 }
@@ -1138,6 +1140,7 @@ impl DuckdbEngine {
                             duration_ms: Some(elapsed_ms),
                             error: None,
                             category: None,
+                            sql: None,
                         },
                     );
                     on_event(PipelineEvent::StageFinished {
@@ -1147,6 +1150,7 @@ impl DuckdbEngine {
                         rows: rows_opt,
                         duration_ms: elapsed_ms,
                         error: None,
+                        sql: None,
                     });
                     if let Some(p) = view_preview {
                         preview.push(p);
@@ -1160,6 +1164,7 @@ impl DuckdbEngine {
                 Err(err) => {
                     let msg = redact_secret_values(&err.to_string(), &redact_secrets);
                     let category = error_category::categorize_error(&msg);
+                    let failing_sql = Some(redact_secret_values(&stage.sql, &redact_secrets));
                     nodes.insert(
                         stage.node_id.clone(),
                         NodeRunStatus {
@@ -1169,6 +1174,7 @@ impl DuckdbEngine {
                             duration_ms: Some(elapsed_ms),
                             error: Some(msg.clone()),
                             category: Some(category.into()),
+                            sql: failing_sql.clone(),
                         },
                     );
                     on_event(PipelineEvent::StageFinished {
@@ -1178,6 +1184,7 @@ impl DuckdbEngine {
                         rows: None,
                         duration_ms: elapsed_ms,
                         error: Some(msg.clone()),
+                        sql: failing_sql.clone(),
                     });
                     // ctl.try fallback: if an upstream ctl.try installed
                     // a recovery pipeline, run it as a side effect before
@@ -1629,6 +1636,7 @@ impl DuckdbEngine {
                 } else {
                     redact_secret_values(&stderr_str, &redact_secrets)
                 };
+                let failing_sql = Some(redact_secret_values(&stage.sql, &redact_secrets));
                 nodes.insert(
                     stage.node_id.clone(),
                     NodeRunStatus {
@@ -1638,6 +1646,7 @@ impl DuckdbEngine {
                         duration_ms: Some(elapsed),
                         error: Some(msg.clone()),
                         category: Some(error_category::categorize_error(&msg).into()),
+                        sql: failing_sql.clone(),
                     },
                 );
                 on_event(PipelineEvent::StageFinished {
@@ -1647,6 +1656,7 @@ impl DuckdbEngine {
                     rows: None,
                     duration_ms: elapsed,
                     error: Some(msg.clone()),
+                    sql: failing_sql.clone(),
                 });
                 overall_error.get_or_insert(format!("{}: {}", stage.label, msg));
             } else {
@@ -1935,6 +1945,7 @@ fn drain_batched_markers(
                 duration_ms: Some(elapsed),
                 error: None,
                 category: None,
+                sql: None,
             },
         );
         on_event(PipelineEvent::StageFinished {
@@ -1944,6 +1955,7 @@ fn drain_batched_markers(
             rows,
             duration_ms: elapsed,
             error: None,
+            sql: None,
         });
         *completed += 1;
         if *completed < stages.len() {
@@ -3469,6 +3481,10 @@ pub enum PipelineEvent {
         duration_ms: u64,
         #[serde(skip_serializing_if = "Option::is_none")]
         error: Option<String>,
+        /// The compiled SQL that failed (redacted) - present only on error, so
+        /// every component's failure carries the exact statement for tracebacks.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        sql: Option<String>,
     },
     Cancelled,
     /// A diagnostic line from a ctl.log / ctl.warn node (and, on failure,
@@ -3526,6 +3542,11 @@ pub struct NodeRunStatus {
     /// cancelled/other) - present only when `error` is. See error_category.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub category: Option<String>,
+    /// The compiled SQL statement that failed, redacted - present only on
+    /// error, so any component's failure shows the exact statement DuckDB
+    /// rejected (easy tracebacks for every node).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sql: Option<String>,
 }
 
 #[derive(Debug, Serialize)]

@@ -39,6 +39,9 @@ export type NodeRunStatus = {
     /** Coarse error bucket (auth/network/timeout/oom/disk/schema/syntax/
      *  cancelled/other) - present only when `error` is. */
     category?: string;
+    /** The compiled SQL statement that failed (present only on error), so any
+     *  component's failure shows exactly what ran. */
+    sql?: string;
 };
 
 export type NodePreview = {
@@ -77,6 +80,7 @@ export type PipelineEvent =
           rows?: number;
           duration_ms: number;
           error?: string;
+          sql?: string;
       }
     | { type: 'cancelled' }
     | { type: 'log'; node_id: string; level: 'info' | 'warn' | 'error'; message: string }

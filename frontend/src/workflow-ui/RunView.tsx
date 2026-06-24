@@ -94,6 +94,12 @@ export default function RunView({ runResult, isRunning, nodeLabels }: Props) {
                                         {st.error}
                                     </div>
                                 ) : null}
+                                {st.sql ? (
+                                    <details className="run-node-sql">
+                                        <summary>Failing SQL</summary>
+                                        <pre>{st.sql}</pre>
+                                    </details>
+                                ) : null}
                             </td>
                             <td>{st.kind ?? ''}</td>
                             <td className="run-num">

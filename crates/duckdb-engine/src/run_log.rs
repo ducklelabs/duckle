@@ -111,7 +111,7 @@ impl RunLog {
                 self.enrich(&mut m, node_id);
             }
             PipelineEvent::StageFinished {
-                node_id, kind, status, rows, duration_ms, error,
+                node_id, kind, status, rows, duration_ms, error, sql,
             } => {
                 set("event", json!("stage_finished"));
                 set("level", json!(if status == "error" { "error" } else { "info" }));
@@ -126,6 +126,11 @@ impl RunLog {
                         "category",
                         json!(crate::error_category::categorize_error(err)),
                     );
+                }
+                // The failing statement (present only on error) so the NDJSON
+                // trace shows exactly what each component ran.
+                if let Some(s) = sql {
+                    set("sql", json!(s));
                 }
                 self.enrich(&mut m, node_id);
             }

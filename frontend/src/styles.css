@@ -7932,3 +7932,8 @@ html[dir='rtl'] .topbar-lang {
     background: var(--accent);
     opacity: 0.5;
 }
+
+/* Failing-SQL traceback in the run view (error detail for every component). */
+.run-node-sql { margin-top: 4px; font-size: 12px; }
+.run-node-sql summary { cursor: pointer; color: var(--text-2); }
+.run-node-sql pre { margin: 4px 0 0; padding: 8px; background: var(--bg-2); border: 1px solid var(--border); border-radius: 6px; overflow: auto; max-height: 220px; white-space: pre-wrap; font-family: Consolas, monospace; }
