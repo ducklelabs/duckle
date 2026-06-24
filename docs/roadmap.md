@@ -91,6 +91,7 @@ Capabilities table in the README.
 | Component | Notes |
 |---|---|
 | `src.orc` / `snk.orc` | Apache ORC reader; no native DuckDB extension; the `orc` Rust crate exists but is minimal |
+| `src.xml` (large + compressed) | `src.xml` ships today but reads the whole file into memory and does not decompress, so multi-GB XML and `.gz` / `.zip` inputs are not supported. Planned: a streaming pull-parser (row-by-row, bounded memory) plus gzip / zip decompression, so a large compressed XML can be read (or converted to Parquet/JSONL) without loading it all into RAM. CSV / JSON / Parquet already stream out-of-core and read `.gz` via DuckDB; big XML is the gap. |
 
 `src.yaml`, `snk.yaml`, `src.toml`, `snk.toml`, `src.fixedwidth`,
 `src.avro`, `snk.avro`, `src.xml`, `snk.xml` shipped - see the
