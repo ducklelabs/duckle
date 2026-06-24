@@ -435,6 +435,14 @@ pub(crate) fn build_custom_sql(inputs: &NodeInputs, props: &JsonValue) -> Result
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty())
         .ok_or_else(|| "Custom SQL is empty - write a SELECT or pick a SQL routine".to_string())?;
+    // Raw mode (#102 item 3): emit the user's SQL verbatim, with no `WITH input
+    // AS (...)` wrapper. The wrapper otherwise breaks any query that starts with
+    // its own WITH (nested WITH) and blocks multi-CTE / UNION queries. In raw
+    // mode the user references each upstream input by its node id (quoted), e.g.
+    // `SELECT * FROM "node_id"`.
+    if props.get("rawSql").and_then(JsonValue::as_bool).unwrap_or(false) {
+        return Ok(sql);
+    }
     Ok(match inputs.main() {
         Some(upstream) => {
             format!("WITH input AS (SELECT * FROM {}) {}", quote_ident(upstream), sql)

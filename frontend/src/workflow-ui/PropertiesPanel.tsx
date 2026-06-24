@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { Edge, Node } from '@xyflow/react';
 import { CheckCircle2, ChevronLeft, ChevronRight, MousePointer2, Workflow } from 'lucide-react';
@@ -43,7 +43,7 @@ const ADVANCED_FIELDS: Field[] = [
         label: 'Memory limit (MB)',
         kind: 'integer',
         defaultValue: 0,
-        description: "PRAGMA memory_limit applied to this stage only. 0 = no override. Useful to cap a heavy aggregation without touching the whole pipeline.",
+        description: "PRAGMA memory_limit for this stage only. 0 = no override. NOTE: setting a per-stage limit forces slower per-stage execution (disables batching). For a pipeline-wide cap, set the DUCKLE_MEMORY_LIMIT workspace variable (e.g. 4GB) instead.",
     },
     {
         key: 'logRowCount',
@@ -174,6 +174,35 @@ export default function PropertiesPanel({
             return next;
         });
 
+    // #102 item 4a: drag the panel's left edge to resize; width persists per machine.
+    const [panelWidth, setPanelWidth] = useState<number>(() => {
+        const saved = Number(localStorage.getItem('duckle.properties.width'));
+        return saved >= 280 && saved <= 720 ? saved : 352;
+    });
+    const widthRef = useRef(panelWidth);
+    const startResize = (e: ReactMouseEvent) => {
+        e.preventDefault();
+        const startX = e.clientX;
+        const startW = widthRef.current;
+        const onMove = (ev: MouseEvent) => {
+            // Dragging the left edge: moving left widens the panel.
+            const next = Math.max(280, Math.min(720, startW + (startX - ev.clientX)));
+            widthRef.current = next;
+            setPanelWidth(next);
+        };
+        const onUp = () => {
+            try {
+                localStorage.setItem('duckle.properties.width', String(widthRef.current));
+            } catch {
+                /* localStorage unavailable - non-fatal */
+            }
+            document.removeEventListener('mousemove', onMove);
+            document.removeEventListener('mouseup', onUp);
+        };
+        document.addEventListener('mousemove', onMove);
+        document.addEventListener('mouseup', onUp);
+    };
+
     if (collapsed) {
         return (
             <aside className="properties properties-collapsed">
@@ -192,7 +221,8 @@ export default function PropertiesPanel({
 
     if (!selected) {
         return (
-            <aside className="properties" data-tour="properties">
+            <aside className="properties" data-tour="properties" style={{ width: panelWidth }}>
+                <div className="properties-resize-handle" onMouseDown={startResize} aria-hidden="true" />
                 <button
                     type="button"
                     className="properties-collapse-toggle properties-collapse-toggle-float"
@@ -255,7 +285,8 @@ export default function PropertiesPanel({
     };
 
     return (
-        <aside className="properties">
+        <aside className="properties" style={{ width: panelWidth }}>
+            <div className="properties-resize-handle" onMouseDown={startResize} aria-hidden="true" />
             <button
                 type="button"
                 className="properties-collapse-toggle properties-collapse-toggle-float"

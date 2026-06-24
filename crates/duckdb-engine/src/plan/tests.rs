@@ -1523,6 +1523,32 @@
     }
 
     #[test]
+    fn custom_sql_raw_mode_skips_input_wrapper() {
+        // #102 item 3: rawSql=true emits the user SQL verbatim so a leading WITH
+        // is not broken by the "WITH input AS (...)" wrapper.
+        let mut ni = NodeInputs::default();
+        ni.ports.insert("main".into(), vec!["up".into()]);
+        let raw = build_custom_sql(
+            &ni,
+            &serde_json::json!({
+                "sql": "WITH c AS (SELECT * FROM \"up\") SELECT * FROM c",
+                "rawSql": true
+            }),
+        )
+        .unwrap();
+        assert!(!raw.contains("WITH input AS"), "raw mode must not wrap: {}", raw);
+        assert!(raw.starts_with("WITH c AS"), "raw SQL emitted verbatim: {}", raw);
+        // Default (no rawSql) still wraps the upstream as `input`.
+        let wrapped =
+            build_custom_sql(&ni, &serde_json::json!({ "sql": "SELECT * FROM input" })).unwrap();
+        assert!(
+            wrapped.contains("WITH input AS (SELECT * FROM \"up\")"),
+            "default wraps: {}",
+            wrapped
+        );
+    }
+
+    #[test]
     fn contract_builds_gated_passthrough() {
         let mut ni = NodeInputs::default();
         ni.ports.insert("main".into(), vec!["up".into()]);

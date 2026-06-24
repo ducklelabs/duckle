@@ -114,7 +114,7 @@ export default function DuckleNode({ id, data, selected, type }: NodeProps<Duckl
                         size={16}
                         className="node-icon"
                     />
-                    <div className="node-label">{data.label}</div>
+                    <div className="node-label" title={data.label}>{data.label}</div>
                 </div>
                 {(() => {
                     // Subtitle reflects ONLY the live config (file name,

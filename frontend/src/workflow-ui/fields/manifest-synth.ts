@@ -4300,7 +4300,14 @@ function synthCustomCode(comp: ComponentDef): ComponentManifest {
                         kind: 'expression',
                         rows: 10,
                         placeholder: 'SELECT *, upper(status) AS status FROM input',
-                        description: 'The upstream rows are available as `input`.',
+                        description: 'The upstream rows are available as `input` (unless Raw SQL mode is on).',
+                    },
+                    {
+                        key: 'rawSql',
+                        label: 'Raw SQL mode',
+                        kind: 'bool',
+                        defaultValue: false,
+                        description: 'Run your SQL verbatim with no "WITH input AS (...)" wrapper, so queries that start with their own WITH (or use multiple CTEs / UNIONs) are not broken. In this mode reference each upstream input by its node id, quoted, e.g. SELECT * FROM "node_id".',
                     },
                     {
                         key: 'loadSpatial',

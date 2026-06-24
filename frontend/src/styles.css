@@ -759,12 +759,18 @@ textarea:focus-visible {
 .node-label {
     font-weight: 600;
     font-size: 14px;
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 .node-label-row {
     display: flex;
     align-items: center;
     gap: 7px;
+    min-width: 0;
 }
 
 .node-icon {
@@ -5384,6 +5390,9 @@ html[dir='rtl'] .topbar-lang {
 .bottom-preview-scroll {
     overflow: auto;
     max-height: 280px;
+    /* #102 4c: reserve the scrollbar gutter so a wide table's horizontal
+       scrollbar is reachable without first scrolling to the bottom. */
+    scrollbar-gutter: stable;
 }
 
 .bottom-preview-table {
@@ -7908,3 +7917,18 @@ html[dir='rtl'] .topbar-lang {
 .dives-gallery-card:hover { border-color: var(--accent, #f5b301); background: var(--bg-3, var(--bg-2)); }
 .dives-gallery-card-icon { color: var(--accent, #f5b301); }
 .dives-gallery-card-name { font-size: 13px; font-weight: 550; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
+
+/* #102 4a: drag handle on the properties panel's left edge to resize it. */
+.properties-resize-handle {
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    width: 5px;
+    cursor: ew-resize;
+    z-index: 3;
+}
+.properties-resize-handle:hover {
+    background: var(--accent);
+    opacity: 0.5;
+}
