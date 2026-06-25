@@ -10961,8 +10961,8 @@
       "id": "src.lancedb",
       "label": "LanceDB",
       "kind": "source",
-      "availability": "preview",
-      "summary": "",
+      "availability": "available",
+      "summary": "Read a Lance table (local dir, LanceDB Cloud db://, or s3:// / gs:// / az:// object store) via the bundled duckle-lance sidecar.",
       "ports": {
         "inputs": [],
         "outputs": [
@@ -10983,74 +10983,47 @@
         "id": "src.lancedb",
         "kind": "source",
         "label": "LanceDB",
-        "description": "Reads data from LanceDB.",
+        "description": "Read a Lance table (local dir, LanceDB Cloud db://, or s3:// / gs:// / az:// object store) via the bundled duckle-lance sidecar.",
         "schemaSource": "autodetect",
         "sections": [
           {
-            "label": "Vector store",
+            "label": "LanceDB",
             "fields": [
               {
-                "key": "endpoint",
-                "label": "Endpoint / host",
-                "kind": "text"
-              },
-              {
-                "key": "apiKey",
-                "label": "API key",
+                "key": "uri",
+                "label": "Dataset URI",
                 "kind": "text",
-                "placeholder": "••••••••"
+                "required": true,
+                "placeholder": "/path/to/dataset  or  db://my-db  or  s3://bucket/ds"
               },
               {
-                "key": "collection",
-                "label": "Collection / index",
+                "key": "table",
+                "label": "Table",
                 "kind": "text",
-                "required": true
+                "required": true,
+                "placeholder": "embeddings"
               },
               {
-                "key": "connectionRef",
-                "label": "Or use saved connection",
-                "kind": "connection-ref"
+                "key": "limit",
+                "label": "Limit (optional)",
+                "kind": "integer"
               }
             ]
           },
           {
-            "label": "Query",
+            "label": "Cloud / auth (optional)",
             "fields": [
               {
-                "key": "queryMode",
-                "label": "Mode",
-                "kind": "select",
-                "defaultValue": "fetch",
-                "options": [
-                  {
-                    "label": "Fetch all",
-                    "value": "fetch"
-                  },
-                  {
-                    "label": "Similarity search",
-                    "value": "search"
-                  }
-                ]
+                "key": "apiKey",
+                "label": "API key",
+                "kind": "text",
+                "placeholder": "for db:// LanceDB Cloud"
               },
               {
-                "key": "queryText",
-                "label": "Query text",
-                "kind": "textarea",
-                "rows": 2,
-                "description": "For similarity search."
-              },
-              {
-                "key": "topK",
-                "label": "Top K",
-                "kind": "integer",
-                "defaultValue": 10
-              },
-              {
-                "key": "filter",
-                "label": "Metadata filter (JSON)",
-                "kind": "textarea",
-                "rows": 3,
-                "placeholder": "{\"source\": \"docs\"}"
+                "key": "region",
+                "label": "Region",
+                "kind": "text",
+                "placeholder": "us-east-1"
               }
             ]
           }
@@ -32508,8 +32481,8 @@
       "id": "snk.lancedb",
       "label": "LanceDB",
       "kind": "sink",
-      "availability": "preview",
-      "summary": "",
+      "availability": "available",
+      "summary": "Write rows to a Lance table (create/overwrite or append) via the bundled duckle-lance sidecar.",
       "ports": {
         "inputs": [
           {
@@ -32530,112 +32503,58 @@
         "id": "snk.lancedb",
         "kind": "sink",
         "label": "LanceDB",
-        "description": "Writes data to LanceDB.",
+        "description": "Write rows to a Lance table (create/overwrite or append) via the bundled duckle-lance sidecar.",
         "schemaSource": "upstream",
         "sections": [
           {
-            "label": "Vector store",
+            "label": "LanceDB",
             "fields": [
               {
-                "key": "endpoint",
-                "label": "Endpoint / host",
-                "kind": "text",
-                "placeholder": "http://localhost:6333"
-              },
-              {
-                "key": "apiKey",
-                "label": "API key",
-                "kind": "text",
-                "placeholder": "••••••••"
-              },
-              {
-                "key": "collection",
-                "label": "Collection / index",
+                "key": "uri",
+                "label": "Dataset URI",
                 "kind": "text",
                 "required": true,
-                "placeholder": "documents"
+                "placeholder": "/path/to/dataset  or  db://my-db  or  s3://bucket/ds"
               },
               {
-                "key": "connectionRef",
-                "label": "Or use saved connection",
-                "kind": "connection-ref"
-              }
-            ]
-          },
-          {
-            "label": "Vectors",
-            "fields": [
-              {
-                "key": "embeddingColumn",
-                "label": "Embedding column",
-                "kind": "column",
+                "key": "table",
+                "label": "Table",
+                "kind": "text",
                 "required": true,
-                "description": "Column holding the vector (array of floats)."
-              },
-              {
-                "key": "idColumn",
-                "label": "ID column",
-                "kind": "column"
-              },
-              {
-                "key": "metadataColumns",
-                "label": "Metadata columns",
-                "kind": "columns",
-                "description": "Stored alongside each vector."
-              },
-              {
-                "key": "dimension",
-                "label": "Dimensions",
-                "kind": "integer",
-                "defaultValue": 1536
-              },
-              {
-                "key": "metric",
-                "label": "Distance metric",
-                "kind": "select",
-                "defaultValue": "cosine",
-                "options": [
-                  {
-                    "label": "Cosine",
-                    "value": "cosine"
-                  },
-                  {
-                    "label": "Euclidean (L2)",
-                    "value": "l2"
-                  },
-                  {
-                    "label": "Dot product",
-                    "value": "dot"
-                  }
-                ]
+                "placeholder": "embeddings"
               },
               {
                 "key": "mode",
                 "label": "Write mode",
                 "kind": "select",
-                "defaultValue": "upsert",
+                "defaultValue": "create",
                 "options": [
                   {
-                    "label": "Upsert",
-                    "value": "upsert"
+                    "label": "Create / overwrite",
+                    "value": "create"
                   },
                   {
-                    "label": "Insert",
-                    "value": "insert"
+                    "label": "Append",
+                    "value": "append"
                   }
                 ]
+              }
+            ]
+          },
+          {
+            "label": "Cloud / auth (optional)",
+            "fields": [
+              {
+                "key": "apiKey",
+                "label": "API key",
+                "kind": "text",
+                "placeholder": "for db:// LanceDB Cloud"
               },
               {
-                "key": "batchSize",
-                "label": "Batch size",
-                "kind": "integer",
-                "defaultValue": 100
-              },
-              {
-                "key": "createIfMissing",
-                "label": "Create collection if missing",
-                "kind": "bool",
-                "defaultValue": true
+                "key": "region",
+                "label": "Region",
+                "kind": "text",
+                "placeholder": "us-east-1"
               }
             ]
           }

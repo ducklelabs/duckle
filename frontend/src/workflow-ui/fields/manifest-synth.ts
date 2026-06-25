@@ -4471,6 +4471,34 @@ function synthVectorSink(comp: ComponentDef): ComponentManifest {
             },
         ], 'upstream');
     }
+    if (comp.id === 'snk.lancedb') {
+        return base(comp, [
+            {
+                label: 'LanceDB',
+                fields: [
+                    { key: 'uri', label: 'Dataset URI', kind: 'text', required: true, placeholder: '/path/to/dataset  or  db://my-db  or  s3://bucket/ds' },
+                    { key: 'table', label: 'Table', kind: 'text', required: true, placeholder: 'embeddings' },
+                    {
+                        key: 'mode',
+                        label: 'Write mode',
+                        kind: 'select',
+                        defaultValue: 'create',
+                        options: [
+                            { label: 'Create / overwrite', value: 'create' },
+                            { label: 'Append', value: 'append' },
+                        ],
+                    },
+                ],
+            },
+            {
+                label: 'Cloud / auth (optional)',
+                fields: [
+                    { key: 'apiKey', label: 'API key', kind: 'text', placeholder: 'for db:// LanceDB Cloud' },
+                    { key: 'region', label: 'Region', kind: 'text', placeholder: 'us-east-1' },
+                ],
+            },
+        ], 'upstream');
+    }
     if (comp.id === 'snk.qdrant') {
         return base(comp, [
             {
@@ -4628,6 +4656,25 @@ function synthVectorSource(comp: ComponentDef): ComponentManifest {
                 { key: 'schemaName', label: 'Schema', kind: 'text', defaultValue: 'public' },
                 { key: 'tableName', label: 'Table', kind: 'text', required: true, placeholder: 'embeddings' },
             ]},
+        ]);
+    }
+    if (comp.id === 'src.lancedb') {
+        return base(comp, [
+            {
+                label: 'LanceDB',
+                fields: [
+                    { key: 'uri', label: 'Dataset URI', kind: 'text', required: true, placeholder: '/path/to/dataset  or  db://my-db  or  s3://bucket/ds' },
+                    { key: 'table', label: 'Table', kind: 'text', required: true, placeholder: 'embeddings' },
+                    { key: 'limit', label: 'Limit (optional)', kind: 'integer' },
+                ],
+            },
+            {
+                label: 'Cloud / auth (optional)',
+                fields: [
+                    { key: 'apiKey', label: 'API key', kind: 'text', placeholder: 'for db:// LanceDB Cloud' },
+                    { key: 'region', label: 'Region', kind: 'text', placeholder: 'us-east-1' },
+                ],
+            },
         ]);
     }
     return base(comp, [
