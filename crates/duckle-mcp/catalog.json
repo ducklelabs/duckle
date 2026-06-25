@@ -36449,8 +36449,8 @@
       "id": "code.python",
       "label": "Python UDF",
       "kind": "custom",
-      "availability": "planned",
-      "summary": "",
+      "availability": "available",
+      "summary": "Per-row transform via a real Python 3 interpreter (full language + installed packages). Define a `process(row)` function that takes the row as a dict and returns the output dict (return None to drop the row); rows go in/out as JSON. Needs Python 3 on PATH or DUCKLE_PYTHON_BIN. Code in the `code` prop.",
       "ports": {
         "inputs": [
           {
@@ -36477,7 +36477,7 @@
         "id": "code.python",
         "kind": "transform",
         "label": "Python UDF",
-        "description": "Runs custom code via Python UDF.",
+        "description": "Per-row transform via a real Python 3 interpreter (full language + installed packages). Define a `process(row)` function that takes the row as a dict and returns the output dict (return None to drop the row); rows go in/out as JSON. Needs Python 3 on PATH or DUCKLE_PYTHON_BIN. Code in the `code` prop.",
         "schemaSource": "declared",
         "sections": [
           {

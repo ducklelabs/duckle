@@ -838,6 +838,17 @@ pub struct JavaScriptSpec {
     pub script: String,
 }
 
+/// code.python: per-row transform via a real Python 3 interpreter (shelled out,
+/// so the user gets the full language + installed packages). The script defines
+/// `process(row)` returning a dict (the output row); returning None drops the
+/// row. The engine passes rows in/out as JSON, so it carries no Python runtime.
+#[derive(Debug, Clone)]
+pub struct PythonSpec {
+    pub node_id: String,
+    pub from_view: String,
+    pub script: String,
+}
+
 /// xf.ai.chunk: text splitter for RAG / embedding pipelines. No API
 /// call - pure local string slicing. Two modes:
 /// - "explode": one row per chunk with chunk_index + chunk_count;

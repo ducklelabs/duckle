@@ -171,6 +171,7 @@ pub enum RuntimeSpec {
     AiEmbed(AiEmbedSpec),
     Wasm(WasmSpec),
     Javascript(JavaScriptSpec),
+    Python(PythonSpec),
     AiChunk(AiChunkSpec),
     AiPii(AiPiiSpec),
     AiLlm(AiLlmSpec),
@@ -769,6 +770,7 @@ fn build_stage(
     let mut ai_embed: Option<AiEmbedSpec> = None;
     let mut wasm: Option<WasmSpec> = None;
     let mut javascript: Option<JavaScriptSpec> = None;
+    let mut python: Option<PythonSpec> = None;
     let mut ai_chunk: Option<AiChunkSpec> = None;
     let mut ai_pii: Option<AiPiiSpec> = None;
     let mut ai_llm: Option<AiLlmSpec> = None;
@@ -3090,6 +3092,23 @@ fn build_stage(
             script,
         });
         (String::new(), StageKind::View, None)
+    } else if component_id == "code.python" {
+        // Per-row Python transform. Script must define process(row) -> dict.
+        // The scripts-group manifest stores the body under `code`; accept `script`
+        // too for parity with code.javascript.
+        let from_view = inputs
+            .main()
+            .ok_or_else(|| EngineError::Config(format!("{}: upstream input required", component_id)))?;
+        let script = string_prop(&props, "code")
+            .or_else(|| string_prop(&props, "script"))
+            .filter(|s| !s.is_empty())
+            .ok_or_else(|| EngineError::Config(format!("{}: code required", component_id)))?;
+        python = Some(PythonSpec {
+            node_id: node.id.clone(),
+            from_view: from_view.to_string(),
+            script,
+        });
+        (String::new(), StageKind::View, None)
     } else if component_id == "code.wasm" {
         // Per-row WASM transform via wasmi. The user supplies the
         // module either as base64 bytes (inline) or as a path to a
@@ -3627,6 +3646,7 @@ fn build_stage(
         .or_else(|| ai_embed.map(RuntimeSpec::AiEmbed))
         .or_else(|| wasm.map(RuntimeSpec::Wasm))
         .or_else(|| javascript.map(RuntimeSpec::Javascript))
+        .or_else(|| python.map(RuntimeSpec::Python))
         .or_else(|| ai_chunk.map(RuntimeSpec::AiChunk))
         .or_else(|| ai_pii.map(RuntimeSpec::AiPii))
         .or_else(|| ai_llm.map(RuntimeSpec::AiLlm))

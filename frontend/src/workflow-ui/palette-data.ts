@@ -705,7 +705,7 @@ export const PALETTE: Category[] = [
                 id: 'code.scripts',
                 label: 'Scripting',
                 components: [
-                    code('python', 'Python UDF', 'planned'),
+                    code('python', 'Python UDF', 'available', 'Per-row transform via a real Python 3 interpreter (full language + installed packages). Define a `process(row)` function that takes the row as a dict and returns the output dict (return None to drop the row); rows go in/out as JSON. Needs Python 3 on PATH or DUCKLE_PYTHON_BIN. Code in the `code` prop.'),
                     code('rust', 'Rust UDF', 'planned'),
                     code('javascript', 'JavaScript UDF', 'available', 'Per-row JS transform via the pure-Rust boa interpreter (sandboxed - no fetch / fs / DOM). Define a `transform(row)` function; the engine calls it per row with the row as a JS object and uses the returned object as the output row. Helpers declared at the top of the script are shared across rows within the stage. Script in the `script` prop.'),
                     code('shell', 'Shell Command', 'available', 'Run an arbitrary shell command and emit one row with {stdout, stderr, exit_code, duration_ms}. Defaults to cmd.exe on Windows, /bin/sh on Unix. Optional timeout + workingDir. Cancellation kills the child process.'),

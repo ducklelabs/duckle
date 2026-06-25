@@ -4657,6 +4657,103 @@ impl DuckdbEngine {
         ))
     }
 
+    /// code.python: per-row transform via a real Python 3 interpreter (shelled
+    /// out, so the user gets the full language + installed packages). The script
+    /// defines process(row) -> dict; the engine wraps it in a harness that reads
+    /// the upstream rows as JSON, applies process per row (None drops the row),
+    /// and writes the result JSON back for materialization. No Python in-engine.
+    pub(crate) fn run_python(
+        &self,
+        db: &Path,
+        spec: &PythonSpec,
+    ) -> Result<String, EngineError> {
+        self.check_cancelled()?;
+        let rows = self.run_rows(
+            Some(db),
+            &format!("SELECT * FROM {};", plan::quote_ident(&spec.from_view)),
+        )?;
+        if rows.is_empty() {
+            materialize_jsonobjects_as_table(&self.bin, db, &spec.node_id, &[])?;
+            return Ok(format!("code.python: 0 upstream rows -> {}", spec.node_id));
+        }
+        let safe: String = spec
+            .node_id
+            .chars()
+            .map(|c| if c.is_ascii_alphanumeric() || c == '_' || c == '-' { c } else { '_' })
+            .collect();
+        let in_path = db.with_file_name(format!("py-in-{}.json", safe));
+        let out_path = db.with_file_name(format!("py-out-{}.json", safe));
+        let script_path = db.with_file_name(format!("py-{}.py", safe));
+        let cleanup = |a: &Path, b: &Path, c: &Path| {
+            let _ = std::fs::remove_file(a);
+            let _ = std::fs::remove_file(b);
+            let _ = std::fs::remove_file(c);
+        };
+        if let Err(e) = std::fs::write(
+            &in_path,
+            serde_json::to_vec(&rows)
+                .map_err(|e| EngineError::Query(format!("code.python: encode input: {}", e)))?,
+        ) {
+            return Err(EngineError::Query(format!("code.python: write input: {}", e)));
+        }
+        // Built line-by-line so the user's script keeps column 0 and the runner
+        // lines keep exact Python indentation. default=str serializes dates/etc.
+        let harness = [
+            "import json, sys".to_string(),
+            "__rows = json.load(open(sys.argv[1], encoding='utf-8'))".to_string(),
+            spec.script.clone(),
+            "__out = []".to_string(),
+            "for __row in __rows:".to_string(),
+            "    __r = process(__row)".to_string(),
+            "    if __r is not None:".to_string(),
+            "        __out.append(__r)".to_string(),
+            "with open(sys.argv[2], 'w', encoding='utf-8') as __f:".to_string(),
+            "    json.dump(__out, __f, default=str)".to_string(),
+        ]
+        .join("\n");
+        if let Err(e) = std::fs::write(&script_path, harness) {
+            cleanup(&in_path, &out_path, &script_path);
+            return Err(EngineError::Query(format!("code.python: write script: {}", e)));
+        }
+        let mut cmd = std::process::Command::new(resolve_python_bin());
+        cmd.arg(&script_path).arg(&in_path).arg(&out_path);
+        #[cfg(windows)]
+        {
+            use std::os::windows::process::CommandExt;
+            cmd.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
+        }
+        let output = match cmd.output() {
+            Ok(o) => o,
+            Err(e) => {
+                cleanup(&in_path, &out_path, &script_path);
+                return Err(EngineError::Query(format!(
+                    "code.python: cannot run python: {} (install Python 3 or set DUCKLE_PYTHON_BIN)",
+                    e
+                )));
+            }
+        };
+        if !output.status.success() {
+            cleanup(&in_path, &out_path, &script_path);
+            return Err(EngineError::Query(format!(
+                "code.python: {}",
+                String::from_utf8_lossy(&output.stderr).trim()
+            )));
+        }
+        let text = match std::fs::read_to_string(&out_path) {
+            Ok(t) => t,
+            Err(e) => {
+                cleanup(&in_path, &out_path, &script_path);
+                return Err(EngineError::Query(format!("code.python: read output: {}", e)));
+            }
+        };
+        cleanup(&in_path, &out_path, &script_path);
+        let result: Vec<JsonValue> = serde_json::from_str(&text)
+            .map_err(|e| EngineError::Query(format!("code.python: parse output: {}", e)))?;
+        let count = result.len();
+        materialize_jsonobjects_as_table(&self.bin, db, &spec.node_id, &result)?;
+        Ok(format!("code.python: transformed {} row(s) into {}", count, spec.node_id))
+    }
+
     /// xf.ai.dedupe: drop rows whose embedding is within `threshold`
     /// cosine similarity of a previously-kept row. Reads the
     /// embedding column as a list of floats from each row. No API
@@ -7758,6 +7855,21 @@ fn resolve_lance_bin() -> String {
         }
     }
     "duckle-lance".to_string()
+}
+
+/// Resolve the Python 3 interpreter for code.python. Order: DUCKLE_PYTHON_BIN env
+/// (e.g. a venv) -> `python` on Windows / `python3` on Unix, found on PATH.
+fn resolve_python_bin() -> String {
+    if let Ok(env) = std::env::var("DUCKLE_PYTHON_BIN") {
+        if !env.trim().is_empty() {
+            return env;
+        }
+    }
+    if cfg!(windows) {
+        "python".to_string()
+    } else {
+        "python3".to_string()
+    }
 }
 
 /// Last `max` characters of `s` (UTF-8-safe) - used to keep the useful end
