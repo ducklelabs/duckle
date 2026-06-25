@@ -10,6 +10,7 @@ members = [
     "crates/duckdb-engine",
     "crates/duckle-runner",
     "crates/duckle-mcp",
+    "crates/duckle-lance",
     "crates/slothdb-engine",
     "crates/execution-core",
     "crates/plugin-sdk",

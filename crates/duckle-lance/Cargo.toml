@@ -1,0 +1,23 @@
+[package]
+name = "duckle-lance"
+version = "0.1.0"
+edition = "2021"
+
+# Standalone sidecar that bridges LanceDB <-> the Duckle engine through Parquet
+# temp files. Isolated in its own binary so lancedb's arrow 58 + DataFusion +
+# protoc build requirement never touch the core engine (which stays on arrow 53).
+# Only THIS crate needs protoc to build; the engine/desktop/runner do not.
+
+[[bin]]
+name = "duckle-lance"
+path = "src/main.rs"
+
+[dependencies]
+# remote = LanceDB Cloud (db:// + api_key/region); aws/gcs/azure = object-store
+# backends so s3:// / gs:// / az:// Lance datasets work too.
+lancedb = { version = "0.30", default-features = false, features = ["remote", "aws", "gcs", "azure"] }
+arrow-array = "58"
+arrow-schema = "58"
+parquet = { version = "58", features = ["arrow"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
+futures = "0.3"

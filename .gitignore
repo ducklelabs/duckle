@@ -4,6 +4,10 @@ target/
 *.pdb
 Cargo.lock.bak
 
+# Local build tooling (e.g. a downloaded protoc for the duckle-lance sidecar);
+# not committed - CI installs protoc itself.
+.tools/
+
 # Tauri build artifacts
 apps/desktop/target/
 apps/desktop/gen/
