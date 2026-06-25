@@ -5,7 +5,9 @@ import { useCallback, useEffect, useLayoutEffect, useState } from 'react';
 // centered card, so the tour never breaks. Dismissal persists to localStorage;
 // re-launch by dispatching window event "duckle:start-tour".
 
-const SEEN_KEY = 'duckle.tour.v1.done';
+// Bumped to v2 when the tour gained the Dives + column-lineage steps and the
+// broader palette copy, so users who dismissed v1 see the new feature spotlights.
+const SEEN_KEY = 'duckle.tour.v2.done';
 
 type Placement = 'top' | 'bottom' | 'left' | 'right' | 'center';
 interface Step {
@@ -25,7 +27,7 @@ const STEPS: Step[] = [
     {
         sel: '[data-tour="palette"]',
         title: 'Palette & project tree',
-        body: 'This left panel has two tabs: drag sources, transforms and sinks from the component palette onto the canvas, and browse your pipelines, connections and bundled examples in the project tree. Tip: you can also start typing on the canvas to quick-add a component.',
+        body: 'Two tabs in this left panel. The component palette has 350+ blocks - databases, files, cloud + object stores, vector DBs (incl. LanceDB), data-quality & governance, AI, and code UDFs (Python, JavaScript) - drag any onto the canvas. The project tree browses your pipelines, connections and bundled examples. Tip: start typing on the canvas to quick-add a component.',
         placement: 'right',
     },
     {
@@ -50,6 +52,18 @@ const STEPS: Step[] = [
         sel: '[data-tour="dashboard"]',
         title: 'Web dashboard',
         body: 'Open the management console in your browser: run and monitor every pipeline grouped by job, with schedules and full run history.',
+        placement: 'bottom',
+    },
+    {
+        sel: '[data-tour="dives"]',
+        title: 'Dives - live data views & dashboards',
+        body: 'Explore your data with live, auto-charting views, then pin them into shareable dashboards - all local-first. A fast way to inspect results without leaving Duckle. (Hide this button from Settings if you prefer.)',
+        placement: 'bottom',
+    },
+    {
+        sel: '[data-tour="lineage"]',
+        title: 'Column lineage',
+        body: 'Trace every output column back through the pipeline to the source columns it came from - handy for audits and impact analysis before you change a transform.',
         placement: 'bottom',
     },
     {

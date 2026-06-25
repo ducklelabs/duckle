@@ -1987,6 +1987,7 @@ export default function App() {
                     <button
                         type="button"
                         className="topbar-theme-toggle"
+                        data-tour="dives"
                         onClick={() => setShowDivesGallery(true)}
                         title="Dives - live data views & dashboards"
                         aria-label="Open dives"
@@ -1997,6 +1998,7 @@ export default function App() {
                 <button
                     type="button"
                     className="topbar-theme-toggle"
+                    data-tour="lineage"
                     onClick={() => setShowLineage(true)}
                     title="Column lineage - trace each column back to its sources"
                     aria-label="Open column lineage"
