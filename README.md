@@ -41,7 +41,7 @@
 **Get started**
 
 - [What is Duckle?](#what-is-duckle)
-- [What's new in v0.5.1](#whats-new-in-v051)
+- [What's new in v0.5.2](#whats-new-in-v052)
 - [Quickstart (60 s)](#quickstart-60-seconds)
 - [Download / Install](#download--install)
 - [Build from source](#build-from-source)
@@ -121,27 +121,21 @@ Three things make Duckle different from the heavyweights and the toy ETL tools:
 
 ---
 
-## What's new in v0.5.1
+## What's new in v0.5.2
 
-Local-first dives + dashboards, a column-lineage viewer, record-level error traceback, a self-hosted web editor, two new connectors, external AI endpoints, and a refreshed brand.
+Vector and next-generation columnar formats, a native Python UDF, query pushdown across every SQL source, one-click VPS deploy, and new workspace settings.
 
-- **Dives + dashboards.** Build local-first, live-querying, shareable data views, and stitch several into a multi-chart dashboard. Ask a plain-language question and have a chart generated for you, export any dive as a self-contained HTML file, and open standalone `/dive/<id>` and `/dash/<id>` share pages. A top-bar **Dives** gallery lists everything you have built.
-- **Column lineage viewer.** A top-bar **Lineage** button shows, per node, each output column traced back to the source column(s) it derives from.
-- **Record-level error traceback.** Every failed stage now reports the exact compiled SQL plus the DuckDB message (in the Run view and the NDJSON run log), so any component's failure is debuggable.
-- **DB-sink dead-letter (validate-before-insert).** Split rows that do not match the declared column types to a dead-letter file (parquet / csv / json) and insert only the clean rows.
-- **Self-hosted web editor (#75).** Run the full Duckle editor in your browser, not just the management console: `docker compose -f docker-compose.web.yml up` (or `duckle serve`) serves the drag-and-drop canvas over HTTP. Build and run pipelines from the browser with live per-node progress over SSE, run-to-here (partial runs), and a server-side file browser to pick workspace files. Pipelines stay portable via `${workspace}`. Single-tenant, local-first, no auth - put it behind a trusted network. State-changing routes are now cross-origin / DNS-rebind hardened.
-- **One-click VPS deploy via Coolify (#31).** Self-host the web editor on Hetzner / Hostinger / OVH (or any [Coolify](https://coolify.io) box) in one click: in Coolify add a Docker Compose resource from [`docker-compose.coolify.yml`](docker-compose.coolify.yml) and Deploy. It pulls a prebuilt image (`ghcr.io/slothflowlabs/duckle-web`), Coolify assigns a domain with automatic HTTPS, and your pipelines + data persist in a managed volume. See [docs/deploy-coolify.md](docs/deploy-coolify.md).
-- **GizmoSQL connector.** `src.gizmosql` / `snk.gizmosql` talk to GizmoSQL over a clean-room Arrow Flight SQL client.
-- **Qlik QVD read + write (#88).** `src.qvd` reads Qlik QVD files and `snk.qvd` writes them - clean-room, no Qlik runtime required.
-- **External AI endpoints for Duckie (#92).** Point the Duckie assistant at any OpenAI-compatible endpoint; plus workspace reload-from-disk and MCP `create_pipeline` / `update_pipeline`.
-- **Source + SQL fixes.** `src.json` gains a "skip malformed records" toggle and a working Format selector (auto / array / JSON Lines / object); CSV surfaces `ignoreErrors` and `nullPadding` toggles in the GUI; SQL nodes get a raw-SQL mode that runs verbatim SQL (a leading `WITH` / multiple CTEs / UNIONs) with no input-CTE wrapper; and a date / timestamp column's format can be set to "excel" to convert Excel day-serials correctly.
-- **UI polish.** A resizable right properties panel, a node-label tooltip (no longer hidden by the collapse button), an always-reachable data-preview horizontal scrollbar, and clearer per-stage memory-limit guidance.
-- **In-app review prompt.** A light, dismissible nudge to review Duckle once you have used it a while.
-- **New logo + brand.** A non-circular three-node pipeline mark and a refreshed "Duckle" wordmark across the app, web editor, icons, and README.
+- **LanceDB source + sink (#111).** Read and write Lance datasets and tables - a local directory, LanceDB Cloud (`db://`), or `s3://` / `gs://` / `az://` object stores - through a bundled sidecar, with the official LanceDB icon on the canvas.
+- **Vortex source + sink (#111).** Read and write the Vortex columnar file format (`.vortex`), a next-generation format built for fast random access. Same bundled sidecar, bridged through Parquet.
+- **Python UDF (`code.python`).** A per-row transform powered by a real Python 3 interpreter - the full language plus any installed packages. Define a `process(row)` function that returns the output row (return `None` to drop it); rows cross as JSON, so no Python runtime lives in the engine. Point it at any interpreter with `DUCKLE_PYTHON_BIN`.
+- **Query pushdown across all relational sources.** Push a free-form `SELECT` down to the source database so filtering, joins and aggregation run where the data lives, and only the result comes back - now consistent across every relational source and exposed as a `query` field on BigQuery and Redshift. MongoDB gains aggregation-pipeline source queries (#106).
+- **One-click VPS deploy via Coolify (#31).** Self-host the web editor on Hetzner / Hostinger / OVH (or any [Coolify](https://coolify.io) box) in one click: add a Docker Compose resource from [`docker-compose.coolify.yml`](docker-compose.coolify.yml) and Deploy. Coolify assigns a domain with automatic HTTPS and your data persists in a managed volume. The web image now has desktop parity - the LanceDB/Vortex sidecar and Python are bundled. See [docs/deploy-coolify.md](docs/deploy-coolify.md).
+- **Workspace settings.** A per-workspace engine memory cap (#102), a global context file that auto-loads `${...}` variables from one shared source across all pipelines, and a toggle to hide the Dives button from the top bar.
+- **Refreshed guided tour.** Now spotlights Dives and the column-lineage viewer with broader palette coverage (350+ components: vector DBs, data-quality / governance, AI, and code UDFs), and re-shows the new spotlights to anyone who dismissed the earlier tour.
 
-Fixes: #86 (SQL Server bulk batch + TLS), #87 (run-to-here), #89 (Duckie start + macOS ad-hoc signing of downloaded engine binaries), #91 (DuckDB upgrade banner), #93 (properties panel no longer blank-screens on malformed field values).
+Fixes: #102 (properties-panel node id no longer clipped by the collapse toggle), #108 (web dashboard shows pipeline names instead of internal ids), #109 (Regex Extract supports named capture groups).
 
-Full notes: see the [v0.5.1 release](https://github.com/ducklelabs/duckle/releases/tag/v0.5.1).
+Full notes: see the [v0.5.2 release](https://github.com/ducklelabs/duckle/releases/tag/v0.5.2).
 
 ---
 
@@ -434,7 +428,7 @@ When the installer downloads the DuckDB CLI it also pre-fetches the extensions D
 
 ## Download / Install
 
-Pick the binary for your OS from the [latest release](https://github.com/ducklelabs/duckle/releases/tag/v0.5.1):
+Pick the binary for your OS from the [latest release](https://github.com/ducklelabs/duckle/releases/tag/v0.5.2):
 
 | OS | Asset | How to run |
 |---|---|---|
