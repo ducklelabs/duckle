@@ -33,6 +33,32 @@ Coolify pulls `ghcr.io/slothflowlabs/duckle-web:latest`, starts it, waits for th
 container healthcheck, and routes your domain to it. Open the URL and you are in
 the Duckle studio.
 
+## Using Duckle once it is live
+
+Open the Coolify-assigned URL and you are in the full Duckle studio - the same
+app as the desktop edition, just in your browser. A typical first session:
+
+1. **Connect your data.** Anything reachable over the network works directly:
+   Postgres, MySQL, SQL Server, Oracle, Snowflake, BigQuery, Redshift, S3 / GCS /
+   Azure, REST APIs, Kafka, and so on - add a source node and fill in the
+   connection. For local files (CSV, Parquet, Excel, ...), upload them into the
+   workspace with the built-in file browser, or drop them on the server under the
+   `duckle-workspace` volume; reference them with `${workspace}/yourfile.csv` so
+   the pipeline stays portable.
+2. **Build a pipeline** on the canvas: drag source -> transforms -> sink, wire
+   them together, and configure each node in the properties panel.
+3. **Run it.** Click Run; the DuckDB engine executes inside the container and you
+   get live per-node progress (over SSE), row counts, and a result preview.
+   Run-to-here lets you execute up to a single node while iterating.
+4. **Schedule it.** The built-in interval scheduler runs saved pipelines on a
+   cadence; the management console (Operations / Runs) shows history and logs.
+5. **Everything persists.** Pipelines, connections, dives and run history live in
+   the `duckle-workspace` volume on your server, so they survive redeploys and
+   image updates.
+
+Because it is single-tenant with no built-in login, treat the URL as admin
+access - keep Basic Auth on (see Security) if it is reachable from the internet.
+
 ## How it works
 
 The compose is intentionally tiny:
@@ -83,12 +109,25 @@ exposing it publicly:
 - **Stay on latest** by clicking **Redeploy** (or enabling Coolify's automatic
   updates) to pull the newest image. Your `duckle-workspace` volume is kept.
 
-## Notes and limits
+## Feature parity with the desktop app
 
-- The web image ships the DuckDB engine and the DuckDB CLI, so DuckDB,
-  DuckLake, files, REST, cloud warehouses and the AI/quality transforms all work
-  out of the box.
-- The bundled LanceDB / Vortex sidecar is not yet included in the web image;
-  those source/sink nodes are available in the desktop app for now.
-- Plain Docker (without Coolify) works too:
-  `docker run -p 8080:8080 -v duckle-workspace:/workspace ghcr.io/slothflowlabs/duckle-web:latest`
+The web image runs the same frontend and the same engine as the desktop app, so
+the studio you get in the browser is the studio you get on the desktop: the
+drag-and-drop canvas, dives + dashboards, the column-lineage viewer, the
+data-quality / governance nodes, and the AI transforms are all there. The image
+also bundles the runtime pieces those features need:
+
+- the DuckDB engine + DuckDB CLI (DuckDB, DuckLake, files, REST, cloud
+  warehouses, etc.),
+- the LanceDB / Vortex sidecar (`src.lancedb` / `snk.lancedb`, `src.vortex` /
+  `snk.vortex`), and
+- a Python 3 interpreter for the `code.python` UDF.
+
+Not bundled (keeps the image small; opt in if you need them): the local AI-chat
+model and the dbt Fusion runtime, which the desktop app downloads on first use.
+
+Plain Docker (without Coolify) works too:
+
+```
+docker run -p 8080:8080 -v duckle-workspace:/workspace ghcr.io/slothflowlabs/duckle-web:latest
+```

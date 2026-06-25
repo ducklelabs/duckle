@@ -29,28 +29,46 @@ ENV CARGO_NET_RETRY=10 \
     CARGO_HTTP_LOW_SPEED_LIMIT=0 \
     CARGO_HTTP_TIMEOUT=600
 WORKDIR /app
+# protoc is needed to build the LanceDB / Vortex sidecar (duckle-lance). Pin the
+# same protoc used elsewhere so lance's proto codegen is consistent.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends curl ca-certificates unzip \
+    && curl -fsSL -o /tmp/protoc.zip https://github.com/protocolbuffers/protobuf/releases/download/v28.3/protoc-28.3-linux-x86_64.zip \
+    && unzip -o /tmp/protoc.zip -d /usr/local \
+    && rm /tmp/protoc.zip && rm -rf /var/lib/apt/lists/*
+ENV PROTOC=/usr/local/bin/protoc
 COPY . .
 # Cache the crate registry + target dir across builds so a stalled download
-# resumes on retry rather than restarting. The binary is copied out of the
-# (ephemeral) target cache mount so the runtime stage can COPY it.
+# resumes on retry rather than restarting. Both binaries are copied out of the
+# (ephemeral) target cache mount so the runtime stage can COPY them. duckle-lance
+# is the sidecar that powers src/snk.lancedb + src/snk.vortex (feature parity
+# with the desktop app).
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/app/target \
-    cargo build --release -p duckle-runner \
-    && cp /app/target/release/duckle-runner /usr/local/bin/duckle-runner
+    cargo build --release -p duckle-runner -p duckle-lance \
+    && cp /app/target/release/duckle-runner /usr/local/bin/duckle-runner \
+    && cp /app/target/release/duckle-lance /usr/local/bin/duckle-lance
 
 # 3) Runtime: runner + the built frontend + the DuckDB CLI.
 FROM debian:bookworm-slim
 ARG DUCKDB_VERSION=1.5.4
+# python3 powers the code.python UDF (per-row Python transform); curl stays for
+# the container healthcheck.
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends ca-certificates curl unzip \
+    && apt-get install -y --no-install-recommends ca-certificates curl unzip python3 \
     && curl -fsSL -o /tmp/duckdb.zip "https://github.com/duckdb/duckdb/releases/download/v${DUCKDB_VERSION}/duckdb_cli-linux-amd64.zip" \
     && unzip /tmp/duckdb.zip -d /usr/local/bin \
     && rm /tmp/duckdb.zip \
     && apt-get purge -y unzip && apt-get autoremove -y && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 COPY --from=runner /usr/local/bin/duckle-runner /usr/local/bin/duckle-runner
+COPY --from=runner /usr/local/bin/duckle-lance /usr/local/bin/duckle-lance
 COPY --from=frontend /app/frontend/dist-web /app/dist-web
-ENV DUCKLE_DUCKDB_BIN=/usr/local/bin/duckdb
+# Feature parity with the desktop app: DuckDB engine, the LanceDB/Vortex sidecar,
+# and a Python interpreter for code.python are all wired up.
+ENV DUCKLE_DUCKDB_BIN=/usr/local/bin/duckdb \
+    DUCKLE_LANCE_BIN=/usr/local/bin/duckle-lance \
+    DUCKLE_PYTHON_BIN=/usr/bin/python3
 VOLUME ["/workspace"]
 EXPOSE 8080
 ENTRYPOINT ["duckle-runner", "web", "--host", "0.0.0.0", "--port", "8080", \
