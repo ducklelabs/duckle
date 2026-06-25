@@ -1,0 +1,45 @@
+# Duckle - one-click self-hosted deploy on Coolify (#31).
+#
+# Coolify (https://coolify.io) is the self-hosting platform behind Hetzner /
+# Hostinger / OVH one-click app stores. This compose makes Duckle's web editor a
+# one-click install: it pulls a prebuilt image (no heavy build on your VPS),
+# Coolify assigns a domain with automatic HTTPS, and your pipelines + data
+# persist in a managed volume.
+#
+# How to deploy
+#   1. In Coolify: + New  ->  Resource  ->  Docker Compose.
+#   2. Either paste this file, or point Coolify at this repo and pick
+#      docker-compose.coolify.yml.
+#   3. Deploy. Coolify generates a URL (or set your own domain) and serves it
+#      over HTTPS. Open it and you are in the Duckle studio.
+#
+# Notes
+#   - Single-tenant, no built-in login. Coolify terminates HTTPS at its proxy;
+#     turn on Coolify's Basic Auth (or put an auth middleware in front) before
+#     exposing it to the public internet.
+#   - Local-first: your data + pipelines live in the `duckle-workspace` volume on
+#     your own server. Nothing is sent to any Duckle-hosted service.
+#   - To pin a version, replace `:latest` with a release tag, e.g. `:v0.5.2`.
+
+services:
+  duckle:
+    image: ghcr.io/slothflowlabs/duckle-web:latest
+    # Coolify "magic" variable: it fills this in, generates the public URL, and
+    # points its reverse proxy at the container's port 8080 (HTTPS handled for
+    # you). The service name (DUCKLE) and port (8080) are encoded in the name.
+    environment:
+      - SERVICE_FQDN_DUCKLE_8080
+    expose:
+      - "8080"
+    volumes:
+      - duckle-workspace:/workspace
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8080/ >/dev/null 2>&1 || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+volumes:
+  duckle-workspace:
