@@ -2759,6 +2759,7 @@
         // audit B1: a cloud CSV sink must honor delimiter/nullValue (ignored
         // before), but must NOT emit PARTITION_BY (unvalidated over httpfs).
         let sql = build_cloud_sink(
+            "s3",
             &serde_json::json!({
                 "format": "csv", "path": "s3://b/out.csv",
                 "delimiter": "|", "nullValue": "NA", "partitionBy": "id"
@@ -2777,6 +2778,30 @@
             sql
         );
         assert!(sql.contains("'s3://b/out.csv'"), "must write to the cloud path, got: {}", sql);
+    }
+
+    #[test]
+    fn minio_sink_composes_s3_url_from_bucket_and_key() {
+        // #116: snk.minio / snk.r2 / snk.b2 are S3-compatible sinks that take
+        // bucket + key (not a full URI); the planner must assemble s3://b/k and
+        // route the COPY through the cloud sink builder (the endpoint itself
+        // lives in the SECRET, so only the s3:// URL shows here).
+        let sql = build_sink_sql(
+            "snk.minio",
+            &serde_json::json!({
+                "bucket": "warehouse", "key": "out/orders.parquet"
+            }),
+            "v",
+            &[],
+            None,
+        )
+        .unwrap();
+        assert!(
+            sql.contains("'s3://warehouse/out/orders.parquet'"),
+            "minio sink must COPY to the composed s3:// url, got: {}",
+            sql
+        );
+        assert!(sql.contains("FORMAT PARQUET"), "extension picks parquet, got: {}", sql);
     }
 
     #[test]
@@ -2806,6 +2831,7 @@
         // silently write Parquet to the user's .avro/.orc path. Fail loud now.
         for fmt in ["avro", "orc"] {
             let err = build_cloud_sink(
+                "s3",
                 &serde_json::json!({"format": fmt, "path": format!("s3://b/out.{}", fmt)}),
                 "v",
             )

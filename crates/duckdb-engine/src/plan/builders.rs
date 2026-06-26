@@ -7038,7 +7038,14 @@ pub(crate) fn build_sink_sql(
         }
         "snk.parquet" => Ok(build_parquet_sink(props, from_view)),
         "snk.json" | "snk.jsonl" => Ok(build_json_sink(props, from_view)),
-        "snk.s3" | "snk.gcs" | "snk.azureblob" => build_cloud_sink(props, from_view),
+        "snk.s3" | "snk.gcs" | "snk.azureblob"
+        | "snk.minio" | "snk.r2" | "snk.b2" => {
+            // MinIO / R2 / B2 are S3-compatible; the endpoint lives in the
+            // SECRET created by the runtime, so the URL is just s3://bucket/key.
+            let s = component_id.strip_prefix("snk.").unwrap_or(component_id);
+            let scheme = if matches!(s, "minio" | "r2" | "b2") { "s3" } else { s };
+            build_cloud_sink(scheme, props, from_view)
+        }
         "snk.sqlite" | "snk.duckdb" => {
             let (eff_from, prelude) = dead_letter_prelude(props, schema, from_view)?;
             Ok(format!("{}{}", prelude, build_db_sink(component_id, props, &eff_from, cols)?))
@@ -7067,9 +7074,29 @@ pub(crate) fn build_sink_sql(
 /// DuckDB's httpfs handles the upload; credentials come from the
 /// SECRET wired up in execute_pipeline_with_events. Format is inferred
 /// from the URL extension unless overridden.
-pub(crate) fn build_cloud_sink(props: &JsonValue, from_view: &str) -> Result<String, EngineError> {
+pub(crate) fn build_cloud_sink(
+    scheme: &str,
+    props: &JsonValue,
+    from_view: &str,
+) -> Result<String, EngineError> {
     let path = string_prop(props, "path")
         .or_else(|| string_prop(props, "url"))
+        .filter(|s| !s.is_empty())
+        .or_else(|| {
+            // The storage form supplies bucket + key rather than a full URL;
+            // assemble one using the connector's scheme. Mirrors
+            // build_cloud_source so a bucket/key sink (including snk.minio /
+            // snk.r2 / snk.b2) writes to the right object instead of "".
+            let bucket = string_prop(props, "bucket").filter(|s| !s.is_empty())?;
+            let key = string_prop(props, "key").unwrap_or_default();
+            let prefix = match scheme {
+                "s3" => "s3://",
+                "gcs" => "gs://",
+                "azureblob" => "az://",
+                _ => "https://",
+            };
+            Some(format!("{}{}/{}", prefix, bucket, key.trim_start_matches('/')))
+        })
         .unwrap_or_default();
     let override_fmt = string_prop(props, "format").filter(|s| !s.is_empty());
     let lower = path.to_ascii_lowercase();

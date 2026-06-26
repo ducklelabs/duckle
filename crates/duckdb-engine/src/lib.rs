@@ -3487,7 +3487,9 @@ pub(crate) fn collect_pipeline_secrets(doc: &PipelineDoc) -> Vec<String> {
             // S3-compatible (plain S3 + MinIO / R2 / B2) all use the same
             // CREATE SECRET (TYPE S3) machinery; the MinIO / R2 / B2
             // variants add ENDPOINT + URL_STYLE in the form.
-            "src.s3" | "snk.s3" | "src.minio" | "src.r2" | "src.b2" => "s3",
+            "src.s3" | "snk.s3"
+            | "src.minio" | "src.r2" | "src.b2"
+            | "snk.minio" | "snk.r2" | "snk.b2" => "s3",
             "src.gcs" | "snk.gcs" => "gcs",
             "src.azureblob" | "snk.azureblob" => "azureblob",
             _ => continue,

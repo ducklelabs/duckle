@@ -853,6 +853,48 @@ export const MANIFESTS: Record<string, ComponentManifest> = {
                     },
                 ],
             },
+            {
+                label: 'Credentials',
+                fields: [
+                    { key: 'accessKey', label: 'Access key', kind: 'text' },
+                    { key: 'secretKey', label: 'Secret key', kind: 'text', placeholder: '••••••••' },
+                    { key: 'region', label: 'Region', kind: 'text', placeholder: 'us-east-1' },
+                ],
+            },
+            {
+                label: 'S3-compatible (MinIO / R2 / B2)',
+                fields: [
+                    {
+                        key: 'endpoint',
+                        label: 'Endpoint',
+                        kind: 'text',
+                        description: 'host:port for MinIO; the provider host for R2 / B2. Leave empty for plain AWS S3.',
+                        placeholder: 'localhost:9000',
+                    },
+                    {
+                        key: 'urlStyle',
+                        label: 'URL style',
+                        kind: 'select',
+                        defaultValue: '',
+                        options: [
+                            { label: 'Default', value: '' },
+                            { label: 'Path (MinIO / B2)', value: 'path' },
+                            { label: 'Virtual host (R2 / AWS)', value: 'vhost' },
+                        ],
+                    },
+                    {
+                        key: 'useSsl',
+                        label: 'Use TLS',
+                        kind: 'select',
+                        defaultValue: '',
+                        options: [
+                            { label: 'Default (true)', value: '' },
+                            { label: 'true', value: 'true' },
+                            { label: 'false (local MinIO)', value: 'false' },
+                        ],
+                    },
+                ],
+            },
         ],
         ports: { inputs: [{ id: 'main', label: 'in', type: 'main' }], outputs: [] },
     },

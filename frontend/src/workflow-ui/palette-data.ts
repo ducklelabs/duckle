@@ -529,6 +529,9 @@ export const PALETTE: Category[] = [
                     snk('s3', 'Amazon S3', 'available', 'Write via DuckDB httpfs'),
                     snk('gcs', 'Google Cloud Storage', 'available', 'Write via DuckDB httpfs'),
                     snk('azureblob', 'Azure Blob Storage', 'available', 'Write via the azure extension'),
+                    snk('minio', 'MinIO', 'available', 'Write via S3-compatible endpoint'),
+                    snk('r2', 'Cloudflare R2', 'available', 'Write via S3-compatible endpoint'),
+                    snk('b2', 'Backblaze B2', 'available', 'Write via S3-compatible endpoint'),
                 ],
             },
             {

@@ -1,6 +1,6 @@
 {
   "version": "1",
-  "componentCount": 354,
+  "componentCount": 357,
   "components": [
     {
       "id": "src.csv",
@@ -29634,6 +29634,58 @@
             ]
           },
           {
+            "label": "S3-compatible (MinIO / R2 / B2)",
+            "fields": [
+              {
+                "key": "endpoint",
+                "label": "Endpoint",
+                "kind": "text",
+                "description": "host:port for MinIO; the provider host for R2 / B2. Leave empty for plain AWS S3.",
+                "placeholder": "localhost:9000"
+              },
+              {
+                "key": "urlStyle",
+                "label": "URL style",
+                "kind": "select",
+                "defaultValue": "",
+                "options": [
+                  {
+                    "label": "Default",
+                    "value": ""
+                  },
+                  {
+                    "label": "Path (MinIO / B2)",
+                    "value": "path"
+                  },
+                  {
+                    "label": "Virtual host (R2 / AWS)",
+                    "value": "vhost"
+                  }
+                ]
+              },
+              {
+                "key": "useSsl",
+                "label": "Use TLS",
+                "kind": "select",
+                "defaultValue": "",
+                "options": [
+                  {
+                    "label": "Default (true)",
+                    "value": ""
+                  },
+                  {
+                    "label": "true",
+                    "value": "true"
+                  },
+                  {
+                    "label": "false (local MinIO)",
+                    "value": "false"
+                  }
+                ]
+              }
+            ]
+          },
+          {
             "label": "Format",
             "fields": [
               {
@@ -29805,6 +29857,58 @@
             ]
           },
           {
+            "label": "S3-compatible (MinIO / R2 / B2)",
+            "fields": [
+              {
+                "key": "endpoint",
+                "label": "Endpoint",
+                "kind": "text",
+                "description": "host:port for MinIO; the provider host for R2 / B2. Leave empty for plain AWS S3.",
+                "placeholder": "localhost:9000"
+              },
+              {
+                "key": "urlStyle",
+                "label": "URL style",
+                "kind": "select",
+                "defaultValue": "",
+                "options": [
+                  {
+                    "label": "Default",
+                    "value": ""
+                  },
+                  {
+                    "label": "Path (MinIO / B2)",
+                    "value": "path"
+                  },
+                  {
+                    "label": "Virtual host (R2 / AWS)",
+                    "value": "vhost"
+                  }
+                ]
+              },
+              {
+                "key": "useSsl",
+                "label": "Use TLS",
+                "kind": "select",
+                "defaultValue": "",
+                "options": [
+                  {
+                    "label": "Default (true)",
+                    "value": ""
+                  },
+                  {
+                    "label": "true",
+                    "value": "true"
+                  },
+                  {
+                    "label": "false (local MinIO)",
+                    "value": "false"
+                  }
+                ]
+              }
+            ]
+          },
+          {
             "label": "Format",
             "fields": [
               {
@@ -29971,6 +30075,727 @@
                   "s3",
                   "gcs",
                   "azure-blob"
+                ]
+              }
+            ]
+          },
+          {
+            "label": "S3-compatible (MinIO / R2 / B2)",
+            "fields": [
+              {
+                "key": "endpoint",
+                "label": "Endpoint",
+                "kind": "text",
+                "description": "host:port for MinIO; the provider host for R2 / B2. Leave empty for plain AWS S3.",
+                "placeholder": "localhost:9000"
+              },
+              {
+                "key": "urlStyle",
+                "label": "URL style",
+                "kind": "select",
+                "defaultValue": "",
+                "options": [
+                  {
+                    "label": "Default",
+                    "value": ""
+                  },
+                  {
+                    "label": "Path (MinIO / B2)",
+                    "value": "path"
+                  },
+                  {
+                    "label": "Virtual host (R2 / AWS)",
+                    "value": "vhost"
+                  }
+                ]
+              },
+              {
+                "key": "useSsl",
+                "label": "Use TLS",
+                "kind": "select",
+                "defaultValue": "",
+                "options": [
+                  {
+                    "label": "Default (true)",
+                    "value": ""
+                  },
+                  {
+                    "label": "true",
+                    "value": "true"
+                  },
+                  {
+                    "label": "false (local MinIO)",
+                    "value": "false"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "label": "Format",
+            "fields": [
+              {
+                "key": "format",
+                "label": "File format",
+                "kind": "select",
+                "defaultValue": "parquet",
+                "options": [
+                  {
+                    "label": "Parquet",
+                    "value": "parquet"
+                  },
+                  {
+                    "label": "CSV",
+                    "value": "csv"
+                  },
+                  {
+                    "label": "JSON",
+                    "value": "json"
+                  },
+                  {
+                    "label": "JSONL",
+                    "value": "jsonl"
+                  }
+                ]
+              },
+              {
+                "key": "mode",
+                "label": "Write mode",
+                "kind": "select",
+                "defaultValue": "overwrite",
+                "options": [
+                  {
+                    "label": "Overwrite",
+                    "value": "overwrite"
+                  },
+                  {
+                    "label": "Error if exists",
+                    "value": "error"
+                  }
+                ]
+              },
+              {
+                "key": "compression",
+                "label": "Compression",
+                "kind": "select",
+                "defaultValue": "none",
+                "options": [
+                  {
+                    "label": "None",
+                    "value": "none"
+                  },
+                  {
+                    "label": "Gzip",
+                    "value": "gzip"
+                  },
+                  {
+                    "label": "Zstd",
+                    "value": "zstd"
+                  },
+                  {
+                    "label": "Snappy",
+                    "value": "snappy"
+                  }
+                ]
+              },
+              {
+                "key": "partitionBy",
+                "label": "Partition by columns",
+                "kind": "columns",
+                "description": "Hive-style partitioned output."
+              }
+            ]
+          }
+        ],
+        "ports": {
+          "inputs": [
+            {
+              "id": "main",
+              "label": "main",
+              "type": "main"
+            },
+            {
+              "id": "reject",
+              "label": "reject",
+              "type": "reject",
+              "optional": true
+            }
+          ],
+          "outputs": []
+        }
+      }
+    },
+    {
+      "id": "snk.minio",
+      "label": "MinIO",
+      "kind": "sink",
+      "availability": "available",
+      "summary": "Write via S3-compatible endpoint",
+      "ports": {
+        "inputs": [
+          {
+            "id": "main",
+            "label": "main",
+            "type": "main"
+          },
+          {
+            "id": "reject",
+            "label": "reject",
+            "type": "reject",
+            "optional": true
+          }
+        ],
+        "outputs": []
+      },
+      "manifest": {
+        "id": "snk.minio",
+        "kind": "sink",
+        "label": "MinIO",
+        "description": "Write via S3-compatible endpoint",
+        "schemaSource": "upstream",
+        "sections": [
+          {
+            "label": "Object",
+            "fields": [
+              {
+                "key": "bucket",
+                "label": "Bucket",
+                "kind": "text",
+                "required": true
+              },
+              {
+                "key": "key",
+                "label": "Key / prefix",
+                "kind": "text",
+                "required": true
+              },
+              {
+                "key": "region",
+                "label": "Region",
+                "kind": "text"
+              }
+            ]
+          },
+          {
+            "label": "Credentials",
+            "fields": [
+              {
+                "key": "accessKey",
+                "label": "Access key",
+                "kind": "text"
+              },
+              {
+                "key": "secretKey",
+                "label": "Secret key",
+                "kind": "text",
+                "placeholder": "••••••••"
+              },
+              {
+                "key": "connectionRef",
+                "label": "Or use saved connection",
+                "kind": "connection-ref",
+                "accepts": [
+                  "s3",
+                  "gcs",
+                  "azure-blob"
+                ]
+              }
+            ]
+          },
+          {
+            "label": "S3-compatible (MinIO / R2 / B2)",
+            "fields": [
+              {
+                "key": "endpoint",
+                "label": "Endpoint",
+                "kind": "text",
+                "description": "host:port for MinIO; the provider host for R2 / B2. Leave empty for plain AWS S3.",
+                "placeholder": "localhost:9000"
+              },
+              {
+                "key": "urlStyle",
+                "label": "URL style",
+                "kind": "select",
+                "defaultValue": "",
+                "options": [
+                  {
+                    "label": "Default",
+                    "value": ""
+                  },
+                  {
+                    "label": "Path (MinIO / B2)",
+                    "value": "path"
+                  },
+                  {
+                    "label": "Virtual host (R2 / AWS)",
+                    "value": "vhost"
+                  }
+                ]
+              },
+              {
+                "key": "useSsl",
+                "label": "Use TLS",
+                "kind": "select",
+                "defaultValue": "",
+                "options": [
+                  {
+                    "label": "Default (true)",
+                    "value": ""
+                  },
+                  {
+                    "label": "true",
+                    "value": "true"
+                  },
+                  {
+                    "label": "false (local MinIO)",
+                    "value": "false"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "label": "Format",
+            "fields": [
+              {
+                "key": "format",
+                "label": "File format",
+                "kind": "select",
+                "defaultValue": "parquet",
+                "options": [
+                  {
+                    "label": "Parquet",
+                    "value": "parquet"
+                  },
+                  {
+                    "label": "CSV",
+                    "value": "csv"
+                  },
+                  {
+                    "label": "JSON",
+                    "value": "json"
+                  },
+                  {
+                    "label": "JSONL",
+                    "value": "jsonl"
+                  }
+                ]
+              },
+              {
+                "key": "mode",
+                "label": "Write mode",
+                "kind": "select",
+                "defaultValue": "overwrite",
+                "options": [
+                  {
+                    "label": "Overwrite",
+                    "value": "overwrite"
+                  },
+                  {
+                    "label": "Error if exists",
+                    "value": "error"
+                  }
+                ]
+              },
+              {
+                "key": "compression",
+                "label": "Compression",
+                "kind": "select",
+                "defaultValue": "none",
+                "options": [
+                  {
+                    "label": "None",
+                    "value": "none"
+                  },
+                  {
+                    "label": "Gzip",
+                    "value": "gzip"
+                  },
+                  {
+                    "label": "Zstd",
+                    "value": "zstd"
+                  },
+                  {
+                    "label": "Snappy",
+                    "value": "snappy"
+                  }
+                ]
+              },
+              {
+                "key": "partitionBy",
+                "label": "Partition by columns",
+                "kind": "columns",
+                "description": "Hive-style partitioned output."
+              }
+            ]
+          }
+        ],
+        "ports": {
+          "inputs": [
+            {
+              "id": "main",
+              "label": "main",
+              "type": "main"
+            },
+            {
+              "id": "reject",
+              "label": "reject",
+              "type": "reject",
+              "optional": true
+            }
+          ],
+          "outputs": []
+        }
+      }
+    },
+    {
+      "id": "snk.r2",
+      "label": "Cloudflare R2",
+      "kind": "sink",
+      "availability": "available",
+      "summary": "Write via S3-compatible endpoint",
+      "ports": {
+        "inputs": [
+          {
+            "id": "main",
+            "label": "main",
+            "type": "main"
+          },
+          {
+            "id": "reject",
+            "label": "reject",
+            "type": "reject",
+            "optional": true
+          }
+        ],
+        "outputs": []
+      },
+      "manifest": {
+        "id": "snk.r2",
+        "kind": "sink",
+        "label": "Cloudflare R2",
+        "description": "Write via S3-compatible endpoint",
+        "schemaSource": "upstream",
+        "sections": [
+          {
+            "label": "Object",
+            "fields": [
+              {
+                "key": "bucket",
+                "label": "Bucket",
+                "kind": "text",
+                "required": true
+              },
+              {
+                "key": "key",
+                "label": "Key / prefix",
+                "kind": "text",
+                "required": true
+              },
+              {
+                "key": "region",
+                "label": "Region",
+                "kind": "text"
+              }
+            ]
+          },
+          {
+            "label": "Credentials",
+            "fields": [
+              {
+                "key": "accessKey",
+                "label": "Access key",
+                "kind": "text"
+              },
+              {
+                "key": "secretKey",
+                "label": "Secret key",
+                "kind": "text",
+                "placeholder": "••••••••"
+              },
+              {
+                "key": "connectionRef",
+                "label": "Or use saved connection",
+                "kind": "connection-ref",
+                "accepts": [
+                  "s3",
+                  "gcs",
+                  "azure-blob"
+                ]
+              }
+            ]
+          },
+          {
+            "label": "S3-compatible (MinIO / R2 / B2)",
+            "fields": [
+              {
+                "key": "endpoint",
+                "label": "Endpoint",
+                "kind": "text",
+                "description": "host:port for MinIO; the provider host for R2 / B2. Leave empty for plain AWS S3.",
+                "placeholder": "localhost:9000"
+              },
+              {
+                "key": "urlStyle",
+                "label": "URL style",
+                "kind": "select",
+                "defaultValue": "",
+                "options": [
+                  {
+                    "label": "Default",
+                    "value": ""
+                  },
+                  {
+                    "label": "Path (MinIO / B2)",
+                    "value": "path"
+                  },
+                  {
+                    "label": "Virtual host (R2 / AWS)",
+                    "value": "vhost"
+                  }
+                ]
+              },
+              {
+                "key": "useSsl",
+                "label": "Use TLS",
+                "kind": "select",
+                "defaultValue": "",
+                "options": [
+                  {
+                    "label": "Default (true)",
+                    "value": ""
+                  },
+                  {
+                    "label": "true",
+                    "value": "true"
+                  },
+                  {
+                    "label": "false (local MinIO)",
+                    "value": "false"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "label": "Format",
+            "fields": [
+              {
+                "key": "format",
+                "label": "File format",
+                "kind": "select",
+                "defaultValue": "parquet",
+                "options": [
+                  {
+                    "label": "Parquet",
+                    "value": "parquet"
+                  },
+                  {
+                    "label": "CSV",
+                    "value": "csv"
+                  },
+                  {
+                    "label": "JSON",
+                    "value": "json"
+                  },
+                  {
+                    "label": "JSONL",
+                    "value": "jsonl"
+                  }
+                ]
+              },
+              {
+                "key": "mode",
+                "label": "Write mode",
+                "kind": "select",
+                "defaultValue": "overwrite",
+                "options": [
+                  {
+                    "label": "Overwrite",
+                    "value": "overwrite"
+                  },
+                  {
+                    "label": "Error if exists",
+                    "value": "error"
+                  }
+                ]
+              },
+              {
+                "key": "compression",
+                "label": "Compression",
+                "kind": "select",
+                "defaultValue": "none",
+                "options": [
+                  {
+                    "label": "None",
+                    "value": "none"
+                  },
+                  {
+                    "label": "Gzip",
+                    "value": "gzip"
+                  },
+                  {
+                    "label": "Zstd",
+                    "value": "zstd"
+                  },
+                  {
+                    "label": "Snappy",
+                    "value": "snappy"
+                  }
+                ]
+              },
+              {
+                "key": "partitionBy",
+                "label": "Partition by columns",
+                "kind": "columns",
+                "description": "Hive-style partitioned output."
+              }
+            ]
+          }
+        ],
+        "ports": {
+          "inputs": [
+            {
+              "id": "main",
+              "label": "main",
+              "type": "main"
+            },
+            {
+              "id": "reject",
+              "label": "reject",
+              "type": "reject",
+              "optional": true
+            }
+          ],
+          "outputs": []
+        }
+      }
+    },
+    {
+      "id": "snk.b2",
+      "label": "Backblaze B2",
+      "kind": "sink",
+      "availability": "available",
+      "summary": "Write via S3-compatible endpoint",
+      "ports": {
+        "inputs": [
+          {
+            "id": "main",
+            "label": "main",
+            "type": "main"
+          },
+          {
+            "id": "reject",
+            "label": "reject",
+            "type": "reject",
+            "optional": true
+          }
+        ],
+        "outputs": []
+      },
+      "manifest": {
+        "id": "snk.b2",
+        "kind": "sink",
+        "label": "Backblaze B2",
+        "description": "Write via S3-compatible endpoint",
+        "schemaSource": "upstream",
+        "sections": [
+          {
+            "label": "Object",
+            "fields": [
+              {
+                "key": "bucket",
+                "label": "Bucket",
+                "kind": "text",
+                "required": true
+              },
+              {
+                "key": "key",
+                "label": "Key / prefix",
+                "kind": "text",
+                "required": true
+              },
+              {
+                "key": "region",
+                "label": "Region",
+                "kind": "text"
+              }
+            ]
+          },
+          {
+            "label": "Credentials",
+            "fields": [
+              {
+                "key": "accessKey",
+                "label": "Access key",
+                "kind": "text"
+              },
+              {
+                "key": "secretKey",
+                "label": "Secret key",
+                "kind": "text",
+                "placeholder": "••••••••"
+              },
+              {
+                "key": "connectionRef",
+                "label": "Or use saved connection",
+                "kind": "connection-ref",
+                "accepts": [
+                  "s3",
+                  "gcs",
+                  "azure-blob"
+                ]
+              }
+            ]
+          },
+          {
+            "label": "S3-compatible (MinIO / R2 / B2)",
+            "fields": [
+              {
+                "key": "endpoint",
+                "label": "Endpoint",
+                "kind": "text",
+                "description": "host:port for MinIO; the provider host for R2 / B2. Leave empty for plain AWS S3.",
+                "placeholder": "localhost:9000"
+              },
+              {
+                "key": "urlStyle",
+                "label": "URL style",
+                "kind": "select",
+                "defaultValue": "",
+                "options": [
+                  {
+                    "label": "Default",
+                    "value": ""
+                  },
+                  {
+                    "label": "Path (MinIO / B2)",
+                    "value": "path"
+                  },
+                  {
+                    "label": "Virtual host (R2 / AWS)",
+                    "value": "vhost"
+                  }
+                ]
+              },
+              {
+                "key": "useSsl",
+                "label": "Use TLS",
+                "kind": "select",
+                "defaultValue": "",
+                "options": [
+                  {
+                    "label": "Default (true)",
+                    "value": ""
+                  },
+                  {
+                    "label": "true",
+                    "value": "true"
+                  },
+                  {
+                    "label": "false (local MinIO)",
+                    "value": "false"
+                  }
                 ]
               }
             ]
