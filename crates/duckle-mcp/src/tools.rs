@@ -79,6 +79,20 @@ pub fn list_tools() -> Value {
                 "duckdb": { "type": "string", "description": "Path to the DuckDB CLI. Defaults to DUCKLE_DUCKDB_BIN or 'duckdb' on PATH." },
                 "workspace": { "type": "string", "description": "Workspace root for run logs + child-job resolution." }
             }})),
+        tool("pipeline_lineage",
+            "Resolve column-level lineage for a pipeline: for each node, map its output columns back to their root source columns. Read-only (writes nothing); needs a DuckDB binary.",
+            json!({ "type": "object", "properties": {
+                "pipeline": { "type": "object", "description": "Inline pipeline object." },
+                "path": { "type": "string", "description": "Path to a pipeline .json (use instead of 'pipeline')." },
+                "duckdb": { "type": "string", "description": "Path to the DuckDB CLI. Defaults to DUCKLE_DUCKDB_BIN or 'duckdb' on PATH." }
+            }})),
+        tool("verify_pipeline",
+            "Check a pipeline without running it: compiles it to SQL, resolves column lineage, and reports structural risks (joins without keys, unconnected nodes, sink with no input, no sink). Returns one pass/fail verdict an agent can act on. Read-only; writes nothing.",
+            json!({ "type": "object", "properties": {
+                "pipeline": { "type": "object", "description": "Inline pipeline object." },
+                "path": { "type": "string", "description": "Path to a pipeline .json (use instead of 'pipeline')." },
+                "duckdb": { "type": "string", "description": "DuckDB CLI path for lineage resolution. Defaults to DUCKLE_DUCKDB_BIN or 'duckdb' on PATH." }
+            }})),
         tool("list_pipelines",
             "List pipeline .json files in a directory with their node/edge counts.",
             json!({ "type": "object", "properties": {
@@ -144,6 +158,8 @@ pub fn call_tool(params: Value) -> Result<Value, (i64, String)> {
         "update_pipeline" => t_update_pipeline(&args),
         "validate_pipeline" => t_validate_pipeline(&args),
         "run_pipeline" => t_run_pipeline(&args),
+        "pipeline_lineage" => t_pipeline_lineage(&args),
+        "verify_pipeline" => t_verify_pipeline(&args),
         "list_pipelines" => t_list_pipelines(&args),
         "read_pipeline" => t_read_pipeline(&args),
         "read_run_logs" => t_read_run_logs(&args),
@@ -192,6 +208,165 @@ fn t_validate_pipeline(args: &Value) -> Result<Value, String> {
         })),
         Err(e) => Ok(json!({ "ok": false, "error": e.to_string() })),
     }
+}
+
+/// Shape the engine's per-node column lineage into stable JSON:
+/// `{ node_id: [ { "column": name, "roots": [ { node, column }, ... ] } ] }`.
+fn lineage_to_json(
+    lineage: std::collections::HashMap<
+        String,
+        Vec<(String, Vec<duckle_duckdb_engine::lineage::RootColumn>)>,
+    >,
+) -> Value {
+    let mut out = serde_json::Map::new();
+    for (node_id, cols) in lineage {
+        let arr: Vec<Value> = cols
+            .into_iter()
+            .map(|(column, roots)| {
+                json!({
+                    "column": column,
+                    "roots": serde_json::to_value(&roots).unwrap_or_else(|_| json!([])),
+                })
+            })
+            .collect();
+        out.insert(node_id, Value::Array(arr));
+    }
+    Value::Object(out)
+}
+
+fn t_pipeline_lineage(args: &Value) -> Result<Value, String> {
+    let (v, _name) = load_pipeline_value(args)?;
+    let doc = to_doc(&v)?;
+    let duckdb = resolve_duckdb(arg_str(args, "duckdb"))
+        .ok_or("no DuckDB binary found (set DUCKLE_DUCKDB_BIN or pass 'duckdb')")?;
+    let engine = DuckdbEngine::new(duckdb);
+    let lineage = engine
+        .pipeline_column_lineage(&doc)
+        .map_err(|e| e.to_string())?;
+    Ok(json!({ "ok": true, "lineage": lineage_to_json(lineage) }))
+}
+
+/// Cheap, deterministic graph checks that do not require execution. Reads the
+/// raw pipeline JSON so it is independent of the typed engine structs.
+fn structural_risks(pipeline: &Value) -> Vec<Value> {
+    let mut risks: Vec<Value> = Vec::new();
+    let (nodes, edges) = match (
+        pipeline.get("nodes").and_then(|n| n.as_array()),
+        pipeline.get("edges").and_then(|e| e.as_array()),
+    ) {
+        (Some(n), Some(e)) => (n, e),
+        _ => return risks,
+    };
+
+    let str_at = |v: &Value, path: &[&str]| -> String {
+        let mut cur = v;
+        for p in path {
+            cur = match cur.get(p) {
+                Some(c) => c,
+                None => return String::new(),
+            };
+        }
+        cur.as_str().unwrap_or("").to_string()
+    };
+    let has_incoming =
+        |id: &str| edges.iter().any(|e| e.get("target").and_then(|v| v.as_str()) == Some(id));
+    let has_outgoing =
+        |id: &str| edges.iter().any(|e| e.get("source").and_then(|v| v.as_str()) == Some(id));
+
+    let mut sink_count = 0usize;
+    for n in nodes {
+        let id = n.get("id").and_then(|v| v.as_str()).unwrap_or("");
+        if id.is_empty() {
+            continue;
+        }
+        let cid = str_at(n, &["data", "componentId"]);
+        let label = str_at(n, &["data", "label"]);
+        let is_source = cid.starts_with("src.");
+        let is_sink = cid.starts_with("snk.");
+        if is_sink {
+            sink_count += 1;
+        }
+
+        if cid.starts_with("xf.join") {
+            let props = n.get("data").and_then(|d| d.get("properties"));
+            let has_key = |k: &str| {
+                props
+                    .and_then(|p| p.get(k))
+                    .and_then(|v| v.as_str())
+                    .map(|s| !s.is_empty())
+                    .unwrap_or(false)
+            };
+            if !(has_key("leftKey") && has_key("rightKey")) {
+                risks.push(json!({
+                    "severity": "warning", "node": id, "label": label,
+                    "code": "join_without_keys",
+                    "message": "join has no leftKey/rightKey, which can fan out into a cross join"
+                }));
+            }
+        }
+
+        if is_sink && !has_incoming(id) {
+            risks.push(json!({
+                "severity": "error", "node": id, "label": label,
+                "code": "sink_without_input",
+                "message": "sink has no incoming edge, so it would write nothing"
+            }));
+        }
+
+        if !is_source && !is_sink && !has_incoming(id) && !has_outgoing(id) {
+            risks.push(json!({
+                "severity": "warning", "node": id, "label": label,
+                "code": "orphan_node",
+                "message": "node is not connected to the rest of the pipeline"
+            }));
+        }
+    }
+
+    if sink_count == 0 {
+        risks.push(json!({
+            "severity": "warning", "code": "no_sink",
+            "message": "pipeline has no sink, so no output is written"
+        }));
+    }
+
+    risks
+}
+
+fn t_verify_pipeline(args: &Value) -> Result<Value, String> {
+    let (v, _name) = load_pipeline_value(args)?;
+    let doc = to_doc(&v)?;
+
+    // 1. Compile to SQL (no execution).
+    let (compiled_ok, compile) = match compile_pipeline_sql(&doc) {
+        Ok(stages) => (true, json!({ "ok": true, "stageCount": stages.len() })),
+        Err(e) => (false, json!({ "ok": false, "error": e.to_string() })),
+    };
+
+    // 2. Resolve column lineage (best-effort; needs a DuckDB binary).
+    let mut lineage_resolved = false;
+    let mut lineage = Value::Null;
+    if compiled_ok {
+        if let Some(duckdb) = resolve_duckdb(arg_str(args, "duckdb")) {
+            if let Ok(l) = DuckdbEngine::new(duckdb).pipeline_column_lineage(&doc) {
+                lineage_resolved = true;
+                lineage = lineage_to_json(l);
+            }
+        }
+    }
+
+    // 3. Structural risks straight off the graph (no execution).
+    let risks = structural_risks(&v);
+    let has_error = !compiled_ok || risks.iter().any(|r| r["severity"] == "error");
+
+    Ok(json!({
+        "ok": !has_error,
+        "mode": "static",
+        "executed": false,
+        "compile": compile,
+        "lineageResolved": lineage_resolved,
+        "lineage": lineage,
+        "risks": risks,
+    }))
 }
 
 fn t_create_pipeline(args: &Value) -> Result<Value, String> {
@@ -938,5 +1113,50 @@ fn sanitize_segment(name: &str) -> String {
         "pipeline".to_string()
     } else {
         c.to_string()
+    }
+}
+
+#[cfg(test)]
+mod verify_tests {
+    use super::*;
+
+    #[test]
+    fn structural_risks_clean_pipeline_has_none() {
+        let p = json!({
+            "nodes": [
+                { "id": "s", "data": { "componentId": "src.csv", "label": "A" } },
+                { "id": "k", "data": { "componentId": "snk.csv", "label": "K" } }
+            ],
+            "edges": [ { "source": "s", "target": "k" } ]
+        });
+        assert!(structural_risks(&p).is_empty(), "{:?}", structural_risks(&p));
+    }
+
+    #[test]
+    fn structural_risks_flags_join_without_keys_and_missing_sink() {
+        let p = json!({
+            "nodes": [
+                { "id": "s", "data": { "componentId": "src.csv", "label": "A" } },
+                { "id": "j", "data": { "componentId": "xf.join.inner", "label": "J", "properties": {} } }
+            ],
+            "edges": [ { "source": "s", "target": "j" } ]
+        });
+        let codes: Vec<String> = structural_risks(&p)
+            .iter()
+            .filter_map(|r| r["code"].as_str().map(|s| s.to_string()))
+            .collect();
+        assert!(codes.iter().any(|c| c == "join_without_keys"), "{codes:?}");
+        assert!(codes.iter().any(|c| c == "no_sink"), "{codes:?}");
+    }
+
+    #[test]
+    fn structural_risks_flags_sink_without_input() {
+        let p = json!({
+            "nodes": [ { "id": "k", "data": { "componentId": "snk.csv", "label": "K" } } ],
+            "edges": []
+        });
+        assert!(structural_risks(&p)
+            .iter()
+            .any(|r| r["code"] == "sink_without_input" && r["severity"] == "error"));
     }
 }
