@@ -468,6 +468,108 @@ fn compile_impl(pipeline: &PipelineDoc, allow_view_upgrade: bool) -> Result<Comp
         known_columns.insert(node.id.clone(), derived);
     }
 
+    // Pre-flight contracts: opt-in, compile-time checks declared per node under
+    // `properties.contracts`. `requireColumns` fails fast if a declared column is
+    // not produced by the node. A best-effort PII guard taints `contracts.pii`
+    // columns, follows them by name through each node's known output columns (a
+    // qa.mask clears the columns it masks; a rename/derive that changes the name
+    // ends tracking), and refuses to let a tagged column reach a sink unless that
+    // sink sets `contracts.allowPii`. It is a guardrail, not a proof.
+    fn contract_strings(props: Option<&serde_json::Value>, key: &str) -> Vec<String> {
+        props
+            .and_then(|p| p.get("contracts"))
+            .and_then(|c| c.get(key))
+            .and_then(|v| v.as_array())
+            .map(|a| {
+                a.iter()
+                    .filter_map(|x| x.as_str().map(|s| s.to_string()))
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+    fn contract_flag(props: Option<&serde_json::Value>, key: &str) -> bool {
+        props
+            .and_then(|p| p.get("contracts"))
+            .and_then(|c| c.get(key))
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false)
+    }
+    fn masked_columns(props: Option<&serde_json::Value>) -> HashSet<String> {
+        let mut out = HashSet::new();
+        if let Some(p) = props {
+            if let Some(arr) = p.get("masks").and_then(|v| v.as_array()) {
+                for m in arr {
+                    if let Some(c) = m.get("column").and_then(|v| v.as_str()) {
+                        out.insert(c.to_string());
+                    }
+                }
+            }
+            if let Some(c) = p.get("column").and_then(|v| v.as_str()) {
+                out.insert(c.to_string());
+            }
+        }
+        out
+    }
+    {
+        let mut tainted: HashMap<String, HashSet<String>> = HashMap::new();
+        for node_id in &order {
+            let node = match node_index.get(node_id.as_str()) {
+                Some(n) => *n,
+                None => continue,
+            };
+            if node.data.disabled.unwrap_or(false) {
+                continue;
+            }
+            let props = node.data.properties.as_ref();
+            let cid = node.data.component_id.as_deref().unwrap_or("");
+
+            let required = contract_strings(props, "requireColumns");
+            if !required.is_empty() {
+                if let Some(Some(cols)) = known_columns.get(node_id) {
+                    for r in &required {
+                        if !cols.contains(r) {
+                            return Err(EngineError::Config(format!(
+                                "{} ({} / {}): contract requireColumns lists '{}', which this node does not produce",
+                                node.data.label, cid, node.id, r
+                            )));
+                        }
+                    }
+                }
+            }
+
+            let mut taint: HashSet<String> = HashSet::new();
+            for e in &data_edges {
+                if e.target.as_str() == node_id.as_str() {
+                    if let Some(up) = tainted.get(e.source.as_str()) {
+                        taint.extend(up.iter().cloned());
+                    }
+                }
+            }
+            if let Some(Some(cols)) = known_columns.get(node_id) {
+                taint.retain(|c| cols.contains(c));
+            }
+            if cid == "qa.mask" {
+                for m in masked_columns(props) {
+                    taint.remove(&m);
+                }
+            }
+            for c in contract_strings(props, "pii") {
+                taint.insert(c);
+            }
+
+            if cid.starts_with("snk.") && !taint.is_empty() && !contract_flag(props, "allowPii") {
+                let mut cols: Vec<String> = taint.iter().cloned().collect();
+                cols.sort();
+                return Err(EngineError::Config(format!(
+                    "{} ({} / {}): column(s) [{}] tagged PII reach this sink without masking. Add a qa.mask upstream, or set contracts.allowPii=true to allow it.",
+                    node.data.label, cid, node.id, cols.join(", ")
+                )));
+            }
+
+            tainted.insert(node_id.clone(), taint);
+        }
+    }
+
     // ctl.parallelize: extract each node's independent downstream branches
     // into sub-pipelines that run concurrently, and exclude those branch
     // nodes from the main (sequential) plan so they don't also run inline.
