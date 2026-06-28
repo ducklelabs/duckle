@@ -239,6 +239,27 @@ export default function App() {
         loadPersisted('active-job', 'j1'),
     );
     const [isRunning, setIsRunning] = useState<boolean>(false);
+    // Live mode: when on, editing a node's properties debounces a partial run
+    // up to that node so the canvas previews refresh as you work. Refs let the
+    // (stable) edit handler read the latest mode + in-flight flag and reach the
+    // freshest run closure without being re-created on every keystroke.
+    const [liveMode, setLiveMode] = useState<boolean>(false);
+    const liveModeRef = useRef(liveMode);
+    const isRunningRef = useRef(false);
+    const liveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const triggerLivePreviewRef = useRef<((nodeId: string) => void) | null>(null);
+    useEffect(() => {
+        liveModeRef.current = liveMode;
+    }, [liveMode]);
+    useEffect(() => {
+        isRunningRef.current = isRunning;
+    }, [isRunning]);
+    useEffect(
+        () => () => {
+            if (liveTimerRef.current) clearTimeout(liveTimerRef.current);
+        },
+        [],
+    );
     const [renameRequest, setRenameRequest] = useState<number>(0);
     const [repo, setRepo] = useState<RepoItem[]>(() => loadPersisted('repo', INITIAL_REPO));
     const [activeContextId, setActiveContextId] = useState<string | null>(() =>
@@ -957,6 +978,16 @@ export default function App() {
                 ns.map(n => (n.id === id ? { ...n, data: { ...n.data, ...patch } } : n)),
             );
             markDirty();
+            // Live mode: debounce a partial run up to the edited node. Only a
+            // genuine user edit lands here - run results merge previews via
+            // setNodes (not this handler), so a preview update can't re-trigger.
+            if (liveModeRef.current) {
+                if (liveTimerRef.current) clearTimeout(liveTimerRef.current);
+                liveTimerRef.current = setTimeout(() => {
+                    liveTimerRef.current = null;
+                    triggerLivePreviewRef.current?.(id);
+                }, 800);
+            }
         },
         [setNodes, markDirty],
     );
@@ -1158,6 +1189,63 @@ export default function App() {
             validation.errorCount,
         ],
     );
+
+    // Live-mode preview: a partial run up to the edited node, mirroring
+    // handleRunFromHere but silent (no Problems-tab pop) and self-guarded so an
+    // in-flight run is never stacked. Kept in a ref so the stable edit handler
+    // always reaches the latest closure (fresh nodes/edges) at debounce time.
+    const triggerLivePreview = useCallback(
+        (nodeId: string) => {
+            if (validation.errorCount > 0) return;
+            if (isRunningRef.current) return;
+            isRunningRef.current = true;
+            setIsRunning(true);
+            setRunResult(null);
+            const start = performance.now();
+            const pipelineName = repo.find(r => r.id === activeJobId)?.name ?? activeJobId;
+            void settingsLoadContextVars(workspacePathState ?? '')
+                .then(extra =>
+                    runPipelinePartial(
+                        resolveForRun(nodes, repo, workspacePathState, extra),
+                        edges,
+                        nodeId,
+                        handleEvent,
+                        activeJobId,
+                        workspacePathState,
+                        pipelineName,
+                    ),
+                )
+                .then(result => finishRun(start, result))
+                .finally(() => {
+                    isRunningRef.current = false;
+                    setIsRunning(false);
+                });
+        },
+        [
+            nodes,
+            edges,
+            repo,
+            handleEvent,
+            finishRun,
+            activeJobId,
+            workspacePathState,
+            validation.errorCount,
+        ],
+    );
+    useEffect(() => {
+        triggerLivePreviewRef.current = triggerLivePreview;
+    }, [triggerLivePreview]);
+
+    const handleToggleLive = useCallback(() => {
+        setLiveMode(v => {
+            const next = !v;
+            if (!next && liveTimerRef.current) {
+                clearTimeout(liveTimerRef.current);
+                liveTimerRef.current = null;
+            }
+            return next;
+        });
+    }, []);
 
     const handleStop = useCallback(() => {
         void cancelPipeline();
@@ -2165,6 +2253,8 @@ export default function App() {
                         onNewJob={handleNewJob}
                         onRun={handleRun}
                         onStop={handleStop}
+                        liveMode={liveMode}
+                        onToggleLive={handleToggleLive}
                         onSave={handleSave}
                         onValidate={handleValidate}
                         onAutoLayout={handleAutoLayout}

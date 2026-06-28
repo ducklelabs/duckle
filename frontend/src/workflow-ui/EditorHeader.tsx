@@ -14,6 +14,7 @@ import {
     Upload,
     Workflow,
     X,
+    Zap,
 } from 'lucide-react';
 
 export type Job = {
@@ -31,6 +32,8 @@ type Props = {
     onNewJob: () => void;
     onRun: () => void;
     onStop: () => void;
+    liveMode: boolean;
+    onToggleLive: () => void;
     onSave: () => void;
     onValidate: () => void;
     onAutoLayout: () => void;
@@ -49,6 +52,8 @@ export default function EditorHeader({
     onNewJob,
     onRun,
     onStop,
+    liveMode,
+    onToggleLive,
     onSave,
     onValidate,
     onAutoLayout,
@@ -155,6 +160,19 @@ export default function EditorHeader({
                         <span>{t('header.run')}</span>
                     </button>
                 )}
+
+                <button
+                    type="button"
+                    className={
+                        'toolbar-icon-button' + (liveMode ? ' is-active' : '')
+                    }
+                    onClick={onToggleLive}
+                    title={liveMode ? t('header.liveOnTooltip') : t('header.liveTooltip')}
+                    aria-label={t('header.live')}
+                    aria-pressed={liveMode}
+                >
+                    <Zap size={14} />
+                </button>
 
                 <div className="toolbar-sep" />
 
