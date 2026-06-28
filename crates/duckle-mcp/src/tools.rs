@@ -118,6 +118,12 @@ pub fn list_tools() -> Value {
                 "beforePath": { "type": "string", "description": "Path to the baseline pipeline .json (use instead of 'before')." },
                 "afterPath": { "type": "string", "description": "Path to the changed pipeline .json (use instead of 'after')." }
             }})),
+        tool("trust_report",
+            "Score a pipeline's trustworthiness from static checks and explain every deduction: compile status, structural risks (joins without keys, orphan nodes, no sink), and columns that look like PII but are neither contract-tagged nor masked. Returns a 0-100 score, a letter grade, and the findings each lost point came from. Read-only; no DuckDB binary needed.",
+            json!({ "type": "object", "properties": {
+                "pipeline": { "type": "object", "description": "Inline pipeline object." },
+                "path": { "type": "string", "description": "Path to a pipeline .json (use instead of 'pipeline')." }
+            }})),
         tool("list_pipelines",
             "List pipeline .json files in a directory with their node/edge counts.",
             json!({ "type": "object", "properties": {
@@ -188,6 +194,7 @@ pub fn call_tool(params: Value) -> Result<Value, (i64, String)> {
         "suggest_contracts" => t_suggest_contracts(&args),
         "pipeline_impact" => t_pipeline_impact(&args),
         "diff_pipelines" => t_diff_pipelines(&args),
+        "trust_report" => t_trust_report(&args),
         "list_pipelines" => t_list_pipelines(&args),
         "read_pipeline" => t_read_pipeline(&args),
         "read_run_logs" => t_read_run_logs(&args),
@@ -367,6 +374,92 @@ fn t_diff_pipelines(args: &Value) -> Result<Value, String> {
         obj.insert("ok".to_string(), json!(true));
     }
     Ok(report)
+}
+
+/// A trust scorecard where every lost point is itemized as a finding, so the
+/// score is explainable rather than a black-box number. All checks are static.
+fn t_trust_report(args: &Value) -> Result<Value, String> {
+    let (v, _name) = load_pipeline_value(args)?;
+    let doc = to_doc(&v)?;
+    let mut findings: Vec<Value> = Vec::new();
+    let mut deduction: i64 = 0;
+
+    // 1. Does it compile at all? A non-compiling pipeline is the deepest failure.
+    let compile_res = compile_pipeline_sql(&doc);
+    let compiles = compile_res.is_ok();
+    if let Err(e) = &compile_res {
+        deduction += 60;
+        findings.push(json!({
+            "code": "does_not_compile", "severity": "error", "deduction": 60,
+            "message": format!("pipeline does not compile: {e}")
+        }));
+    }
+
+    // 2. Structural risks (shared with verify_pipeline).
+    for r in structural_risks(&v) {
+        let sev = r["severity"].as_str().unwrap_or("warning").to_string();
+        let d = if sev == "error" { 15 } else { 8 };
+        deduction += d;
+        findings.push(json!({
+            "code": r["code"], "severity": sev, "deduction": d, "message": r["message"]
+        }));
+    }
+
+    // 3. Columns that look like PII but nothing governs (no contract tag, no mask).
+    let nodes = v.get("nodes").and_then(|n| n.as_array()).cloned().unwrap_or_default();
+    let mut pii_cols: Vec<String> = Vec::new();
+    for n in &nodes {
+        for c in declared_columns(n) {
+            if looks_like_pii(&c).is_some() && !pii_cols.contains(&c) {
+                pii_cols.push(c);
+            }
+        }
+    }
+    let has_sink = nodes.iter().any(|n| {
+        n.pointer("/data/componentId").and_then(|x| x.as_str()).map(|s| s.starts_with("snk.")).unwrap_or(false)
+    });
+    let governed = nodes.iter().any(|n| {
+        let cid = n.pointer("/data/componentId").and_then(|x| x.as_str()).unwrap_or("");
+        if cid.starts_with("qa.mask") {
+            return true;
+        }
+        n.pointer("/data/properties/contracts/pii")
+            .and_then(|x| x.as_array())
+            .map(|a| !a.is_empty())
+            .unwrap_or(false)
+    });
+    if !pii_cols.is_empty() && has_sink && !governed {
+        deduction += 10;
+        findings.push(json!({
+            "code": "ungoverned_pii", "severity": "warning", "deduction": 10,
+            "message": format!(
+                "column(s) {:?} look like PII but no contract tag or qa.mask governs them; run suggest_contracts",
+                pii_cols
+            )
+        }));
+    }
+
+    let mut score = (100 - deduction).max(0);
+    // A pipeline that does not even compile cannot score as "fine".
+    if !compiles {
+        score = score.min(20);
+    }
+    let grade = match score {
+        s if s >= 90 => "A",
+        s if s >= 80 => "B",
+        s if s >= 70 => "C",
+        s if s >= 60 => "D",
+        _ => "F",
+    };
+
+    Ok(json!({
+        "ok": true,
+        "score": score,
+        "grade": grade,
+        "compiles": compiles,
+        "findings": findings,
+        "summary": format!("{score}/100 ({grade}) from {} finding(s)", findings.len()),
+    }))
 }
 
 /// Cheap, deterministic graph checks that do not require execution. Reads the
@@ -1515,6 +1608,43 @@ mod verify_tests {
         // The s->k edge is gone; s->x and x->k are new.
         assert_eq!(out["summary"]["edgesAdded"], json!(2));
         assert_eq!(out["summary"]["edgesRemoved"], json!(1));
+    }
+
+    #[test]
+    fn trust_report_clean_pipeline_scores_high() {
+        let pipeline = json!({
+            "nodes": [
+                { "id": "s", "position": { "x": 0, "y": 0 }, "data": { "componentId": "src.csv", "label": "In",
+                    "properties": { "path": "in.csv" },
+                    "schema": [ { "name": "order_id", "type": "int64" }, { "name": "amount", "type": "float64" } ] } },
+                { "id": "k", "position": { "x": 1, "y": 0 }, "data": { "componentId": "snk.csv", "label": "Out",
+                    "properties": { "path": "out.csv" } } }
+            ],
+            "edges": [ { "id": "e1", "source": "s", "target": "k" } ]
+        });
+        let out = t_trust_report(&json!({ "pipeline": pipeline })).unwrap();
+        assert_eq!(out["compiles"], json!(true));
+        assert_eq!(out["score"], json!(100));
+        assert_eq!(out["grade"], json!("A"));
+        assert!(out["findings"].as_array().unwrap().is_empty());
+    }
+
+    #[test]
+    fn trust_report_flags_ungoverned_pii() {
+        let pipeline = json!({
+            "nodes": [
+                { "id": "s", "position": { "x": 0, "y": 0 }, "data": { "componentId": "src.csv", "label": "People",
+                    "properties": { "path": "in.csv" },
+                    "schema": [ { "name": "email", "type": "string" }, { "name": "amount", "type": "float64" } ] } },
+                { "id": "k", "position": { "x": 1, "y": 0 }, "data": { "componentId": "snk.csv", "label": "Out",
+                    "properties": { "path": "out.csv" } } }
+            ],
+            "edges": [ { "id": "e1", "source": "s", "target": "k" } ]
+        });
+        let out = t_trust_report(&json!({ "pipeline": pipeline })).unwrap();
+        let findings = out["findings"].as_array().unwrap();
+        assert!(findings.iter().any(|f| f["code"] == "ungoverned_pii"), "{findings:?}");
+        assert_eq!(out["score"], json!(90));
     }
 
     #[test]
