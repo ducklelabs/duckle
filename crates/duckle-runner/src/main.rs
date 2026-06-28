@@ -791,6 +791,7 @@ fn run_review() -> Result<i32, String> {
     let mut after_run_failed = false;
     let mut drift_section: Option<serde_json::Value> = None;
     let mut after_drift_breaking = false;
+    let mut after_drift_failed = false;
     if as_data || as_drift {
         let duckdb = resolve_duckdb(duckdb_arg)?;
         std::env::set_var("DUCKLE_DUCKDB_BIN", &duckdb);
@@ -842,7 +843,10 @@ fn run_review() -> Result<i32, String> {
                     after_drift_breaking = report["hasBreaking"] == serde_json::json!(true);
                     drift_section = Some(report);
                 }
-                Err(e) => drift_section = Some(serde_json::json!({ "ok": false, "error": e })),
+                Err(e) => {
+                    after_drift_failed = true;
+                    drift_section = Some(serde_json::json!({ "ok": false, "error": e }));
+                }
             }
         }
     }
@@ -975,8 +979,14 @@ fn run_review() -> Result<i32, String> {
 
     // Fail the gate when the proposed (after) version no longer compiles, or
     // (with --data) fails to run, or (with --drift) a source drifted in a
-    // breaking way.
-    Ok(if after_compiles.is_err() || after_run_failed || after_drift_breaking { 1 } else { 0 })
+    // breaking way or the drift check could not be completed.
+    Ok(
+        if after_compiles.is_err() || after_run_failed || after_drift_breaking || after_drift_failed {
+            1
+        } else {
+            0
+        },
+    )
 }
 
 fn main() -> ExitCode {

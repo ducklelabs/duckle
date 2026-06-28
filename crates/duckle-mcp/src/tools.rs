@@ -486,7 +486,9 @@ fn t_trust_report(args: &Value) -> Result<Value, String> {
                 let report = duckle_duckdb_engine::drift::schema_drift(&engine, &ddoc);
                 let breaking = report["summary"]["breakingSources"].as_u64().unwrap_or(0);
                 if breaking > 0 {
-                    let d = (breaking as i64 * 12).min(36);
+                    // Cap the count before the cast so the deduction is bounded
+                    // (max 36) and can never overflow on a surprising count.
+                    let d = (breaking.min(3) * 12) as i64;
                     deduction += d;
                     let drifted: Vec<String> = report["sources"]
                         .as_array()
