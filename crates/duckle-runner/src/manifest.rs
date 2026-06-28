@@ -8,14 +8,20 @@
 //! public key so verification needs nothing but the file; compare the embedded
 //! key with `<workspace>/.duckle/keys/manifest.pub` to also establish trust.
 
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use base64::engine::general_purpose::STANDARD as B64;
 use base64::Engine;
+use duckle_duckdb_engine::lineage::RootColumn;
 use duckle_duckdb_engine::{compile_pipeline_sql, PipelineDoc};
 use ed25519_dalek::{Signature, Signer, SigningKey, Verifier, VerifyingKey};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
+
+/// Per-node column lineage as the engine resolves it: node id -> list of
+/// (output column, its root source columns).
+type Lineage = HashMap<String, Vec<(String, Vec<RootColumn>)>>;
 
 const SCHEMA_VERSION: u32 = 1;
 const DUCKDB_VERSION: &str = "1.5.4";
@@ -53,7 +59,29 @@ fn body_bytes(body: &Value) -> Vec<u8> {
     serde_json::to_vec(body).unwrap_or_default()
 }
 
+/// Reshape the engine's lineage map into a readable, deterministic node ->
+/// [{ column, roots }] object for the manifest body (serde_json::Map sorts its
+/// keys, so the signed bytes are stable across runs of the same pipeline).
+fn lineage_to_json(lineage: Lineage) -> Value {
+    let mut out = serde_json::Map::new();
+    for (node_id, cols) in lineage {
+        let arr: Vec<Value> = cols
+            .into_iter()
+            .map(|(column, roots)| {
+                json!({
+                    "column": column,
+                    "roots": serde_json::to_value(&roots).unwrap_or_else(|_| json!([])),
+                })
+            })
+            .collect();
+        out.insert(node_id, Value::Array(arr));
+    }
+    Value::Object(out)
+}
+
 /// Build, sign and write a manifest for a completed run. Returns the file path.
+/// `lineage` is the engine's resolved column lineage when available; it is
+/// embedded so the signed artifact records where each output column came from.
 pub fn write_manifest(
     workspace: &Path,
     name: &str,
@@ -61,13 +89,15 @@ pub fn write_manifest(
     status: &str,
     duration_ms: u64,
     stamp_ms: u128,
+    lineage: Option<Lineage>,
 ) -> Result<PathBuf, String> {
     let pipeline_hash = sha256_hex(&serde_json::to_vec(doc).unwrap_or_default());
     let compiled_hash = match compile_pipeline_sql(doc) {
         Ok(stages) => sha256_hex(&serde_json::to_vec(&stages).unwrap_or_default()),
         Err(e) => return Err(format!("compile for manifest: {e}")),
     };
-    let body = json!({
+    let lineage_json = lineage.map(lineage_to_json);
+    let mut body = json!({
         "schemaVersion": SCHEMA_VERSION,
         "pipeline": name,
         "atEpochMs": stamp_ms.to_string(),
@@ -78,7 +108,11 @@ pub fn write_manifest(
         "compiledPlanHash": compiled_hash,
         "duckleVersion": env!("CARGO_PKG_VERSION"),
         "duckdbVersion": DUCKDB_VERSION,
+        "lineageResolved": lineage_json.is_some(),
     });
+    if let (Some(l), Some(obj)) = (lineage_json, body.as_object_mut()) {
+        obj.insert("lineage".to_string(), l);
+    }
 
     let sk = signing_key(workspace)?;
     let signature = sk.sign(&body_bytes(&body));
@@ -141,7 +175,7 @@ mod tests {
             r#"{"nodes":[{"id":"s","position":{"x":0,"y":0},"data":{"label":"A","componentId":"src.csv","properties":{"path":"a.csv"}}}],"edges":[]}"#,
         )
         .unwrap();
-        let path = write_manifest(ws, "demo", &doc, "ok", 12, 1_700_000_000_000).unwrap();
+        let path = write_manifest(ws, "demo", &doc, "ok", 12, 1_700_000_000_000, None).unwrap();
         assert!(verify_manifest(&path).unwrap(), "fresh manifest should verify");
 
         // Tamper with the body: verification must fail.
@@ -149,5 +183,31 @@ mod tests {
         m["body"]["durationMs"] = json!(99999);
         std::fs::write(&path, serde_json::to_vec(&m).unwrap()).unwrap();
         assert!(!verify_manifest(&path).unwrap(), "tampered manifest must fail");
+    }
+
+    #[test]
+    fn embedded_lineage_is_recorded_and_signed() {
+        let dir = tempfile::tempdir().unwrap();
+        let ws = dir.path();
+        let doc: PipelineDoc = serde_json::from_str(
+            r#"{"nodes":[{"id":"s","position":{"x":0,"y":0},"data":{"label":"A","componentId":"src.csv","properties":{"path":"a.csv"}}}],"edges":[]}"#,
+        )
+        .unwrap();
+        let mut lineage: Lineage = HashMap::new();
+        lineage.insert(
+            "s".to_string(),
+            vec![(
+                "email".to_string(),
+                vec![RootColumn { node: "s".to_string(), column: "email".to_string() }],
+            )],
+        );
+        let path =
+            write_manifest(ws, "demo", &doc, "ok", 5, 1_700_000_000_001, Some(lineage)).unwrap();
+        assert!(verify_manifest(&path).unwrap(), "manifest with lineage should verify");
+
+        let m: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        assert_eq!(m["body"]["lineageResolved"], json!(true));
+        assert_eq!(m["body"]["lineage"]["s"][0]["column"], json!("email"));
+        assert_eq!(m["body"]["lineage"]["s"][0]["roots"][0]["node"], json!("s"));
     }
 }

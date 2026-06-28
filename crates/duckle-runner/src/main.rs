@@ -344,7 +344,18 @@ fn run() -> Result<bool, String> {
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_millis())
             .unwrap_or(0);
-        match manifest::write_manifest(&workspace, &name, &doc, &result.status, result.duration_ms, stamp) {
+        // Best-effort column lineage to embed in the signed artifact; a
+        // resolution failure just omits it rather than failing the manifest.
+        let lineage = engine.pipeline_column_lineage(&doc).ok();
+        match manifest::write_manifest(
+            &workspace,
+            &name,
+            &doc,
+            &result.status,
+            result.duration_ms,
+            stamp,
+            lineage,
+        ) {
             Ok(path) => println!("manifest : {}", path.display()),
             Err(e) => eprintln!("manifest : skipped ({e})"),
         }
