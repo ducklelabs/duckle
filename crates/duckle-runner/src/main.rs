@@ -22,6 +22,7 @@ use std::process::ExitCode;
 
 mod build;
 use duckle_duckdb_engine::context;
+mod manifest;
 mod selfextract;
 mod serve;
 
@@ -41,6 +42,11 @@ OPTIONS:
                          runner, then 'duckdb' on PATH.
     --log-dir <dir>      Run-log directory (default: <workspace>/logs)
     --name <label>       Run-log + state folder name (default: pipeline file stem)
+    --manifest           After a successful run, write a signed .ducklock
+                         provenance manifest under <workspace>/manifests/
+                         (also enabled by the DUCKLE_MANIFEST env var).
+    --verify-manifest <path>
+                         Verify a .ducklock manifest signature and exit.
 
 BACKFILL (manage xf.incremental / src.ducklake.changes saved state, then exit
 without running). Resolve the state folder from --name or the pipeline stem,
@@ -65,6 +71,8 @@ struct Args {
     // (node, snapshot_id) CDC sets.
     set_snapshots: Vec<(String, u64)>,
     clear_watermarks: Vec<String>,
+    manifest: bool,
+    verify_manifest: Option<PathBuf>,
 }
 
 impl Args {
@@ -87,6 +95,8 @@ fn parse_args() -> Result<Args, String> {
     let mut set_watermarks = Vec::new();
     let mut set_snapshots = Vec::new();
     let mut clear_watermarks = Vec::new();
+    let mut manifest = false;
+    let mut verify_manifest = None;
     // SQL type applied to the NEXT --set-watermark (so it can precede it).
     let mut pending_type = String::from("VARCHAR");
     let mut it = std::env::args().skip(1);
@@ -123,6 +133,10 @@ fn parse_args() -> Result<Args, String> {
                 set_snapshots.push((node.to_string(), id));
             }
             "--clear-watermark" => clear_watermarks.push(take("--clear-watermark")?),
+            "--manifest" => manifest = true,
+            "--verify-manifest" => {
+                verify_manifest = Some(PathBuf::from(take("--verify-manifest")?))
+            }
             "-h" | "--help" => {
                 println!("{USAGE}");
                 std::process::exit(0);
@@ -144,6 +158,8 @@ fn parse_args() -> Result<Args, String> {
         set_watermarks,
         set_snapshots,
         clear_watermarks,
+        manifest,
+        verify_manifest,
     })
 }
 
@@ -255,6 +271,13 @@ fn run() -> Result<bool, String> {
         return run_backfill(&args);
     }
 
+    // Verify a manifest and exit, without running anything.
+    if let Some(p) = &args.verify_manifest {
+        let ok = manifest::verify_manifest(p)?;
+        println!("manifest : {}", if ok { "valid" } else { "INVALID" });
+        return Ok(ok);
+    }
+
     let pipeline = args
         .pipeline
         .clone()
@@ -314,6 +337,19 @@ fn run() -> Result<bool, String> {
         let rows = st.rows.map(|r| format!(" ({r} rows)")).unwrap_or_default();
         println!("  {:20} {}{}", id, st.status, rows);
     }
+
+    // Emit a signed provenance manifest for a successful run when asked.
+    if result.status == "ok" && (args.manifest || std::env::var_os("DUCKLE_MANIFEST").is_some()) {
+        let stamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis())
+            .unwrap_or(0);
+        match manifest::write_manifest(&workspace, &name, &doc, &result.status, result.duration_ms, stamp) {
+            Ok(path) => println!("manifest : {}", path.display()),
+            Err(e) => eprintln!("manifest : skipped ({e})"),
+        }
+    }
+
     Ok(result.status == "ok")
 }
 

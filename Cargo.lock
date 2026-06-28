@@ -4051,11 +4051,13 @@ dependencies = [
  "aes-gcm",
  "base64 0.22.1",
  "duckle-duckdb-engine",
+ "ed25519-dalek",
  "getrandom 0.2.17",
  "regex",
  "serde",
  "serde_json",
  "sha2 0.10.9",
+ "tempfile",
  "zip",
 ]
 
