@@ -466,9 +466,12 @@ fn dispatch_cmd(stream: &mut TcpStream, state: &WebState, cmd: &str, body: &[u8]
                 "available": true,
             }]),
         ),
-        // Unimplemented commands answer null so the editor (already resilient to
-        // backend failures) keeps booting. Real handlers land in the MVP.
-        _ => respond_json(stream, &Value::Null),
+        // Genuinely unknown commands get a real 404 (correct HTTP semantics for
+        // typos and for non-browser callers like curl/tools). Desktop-only
+        // commands the shared frontend still invokes on the web build are kept
+        // graceful by the web shim, which maps a 404 to a null no-op so the
+        // editor keeps booting.
+        _ => respond_err(stream, "404 Not Found", &format!("unknown command: {}", cmd)),
     }
 }
 

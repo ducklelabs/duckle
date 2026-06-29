@@ -16,6 +16,15 @@ export async function invoke<T = unknown>(
         body: JSON.stringify(args ?? {}),
     });
     if (!res.ok) {
+        // Desktop-only commands are not implemented on the web backend, which
+        // answers 404. The shared frontend invokes some of these unconditionally
+        // (settings, MCP, build), so keep the editor resilient by resolving a 404
+        // to null - the same no-op those call sites already tolerate - while
+        // surfacing it for debugging. Other statuses are real errors and throw.
+        if (res.status === 404) {
+            console.warn(`invoke: command '${cmd}' is not available on the web backend (404)`);
+            return null as T;
+        }
         const detail = await res.text().catch(() => '');
         throw new Error(`${cmd}: HTTP ${res.status} ${detail}`);
     }
