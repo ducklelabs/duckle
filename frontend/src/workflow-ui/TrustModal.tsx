@@ -150,14 +150,14 @@ export function TrustModal({ nodes, edges, workspacePath, onClose }: TrustModalP
                     Check live schema drift (reads each source)
                 </label>
 
-                {loading ? (
+                {loading && !data ? (
                     <div className="dive-panel-msg">
                         {checkDrift ? 'Scoring pipeline and reading sources...' : 'Scoring pipeline...'}
                     </div>
                 ) : null}
-                {error ? <div className="dive-panel-msg dive-panel-err">{error}</div> : null}
+                {error && !data ? <div className="dive-panel-msg dive-panel-err">{error}</div> : null}
 
-                {!loading && !error && data ? (
+                {data ? (
                     <>
                         <div className="trust-scoreline">
                             <div className={`trust-score ${gradeClass(data.grade)}`}>
@@ -194,7 +194,17 @@ export function TrustModal({ nodes, edges, workspacePath, onClose }: TrustModalP
                             </ul>
                         )}
 
-                        {checkDrift && data.drift ? <DriftPanel drift={data.drift} /> : null}
+                        {checkDrift ? (
+                            loading ? (
+                                <div className="dive-panel-msg">Reading each source's live schema...</div>
+                            ) : error ? (
+                                <div className="dive-panel-msg dive-panel-err">
+                                    Could not read live schema drift: {error}
+                                </div>
+                            ) : data.drift ? (
+                                <DriftPanel drift={data.drift} />
+                            ) : null
+                        ) : null}
                     </>
                 ) : null}
             </div>

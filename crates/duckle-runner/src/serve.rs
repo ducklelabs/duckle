@@ -236,7 +236,21 @@ fn handle_web(mut stream: TcpStream, state: &WebState) -> Result<(), String> {
     }
     if req.method == "POST" && req.path.starts_with("/api/cmd/") {
         let cmd = req.path.trim_start_matches("/api/cmd/").to_string();
-        return dispatch_cmd(&mut stream, state, &cmd, &req.body);
+        // A panic inside a command (e.g. a source that misbehaves during a live
+        // drift read) would otherwise unwind this connection's thread and drop
+        // the socket, which the browser can only report as an opaque "Failed to
+        // fetch". Catch it and answer with a real 500 the editor can show.
+        let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            dispatch_cmd(&mut stream, state, &cmd, &req.body)
+        }));
+        return match outcome {
+            Ok(r) => r,
+            Err(_) => respond_err(
+                &mut stream,
+                "500 Internal Server Error",
+                &format!("command '{cmd}' failed unexpectedly"),
+            ),
+        };
     }
     if req.method == "POST" && req.path.starts_with("/api/fs/") {
         let op = req.path.trim_start_matches("/api/fs/").to_string();
