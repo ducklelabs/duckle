@@ -406,12 +406,27 @@ fn dispatch_cmd(stream: &mut TcpStream, state: &WebState, cmd: &str, body: &[u8]
                 Err(e) => respond_err(stream, "400 Bad Request", &e.to_string()),
             }
         }
-        // Static trust scorecard for the open pipeline (compile + structural
-        // risks + ungoverned PII). No source reads, so it is fast and matches
-        // the desktop command and the MCP trust_report tool exactly.
+        // Trust scorecard for the open pipeline (compile + structural risks +
+        // ungoverned PII). Static by default; with checkDrift it also reads each
+        // source's live schema (resolving ${workspace} against this server's
+        // workspace first). Matches the desktop command and the MCP tool.
         "pipeline_trust_report" => {
             let args: Value = serde_json::from_slice(body).unwrap_or(Value::Null);
             let pipeline = args.get("pipeline").cloned().unwrap_or(Value::Null);
+            let check_drift = args.get("checkDrift").and_then(|v| v.as_bool()).unwrap_or(false);
+            if check_drift {
+                if let Ok(mut doc) = serde_json::from_value::<PipelineDoc>(pipeline.clone()) {
+                    duckle_duckdb_engine::context::apply_time_builtins(&mut doc);
+                    duckle_duckdb_engine::context::apply_workspace_context(&mut doc, &state.workspace);
+                    let resolved = match serde_json::to_value(&doc) {
+                        Ok(v) => v,
+                        Err(e) => return respond_err(stream, "500 Internal Server Error", &e.to_string()),
+                    };
+                    let engine = DuckdbEngine::new(state.duckdb.clone());
+                    let report = duckle_duckdb_engine::trust::trust_report(&resolved, Some(&engine));
+                    return respond_json(stream, &report);
+                }
+            }
             let report = duckle_duckdb_engine::trust::trust_report(&pipeline, None);
             respond_json(stream, &report)
         }

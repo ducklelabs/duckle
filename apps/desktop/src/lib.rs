@@ -491,9 +491,27 @@ fn pipeline_column_lineage(
 
 /// An explainable trust scorecard for the open pipeline: compile status,
 /// structural risks and ungoverned PII, each costed into a 0-100 score. Static
-/// (no source reads), so it is fast and deterministic right in the editor.
+/// by default (no source reads), so it is fast and deterministic in the editor.
+/// With `check_drift`, also reads each source's live schema and folds breaking
+/// drift into the score; `${workspace}`/`${date}` are resolved first so drift
+/// hits the real files.
 #[tauri::command]
-fn pipeline_trust_report(pipeline: serde_json::Value) -> Result<serde_json::Value, String> {
+fn pipeline_trust_report(
+    pipeline: serde_json::Value,
+    check_drift: Option<bool>,
+    workspace_path: Option<String>,
+) -> Result<serde_json::Value, String> {
+    if check_drift.unwrap_or(false) {
+        if let Ok(mut doc) = serde_json::from_value::<PipelineDoc>(pipeline.clone()) {
+            let engine = engine()?;
+            duckle_duckdb_engine::context::apply_time_builtins(&mut doc);
+            if let Some(ws) = workspace_path.as_deref() {
+                duckle_duckdb_engine::context::apply_workspace_context(&mut doc, std::path::Path::new(ws));
+            }
+            let resolved = serde_json::to_value(&doc).map_err(|e| e.to_string())?;
+            return Ok(duckle_duckdb_engine::trust::trust_report(&resolved, Some(&engine)));
+        }
+    }
     Ok(duckle_duckdb_engine::trust::trust_report(&pipeline, None))
 }
 

@@ -2438,7 +2438,12 @@ export default function App() {
                 <LineageModal nodes={nodes} edges={edges} onClose={() => setShowLineage(false)} />
             ) : null}
             {showTrust ? (
-                <TrustModal nodes={nodes} edges={edges} onClose={() => setShowTrust(false)} />
+                <TrustModal
+                    nodes={nodes}
+                    edges={edges}
+                    workspacePath={workspacePathState}
+                    onClose={() => setShowTrust(false)}
+                />
             ) : null}
             {showMcpModal ? <McpModal onClose={() => setShowMcpModal(false)} /> : null}
             {showSettings ? (

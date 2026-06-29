@@ -8047,3 +8047,20 @@ html[dir='rtl'] .topbar-lang {
 .trust-finding-code { font-family: Consolas, monospace; font-size: 11px; color: var(--text-2); text-transform: uppercase; letter-spacing: .03em; }
 .trust-finding-msg { font-size: 13px; color: var(--text-1); }
 .trust-deduction { flex: 0 0 auto; font-weight: 700; font-size: 13px; color: var(--error); }
+.trust-muted .trust-dot { background: var(--text-2); }
+
+/* Trust live schema-drift section */
+.trust-drift-toggle { margin: 14px 0 4px; }
+.trust-drift { margin-top: 12px; border-top: 1px solid var(--border); padding-top: 12px; }
+.trust-drift-head { font-size: 13px; font-weight: 600; color: var(--text-1); margin-bottom: 8px; }
+.trust-drift-extra { font-weight: 400; color: var(--text-2); }
+.trust-drift-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.trust-drift-src { display: flex; align-items: flex-start; gap: 10px; padding: 9px 12px; border: 1px solid var(--border); border-radius: 9px; }
+.trust-drift-body { display: flex; flex-direction: column; gap: 3px; flex: 1 1 auto; min-width: 0; }
+.trust-drift-name { font-weight: 550; font-size: 13px; color: var(--text-1); display: flex; align-items: center; gap: 8px; }
+.trust-drift-status { font-size: 11px; text-transform: uppercase; letter-spacing: .03em; color: var(--text-2); }
+.trust-drift-note { font-size: 12px; color: var(--text-2); }
+.trust-drift-line { font-size: 12px; font-family: Consolas, monospace; color: var(--text-1); word-break: break-word; }
+.trust-drift-missing { color: var(--error); }
+.trust-drift-types { color: var(--warn); }
+.trust-drift-added { color: var(--text-2); }

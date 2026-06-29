@@ -579,24 +579,60 @@ export type TrustFinding = {
     deduction: number;
     message: string;
 };
-/** Explainable 0-100 trust score for the open pipeline (static checks). */
+/** A single source's live-vs-declared schema comparison. */
+export type DriftSource = {
+    nodeId: string;
+    label?: string;
+    componentId?: string;
+    status: 'drift' | 'match' | 'not_introspectable' | 'unreadable' | 'no_declared_schema';
+    breaking?: boolean;
+    missingColumns?: string[];
+    addedColumns?: string[];
+    typeChanges?: { column: string; declared: string; live: string }[];
+    note?: string;
+};
+/** Live schema-drift report folded into the trust score (opt-in). */
+export type DriftReport = {
+    ok: boolean;
+    hasDrift: boolean;
+    hasBreaking: boolean;
+    sources: DriftSource[];
+    summary: {
+        sourcesChecked: number;
+        sourcesWithDrift: number;
+        breakingSources: number;
+        notIntrospectable: number;
+        unreadable: number;
+        noDeclaredSchema: number;
+    };
+};
+/** Explainable 0-100 trust score for the open pipeline. */
 export type TrustReport = {
     ok: boolean;
     score: number;
     grade: string;
     compiles: boolean;
     findings: TrustFinding[];
-    drift: unknown | null;
+    drift: DriftReport | null;
     summary: string;
 };
 
+/**
+ * Trust scorecard for the open pipeline. With `checkDrift`, also reads each
+ * source's live schema and folds breaking drift into the score (needs a DuckDB
+ * binary); `workspacePath` lets the backend resolve ${workspace} paths first.
+ */
 export async function pipelineTrustReport(
     nodes: Node<DuckleNodeData>[],
     edges: Edge[],
+    checkDrift = false,
+    workspacePath: string | null = null,
 ): Promise<TrustReport | null> {
     if (!isTauri() && !isWebBackend()) return null;
     return await invoke<TrustReport>('pipeline_trust_report', {
         pipeline: { nodes, edges },
+        checkDrift,
+        workspacePath,
     });
 }
 
