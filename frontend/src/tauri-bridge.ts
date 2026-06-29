@@ -362,6 +362,31 @@ export async function engineInstall(
     return await invoke<string>('engine_install', { engine, onProgress: channel });
 }
 
+/** Whether the free dbt engine (dbt Fusion, or dbt-core fallback) is provisioned. */
+export async function dbtStatus(): Promise<boolean> {
+    if (!isTauri()) return false;
+    try {
+        return await invoke<boolean>('dbt_status');
+    } catch {
+        return false;
+    }
+}
+
+/** Provision the free dbt engine (dbt Fusion). Idempotent; returns its path. */
+export async function dbtInstall(): Promise<string> {
+    return await invoke<string>('dbt_install');
+}
+
+/**
+ * Seed a brand-new / empty workspace with the bundled sample pipelines and
+ * generate their data locally. No-op (resolves false) if it already looks
+ * initialised; resolves true when it actually seeded so the caller re-hydrates.
+ */
+export async function seedSampleWorkspace(workspace: string): Promise<boolean> {
+    if (!isTauri()) return false;
+    return await invoke<boolean>('seed_sample_workspace', { workspace });
+}
+
 // ---- AI Chat (local Qwen via llama-server) -----------------------------
 
 export type ChatMessage = { role: 'user' | 'assistant' | 'system'; content: string };

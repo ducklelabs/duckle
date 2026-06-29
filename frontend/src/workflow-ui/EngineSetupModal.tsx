@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { CheckCircle2, Cpu, Download, Loader2, Workflow } from 'lucide-react';
+import { Boxes, CheckCircle2, Cpu, Download, Loader2, Workflow } from 'lucide-react';
 import {
+    dbtInstall,
+    dbtStatus,
     engineInstall,
     engineStatus,
     type EngineStatus,
@@ -18,6 +20,11 @@ export default function EngineSetupModal({ onReady }: Props) {
     const [progress, setProgress] = useState<Record<string, InstallProgress>>({});
     const [installing, setInstalling] = useState<string | null>(null);
     const [error, setError] = useState<string | null>(null);
+    // dbt Fusion provisions through its own command (not the GitHub-zip engine
+    // path), so it gets a dedicated row + state rather than an EngineStatus.
+    const [dbtInstalled, setDbtInstalled] = useState(false);
+    const [dbtBusy, setDbtBusy] = useState(false);
+    const [dbtError, setDbtError] = useState<string | null>(null);
 
     const refresh = useCallback(async () => {
         const list = await engineStatus();
@@ -28,10 +35,26 @@ export default function EngineSetupModal({ onReady }: Props) {
 
     useEffect(() => {
         void refresh();
+        void dbtStatus().then(setDbtInstalled);
     }, [refresh]);
 
     const duckdb = engines.find(e => e.id === 'duckdb');
     const canContinue = Boolean(duckdb?.installed);
+
+    // dbt Fusion is optional (only the dbt transform node needs it) so a failed
+    // fetch is non-fatal: surfaced as a note, never blocking Continue.
+    const installDbt = useCallback(async () => {
+        setDbtBusy(true);
+        setDbtError(null);
+        try {
+            await dbtInstall();
+            setDbtInstalled(true);
+        } catch (err) {
+            setDbtError(String(err));
+        } finally {
+            setDbtBusy(false);
+        }
+    }, []);
 
     const install = async (id: string) => {
         setInstalling(id);
@@ -42,6 +65,11 @@ export default function EngineSetupModal({ onReady }: Props) {
                 setProgress(prev => ({ ...prev, [id]: p }));
             });
             await refresh();
+            // Provision dbt Fusion alongside DuckDB on the same first-run pass,
+            // so the user sees it install as part of initialising the workspace.
+            if (id === 'duckdb' && !dbtInstalled && !dbtBusy) {
+                void installDbt();
+            }
         } catch (err) {
             setError(String(err));
             setProgress(p => ({ ...p, [id]: { phase: 'failed', error: String(err) } }));
@@ -58,10 +86,11 @@ export default function EngineSetupModal({ onReady }: Props) {
                         <Workflow size={28} />
                     </div>
                     <div className="modal-workspace-titles">
-                        <div className="modal-title">Set up Duckle</div>
+                        <div className="modal-title">Workspace initialisation</div>
                         <div className="modal-subtitle">
-                            One-time engine install - Duckle stays a tiny download and fetches
-                            its engine on first run.
+                            First-run setup - Duckle stays a tiny download and fetches the DuckDB
+                            engine and dbt Fusion now. Sample pipelines and data are added to a
+                            new workspace so you have something to run right away.
                         </div>
                     </div>
                 </div>
@@ -83,6 +112,13 @@ export default function EngineSetupModal({ onReady }: Props) {
                                     onInstall={() => install(e.id)}
                                 />
                             ))}
+                            <DbtRow
+                                installed={dbtInstalled}
+                                busy={dbtBusy}
+                                error={dbtError}
+                                disabled={installing !== null}
+                                onInstall={() => void installDbt()}
+                            />
                         </div>
                     )}
                     {error ? <div className="modal-engine-error">{error}</div> : null}
@@ -167,6 +203,65 @@ function EngineRow({
                     </button>
                 ) : (
                     <span className="engine-row-unavailable">Not available</span>
+                )}
+            </div>
+        </div>
+    );
+}
+
+function DbtRow({
+    installed,
+    busy,
+    error,
+    disabled,
+    onInstall,
+}: {
+    installed: boolean;
+    busy: boolean;
+    error: string | null;
+    disabled: boolean;
+    onInstall: () => void;
+}) {
+    return (
+        <div className="engine-row">
+            <div className="engine-row-icon">
+                <Boxes size={16} />
+            </div>
+            <div className="engine-row-info">
+                <div className="engine-row-head">
+                    <span className="engine-row-name">dbt Fusion</span>
+                    <span className="engine-row-tag">optional</span>
+                </div>
+                <div className="engine-row-desc">
+                    Fast dbt engine for the dbt transform node. Installs alongside DuckDB; the
+                    dbt-core fallback is fetched automatically if Fusion is unavailable.
+                </div>
+                {error ? (
+                    <div className="engine-progress">
+                        <div className="engine-progress-label">
+                            {error} - you can retry, or install it later when you use a dbt node.
+                        </div>
+                    </div>
+                ) : null}
+            </div>
+            <div className="engine-row-action">
+                {installed ? (
+                    <span className="engine-row-installed">
+                        <CheckCircle2 size={14} /> Installed
+                    </span>
+                ) : busy ? (
+                    <span className="engine-row-installing">
+                        <Loader2 size={13} className="spin" /> Installing…
+                    </span>
+                ) : (
+                    <button
+                        type="button"
+                        className="btn btn-primary btn-sm"
+                        onClick={onInstall}
+                        disabled={disabled}
+                    >
+                        <Download size={13} /> Install
+                    </button>
                 )}
             </div>
         </div>

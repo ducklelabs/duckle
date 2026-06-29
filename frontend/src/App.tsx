@@ -12,7 +12,7 @@ import {
     type OnSelectionChangeParams,
 } from '@xyflow/react';
 import type { ConnectionType } from './canvas/connection-types';
-import { BarChart3, Braces, FolderOpen, GitBranch, LayoutDashboard, Moon, RotateCw, ShieldCheck, Sparkles, Sun, Waypoints } from 'lucide-react';
+import { BarChart3, Braces, FolderOpen, GitBranch, LayoutDashboard, Loader2, Moon, RotateCw, ShieldCheck, Sparkles, Sun, Waypoints } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import LanguageSelector from './i18n/LanguageSelector';
 import { UpdateBanner } from './UpdateBanner';
@@ -47,7 +47,7 @@ import EngineSetupModal from './workflow-ui/EngineSetupModal';
 import ChatPanel from './workflow-ui/ChatPanel';
 import GitPanel from './workflow-ui/GitPanel';
 import WindowControls from './workflow-ui/WindowControls';
-import { engineStatus } from './tauri-bridge';
+import { engineStatus, seedSampleWorkspace } from './tauri-bridge';
 import { copyText, saveTextFile } from './tauri-io';
 import { writeClipboard, readClipboard, instantiateClipboard } from './clipboard';
 import { RunStatusContext } from './canvas/run-status-context';
@@ -414,6 +414,9 @@ export default function App() {
     const [workspaceLoadError, setWorkspaceLoadError] = useState<string | null>(null);
     // Bumped by "Reload from disk" to re-trigger the load effect for the same path (#92).
     const [reloadNonce, setReloadNonce] = useState(0);
+    // True while a brand-new workspace is being seeded with sample pipelines +
+    // generated data (Tauri only), so we can show a blocking init overlay.
+    const [seeding, setSeeding] = useState(false);
     const [corruptFiles, setCorruptFiles] = useState<string[]>([]);
     // ---- local multi-account profiles: username + optional avatar, each bound
     // to its own workspace (= data / pipeline context). Stored only on this
@@ -464,8 +467,27 @@ export default function App() {
         setWorkspaceLoadError(null);
         setCorruptFiles([]);
         loadWorkspace(workspacePathState)
-            .then(state => {
+            .then(async state => {
                 if (cancelled) return;
+                // Fresh / empty workspace on the desktop app: seed the bundled
+                // sample pipelines and generate their data, then re-hydrate from
+                // the files we just wrote. Best-effort - a seeding failure just
+                // falls through to an empty workspace.
+                if (!state && isInTauri()) {
+                    let seeded = false;
+                    try {
+                        setSeeding(true);
+                        seeded = await seedSampleWorkspace(workspacePathState);
+                    } catch (err) {
+                        console.error('Sample workspace seeding failed', err);
+                    }
+                    if (cancelled) return;
+                    setSeeding(false);
+                    if (seeded) {
+                        setReloadNonce(n => n + 1);
+                        return;
+                    }
+                }
                 if (state) {
                     if (state.engine) setEngine(state.engine as EngineId);
                     if (state.pipelineData)
@@ -2468,6 +2490,19 @@ export default function App() {
 
             {showEngineSetup ? (
                 <EngineSetupModal onReady={() => setEngineGate('ready')} />
+            ) : null}
+
+            {seeding ? (
+                <div className="modal-backdrop modal-backdrop-blocking">
+                    <div className="modal modal-engine">
+                        <div className="modal-body modal-engine-body">
+                            <div className="engine-loading">
+                                <Loader2 size={16} className="spin" /> Initialising workspace -
+                                adding sample pipelines and generating their data…
+                            </div>
+                        </div>
+                    </div>
+                </div>
             ) : null}
 
             {showProfileSetup ? (

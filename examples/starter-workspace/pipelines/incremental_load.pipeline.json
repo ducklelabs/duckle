@@ -1,0 +1,44 @@
+{
+  "name": "Incremental load (watermark)",
+  "nodes": [
+    {
+      "id": "src",
+      "type": "source",
+      "position": { "x": 0, "y": 0 },
+      "data": {
+        "label": "Orders (Parquet)",
+        "componentId": "src.parquet",
+        "properties": { "path": "${workspace}/data/orders.parquet" }
+      }
+    },
+    {
+      "id": "inc",
+      "type": "transform",
+      "position": { "x": 240, "y": 0 },
+      "data": {
+        "label": "New orders only",
+        "componentId": "xf.incremental",
+        "properties": { "column": "order_id", "initialValue": "0" }
+      }
+    },
+    {
+      "id": "snk",
+      "type": "sink",
+      "position": { "x": 480, "y": 0 },
+      "data": {
+        "label": "Warehouse",
+        "componentId": "snk.duckdb",
+        "properties": {
+          "database": "${workspace}/output/warehouse.duckdb",
+          "tableName": "orders_incremental",
+          "mode": "upsert",
+          "conflictColumns": ["order_id"]
+        }
+      }
+    }
+  ],
+  "edges": [
+    { "id": "e1", "source": "src", "target": "inc", "sourceHandle": "main", "targetHandle": "main", "data": { "connectionType": "main" } },
+    { "id": "e2", "source": "inc", "target": "snk", "sourceHandle": "main", "targetHandle": "main", "data": { "connectionType": "main" } }
+  ]
+}

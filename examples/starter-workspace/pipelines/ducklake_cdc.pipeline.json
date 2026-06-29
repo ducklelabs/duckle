@@ -1,0 +1,39 @@
+{
+  "name": "DuckLake CDC mirror",
+  "nodes": [
+    {
+      "id": "cdc",
+      "type": "source",
+      "position": { "x": 0, "y": 0 },
+      "data": {
+        "label": "Customers CDC",
+        "componentId": "src.ducklake.changes",
+        "properties": {
+          "path": "${workspace}/data/cdc.ducklake",
+          "schema": "main",
+          "table": "customers_cdc",
+          "insertsOnly": true,
+          "initialSnapshot": 0
+        }
+      }
+    },
+    {
+      "id": "snk",
+      "type": "sink",
+      "position": { "x": 280, "y": 0 },
+      "data": {
+        "label": "Mirror",
+        "componentId": "snk.duckdb",
+        "properties": {
+          "database": "${workspace}/output/warehouse.duckdb",
+          "tableName": "customers_mirror",
+          "mode": "upsert",
+          "conflictColumns": ["customer_id"]
+        }
+      }
+    }
+  ],
+  "edges": [
+    { "id": "e1", "source": "cdc", "target": "snk", "sourceHandle": "main", "targetHandle": "main", "data": { "connectionType": "main" } }
+  ]
+}

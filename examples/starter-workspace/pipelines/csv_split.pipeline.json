@@ -1,0 +1,39 @@
+{
+  "name": "Split customers by segment (for-each)",
+  "nodes": [
+    {
+      "id": "src",
+      "type": "source",
+      "position": { "x": 0, "y": 0 },
+      "data": {
+        "label": "Customers",
+        "componentId": "src.csv",
+        "properties": { "path": "${workspace}/data/customers.csv", "hasHeader": true }
+      }
+    },
+    {
+      "id": "dist",
+      "type": "transform",
+      "position": { "x": 240, "y": 0 },
+      "data": {
+        "label": "Distinct segments",
+        "componentId": "xf.distinct",
+        "properties": { "columns": ["segment"] }
+      }
+    },
+    {
+      "id": "fe",
+      "type": "control",
+      "position": { "x": 480, "y": 0 },
+      "data": {
+        "label": "Per segment",
+        "componentId": "ctl.foreach",
+        "properties": { "pipelineRef": "_csv_split_child", "concurrency": 1 }
+      }
+    }
+  ],
+  "edges": [
+    { "id": "e1", "source": "src", "target": "dist", "sourceHandle": "main", "targetHandle": "main", "data": { "connectionType": "main" } },
+    { "id": "e2", "source": "dist", "target": "fe", "sourceHandle": "main", "targetHandle": "main", "data": { "connectionType": "main" } }
+  ]
+}

@@ -62,6 +62,9 @@ ureq = { version = "2.10", default-features = false, features = ["tls", "json", 
 # Staging the embedded duckle-runner stub to a temp file at build time
 # (build_pipeline_bundle), so this is a runtime dep, not just a dev one.
 tempfile = "3.10"
+# Embeds the bundled starter-workspace (sample pipelines + data generator)
+# into the binary so a brand-new workspace can be seeded offline at first run.
+include_dir = "0.7"
 
 [features]
 # Required for release builds. Without this feature, tauri-codegen

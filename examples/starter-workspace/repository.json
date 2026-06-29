@@ -1,0 +1,11 @@
+[
+  { "id": "root", "name": "Sample Project", "type": "project" },
+  { "id": "samples", "name": "Sample Pipelines", "type": "folder", "parentId": "root" },
+  { "id": "orders_filter", "name": "1. CSV filter to Parquet", "type": "pipeline", "parentId": "samples" },
+  { "id": "region_summary", "name": "2. Join + group by", "type": "pipeline", "parentId": "samples" },
+  { "id": "incremental_load", "name": "3. Incremental load (watermark)", "type": "pipeline", "parentId": "samples" },
+  { "id": "ducklake_cdc", "name": "4. DuckLake CDC mirror", "type": "pipeline", "parentId": "samples" },
+  { "id": "enrich_parallel", "name": "5. Enrich + parallel write", "type": "pipeline", "parentId": "samples" },
+  { "id": "csv_split", "name": "6. Split by segment (for-each)", "type": "pipeline", "parentId": "samples" },
+  { "id": "_csv_split_child", "name": "(child) export one segment", "type": "pipeline", "parentId": "samples" }
+]

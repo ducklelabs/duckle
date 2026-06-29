@@ -24,6 +24,7 @@ mod ci_status;
 mod dbt_engine;
 mod engine_manager;
 mod llama_chat;
+mod samples;
 mod secrets;
 mod self_update;
 mod update_check;
@@ -170,6 +171,7 @@ pub fn run() {
             engine_install,
             dbt_status,
             dbt_install,
+            seed_sample_workspace,
             chat_send,
             chat_extract_pipeline,
             workspace_git_status,
@@ -629,6 +631,23 @@ async fn dbt_install(app: tauri::AppHandle) -> Result<String, String> {
         .await
         .map_err(|e| e.to_string())?
         .map(|p| p.to_string_lossy().into_owned())
+}
+
+/// Seed a brand-new / empty workspace with the bundled sample pipelines and
+/// generate their input data locally (via the provisioned DuckDB). No-op if the
+/// workspace already has a duckle.json. Returns true when it actually seeded, so
+/// the frontend knows to re-hydrate from the new files.
+#[tauri::command]
+async fn seed_sample_workspace(app: tauri::AppHandle, workspace: String) -> Result<bool, String> {
+    let dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
+    let duckdb = engine_manager::duckdb_path(&dir);
+    if !duckdb.exists() {
+        return Err("DuckDB engine is not installed yet".to_string());
+    }
+    let ws = std::path::PathBuf::from(&workspace);
+    tokio::task::spawn_blocking(move || samples::seed(&ws, &duckdb))
+        .await
+        .map_err(|e| e.to_string())?
 }
 
 // ---- AI chat assistant -------------------------------------------------

@@ -1,0 +1,8 @@
+{
+  "version": 2,
+  "engine": "duckdb",
+  "jobs": [
+    { "id": "orders_filter", "name": "1. CSV filter to Parquet", "dirty": false }
+  ],
+  "activeJobId": "orders_filter"
+}
