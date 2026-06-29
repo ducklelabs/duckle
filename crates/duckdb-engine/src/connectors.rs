@@ -1238,6 +1238,138 @@ impl DuckdbEngine {
         Ok(format!("adbc: materialized {} rows into {}", count, spec.node_id))
     }
 
+    /// snk.adbc / snk.teradata: COPY the upstream view to a Parquet temp file,
+    /// then bulk-ingest it into the target table through a prebuilt ADBC driver
+    /// loaded at runtime (the ADBC bind_stream + ingest API: no per-row
+    /// round-trips, no in-process DuckDB write). Bulk ingest is
+    /// create/append/replace only - upsert is rejected at plan time. Not
+    /// feature-gated: adbc_core links unconditionally; a missing or incompatible
+    /// driver surfaces as a clear engine error at load time.
+    pub(crate) fn run_adbc_sink(
+        &self,
+        db: &Path,
+        spec: &plan::AdbcSinkSpec,
+    ) -> Result<String, EngineError> {
+        use adbc_core::{
+            driver_manager::ManagedDriver,
+            options::{AdbcVersion, IngestMode, OptionDatabase, OptionStatement, OptionValue},
+            Connection, Database, Driver, Optionable, Statement,
+        };
+        use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
+
+        // 1. COPY the upstream view to a temp parquet once (already typed), so
+        // the ingest streams Arrow batches straight from disk.
+        let safe: String = spec
+            .from_view
+            .chars()
+            .map(|c| if c.is_ascii_alphanumeric() || c == '_' || c == '-' { c } else { '_' })
+            .collect();
+        let db_name = db
+            .file_name()
+            .map(|s| s.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        let parquet_path = db.with_file_name(format!("{}.adbc-snk-{}.parquet", db_name, safe));
+        let ppath = parquet_path
+            .to_string_lossy()
+            .replace('\\', "/")
+            .replace('\'', "''");
+        let copy = format!(
+            "COPY (SELECT * FROM {}) TO '{}' (FORMAT parquet)",
+            plan::quote_ident(&spec.from_view),
+            ppath
+        );
+        self.run(Some(db), &copy, false)?;
+
+        // 2. Load the ADBC driver. Prepend the driver's own directory to PATH so
+        // a self-contained bundled driver folder loads without extra setup.
+        let driver_path = Path::new(&spec.driver);
+        if let Some(parent) = driver_path.parent() {
+            if !parent.as_os_str().is_empty() {
+                let cur = std::env::var("PATH").unwrap_or_default();
+                let sep = if cfg!(windows) { ';' } else { ':' };
+                let already = cur
+                    .split(sep)
+                    .any(|p| !p.is_empty() && Path::new(p) == parent);
+                if !already {
+                    std::env::set_var("PATH", format!("{}{}{}", parent.display(), sep, cur));
+                }
+            }
+        }
+        let entry: Option<&[u8]> = spec.entrypoint.as_deref().map(|s| s.as_bytes());
+        let looks_like_path = spec.driver.contains('/')
+            || spec.driver.contains('\\')
+            || spec.driver.ends_with(".dll")
+            || spec.driver.ends_with(".so")
+            || spec.driver.ends_with(".dylib");
+        let mut driver = if looks_like_path {
+            ManagedDriver::load_dynamic_from_filename(&spec.driver, entry, AdbcVersion::V110)
+        } else {
+            ManagedDriver::load_dynamic_from_name(&spec.driver, entry, AdbcVersion::V110)
+        }
+        .map_err(|e| EngineError::Query(format!("adbc: load driver '{}': {}", spec.driver, e)))?;
+
+        let opts = spec
+            .options
+            .iter()
+            .map(|(k, v)| (OptionDatabase::from(k.as_str()), OptionValue::String(v.clone())));
+        let mut database = driver
+            .new_database_with_opts(opts)
+            .map_err(|e| EngineError::Query(format!("adbc: open database: {}", e)))?;
+        let mut conn = database
+            .new_connection()
+            .map_err(|e| EngineError::Query(format!("adbc: connect: {}", e)))?;
+        let mut stmt = conn
+            .new_statement()
+            .map_err(|e| EngineError::Query(format!("adbc: statement: {}", e)))?;
+
+        // 3. Configure the bulk-ingest target + mode. "overwrite" replaces the
+        // table; "append" creates it if missing then appends.
+        let mode = if spec.mode == "overwrite" {
+            IngestMode::Replace
+        } else {
+            IngestMode::CreateAppend
+        };
+        stmt.set_option(OptionStatement::IngestMode, mode.into())
+            .map_err(|e| EngineError::Query(format!("adbc: set ingest mode: {}", e)))?;
+        stmt.set_option(
+            OptionStatement::TargetTable,
+            OptionValue::String(spec.table.clone()),
+        )
+        .map_err(|e| EngineError::Query(format!("adbc: set target table: {}", e)))?;
+        if let Some(schema) = spec.schema.as_deref().filter(|s| !s.is_empty()) {
+            stmt.set_option(
+                OptionStatement::TargetDbSchema,
+                OptionValue::String(schema.to_string()),
+            )
+            .map_err(|e| EngineError::Query(format!("adbc: set target schema: {}", e)))?;
+        }
+        if let Some(catalog) = spec.catalog.as_deref().filter(|s| !s.is_empty()) {
+            stmt.set_option(
+                OptionStatement::TargetCatalog,
+                OptionValue::String(catalog.to_string()),
+            )
+            .map_err(|e| EngineError::Query(format!("adbc: set target catalog: {}", e)))?;
+        }
+
+        // 4. Stream the parquet's Arrow batches into the driver and execute.
+        let file = std::fs::File::open(&parquet_path)
+            .map_err(|e| EngineError::Query(format!("adbc: open temp parquet: {}", e)))?;
+        let reader = ParquetRecordBatchReaderBuilder::try_new(file)
+            .map_err(|e| EngineError::Query(format!("adbc: read temp parquet: {}", e)))?
+            .build()
+            .map_err(|e| EngineError::Query(format!("adbc: parquet reader: {}", e)))?;
+        stmt.bind_stream(Box::new(reader))
+            .map_err(|e| EngineError::Query(format!("adbc: bind rows: {}", e)))?;
+        let affected = stmt
+            .execute_update()
+            .map_err(|e| EngineError::Query(format!("adbc: ingest into {}: {}", spec.table, e)))?;
+        let _ = std::fs::remove_file(&parquet_path);
+        match affected {
+            Some(n) if n >= 0 => Ok(format!("adbc: ingested {} rows into {}", n, spec.table)),
+            _ => Ok(format!("adbc: ingested into {}", spec.table)),
+        }
+    }
+
     /// Single-consumer network-DB source (postgres / mysql / ...): COPY the
     /// already-typed ATTACH result to a temp parquet, then expose a lazy
     /// read_parquet VIEW. The parquet write is cheaper than an on-disk table

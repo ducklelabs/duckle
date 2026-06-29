@@ -324,6 +324,167 @@ export const MANIFESTS: Record<string, ComponentManifest> = {
         },
     },
 
+    'src.teradata': {
+        id: 'src.teradata',
+        kind: 'source',
+        label: 'Teradata',
+        description:
+            'Read from Teradata through its ADBC driver. There is no DuckDB Teradata extension, so point this at a Teradata ADBC driver shared library; rows stream back as Arrow. The connection fields below map to standard ADBC options - use Driver options to override or add driver-specific keys.',
+        schemaSource: 'declared',
+        sections: [
+            {
+                label: 'Driver',
+                fields: [
+                    {
+                        key: 'driver',
+                        label: 'Driver library',
+                        kind: 'file-path',
+                        required: true,
+                        placeholder: 'e.g. C:\\drivers\\adbc_driver_teradata.dll',
+                        description: 'Path to the Teradata ADBC driver shared library (.dll / .so / .dylib). Any dependent libraries must sit next to it.',
+                        filters: [
+                            { name: 'Shared library', extensions: ['dll', 'so', 'dylib'] },
+                            { name: 'All files', extensions: ['*'] },
+                        ],
+                    },
+                    {
+                        key: 'entrypoint',
+                        label: 'Init entrypoint (optional)',
+                        kind: 'text',
+                        placeholder: 'AdbcDriverInit',
+                        description: 'Custom driver init symbol. Leave blank for the standard AdbcDriverInit.',
+                    },
+                ],
+            },
+            {
+                label: 'Connection',
+                fields: [
+                    { key: 'host', label: 'Host', kind: 'text', placeholder: 'teradata.example.com' },
+                    { key: 'port', label: 'Port', kind: 'integer', defaultValue: 1025 },
+                    { key: 'user', label: 'User', kind: 'text' },
+                    { key: 'password', label: 'Password', kind: 'text', placeholder: '••••••••' },
+                    { key: 'database', label: 'Database', kind: 'text' },
+                    {
+                        key: 'options',
+                        label: 'Driver options',
+                        kind: 'key-value',
+                        description: 'Extra ADBC database options. These override the connection fields above for any matching key.',
+                    },
+                ],
+            },
+            {
+                label: 'Query',
+                fields: [
+                    {
+                        key: 'query',
+                        label: 'SQL query',
+                        kind: 'expression',
+                        rows: 4,
+                        placeholder: 'SELECT * FROM sales.orders',
+                        description: 'Leave blank to read the whole table named below.',
+                    },
+                    {
+                        key: 'tableName',
+                        label: 'Or table name',
+                        kind: 'text',
+                        placeholder: 'sales.orders',
+                        description: 'Read this entire table when no SQL query is given.',
+                    },
+                ],
+            },
+        ],
+        ports: {
+            inputs: [],
+            outputs: [
+                { id: 'main', label: 'main', type: 'main' },
+                { id: 'reject', label: 'reject', type: 'reject', optional: true },
+            ],
+        },
+    },
+
+    'snk.teradata': {
+        id: 'snk.teradata',
+        kind: 'sink',
+        label: 'Teradata',
+        description:
+            'Write to Teradata through its ADBC driver using bulk ingest. Point this at a Teradata ADBC driver shared library. Append creates the table if missing then appends rows; Overwrite replaces the table. Upsert is not supported over ADBC ingest.',
+        schemaSource: 'upstream',
+        sections: [
+            {
+                label: 'Driver',
+                fields: [
+                    {
+                        key: 'driver',
+                        label: 'Driver library',
+                        kind: 'file-path',
+                        required: true,
+                        placeholder: 'e.g. C:\\drivers\\adbc_driver_teradata.dll',
+                        description: 'Path to the Teradata ADBC driver shared library (.dll / .so / .dylib). Any dependent libraries must sit next to it.',
+                        filters: [
+                            { name: 'Shared library', extensions: ['dll', 'so', 'dylib'] },
+                            { name: 'All files', extensions: ['*'] },
+                        ],
+                    },
+                    {
+                        key: 'entrypoint',
+                        label: 'Init entrypoint (optional)',
+                        kind: 'text',
+                        placeholder: 'AdbcDriverInit',
+                        description: 'Custom driver init symbol. Leave blank for the standard AdbcDriverInit.',
+                    },
+                ],
+            },
+            {
+                label: 'Connection',
+                fields: [
+                    { key: 'host', label: 'Host', kind: 'text', placeholder: 'teradata.example.com' },
+                    { key: 'port', label: 'Port', kind: 'integer', defaultValue: 1025 },
+                    { key: 'user', label: 'User', kind: 'text' },
+                    { key: 'password', label: 'Password', kind: 'text', placeholder: '••••••••' },
+                    { key: 'database', label: 'Database', kind: 'text' },
+                    {
+                        key: 'options',
+                        label: 'Driver options',
+                        kind: 'key-value',
+                        description: 'Extra ADBC database options. These override the connection fields above for any matching key.',
+                    },
+                ],
+            },
+            {
+                label: 'Destination',
+                fields: [
+                    {
+                        key: 'tableName',
+                        label: 'Target table',
+                        kind: 'text',
+                        required: true,
+                        placeholder: 'sales.orders_loaded',
+                    },
+                    {
+                        key: 'schema',
+                        label: 'Target schema (optional)',
+                        kind: 'text',
+                        description: 'Sets the ADBC target schema for the ingest. Leave blank to use the table name as given.',
+                    },
+                    {
+                        key: 'writeMode',
+                        label: 'Write mode',
+                        kind: 'select',
+                        defaultValue: 'append',
+                        options: [
+                            { label: 'Append (create table if missing)', value: 'append' },
+                            { label: 'Overwrite (replace table)', value: 'overwrite' },
+                        ],
+                    },
+                ],
+            },
+        ],
+        ports: {
+            inputs: [{ id: 'main', label: 'main', type: 'main' }],
+            outputs: [],
+        },
+    },
+
     'src.gizmosql': {
         id: 'src.gizmosql',
         kind: 'source',

@@ -109,6 +109,7 @@ const SI = {
     spatial: 'geopandas',
     quickbooks: 'quickbooks',
     clickup: 'clickup',
+    teradata: 'teradata',
 };
 
 // Custom raw-SVG logos for brands neither gilbarbara nor simple-icons

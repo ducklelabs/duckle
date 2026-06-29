@@ -3521,3 +3521,34 @@
             other => panic!("expected a Dbt runtime spec, got {:?}", other),
         }
     }
+
+    #[test]
+    fn teradata_adbc_options_friendly_then_advanced_override() {
+        use serde_json::json;
+        // The Teradata wrapper maps friendly host/user/password/database/port
+        // onto ADBC database option keys, then layers the advanced `options`
+        // array and `uri` on top so an explicit option overrides a friendly
+        // default (a last-wins driver applies the override).
+        let props = json!({
+            "host": "tera.example.com",
+            "user": "dbc",
+            "password": "secret",
+            "database": "sales",
+            "port": 1025,
+            "uri": "teradata://tera.example.com/sales",
+            "options": [
+                {"key": "username", "value": "override_user"},
+                {"key": "logmech", "value": "LDAP"}
+            ]
+        });
+        let opts = teradata_adbc_options(&props);
+        assert!(opts.contains(&("host".into(), "tera.example.com".into())));
+        assert!(opts.contains(&("password".into(), "secret".into())));
+        assert!(opts.contains(&("database".into(), "sales".into())));
+        assert!(opts.contains(&("port".into(), "1025".into())));
+        assert!(opts.contains(&("logmech".into(), "LDAP".into())));
+        assert!(opts.contains(&("uri".into(), "teradata://tera.example.com/sales".into())));
+        let friendly = opts.iter().position(|(k, v)| k == "username" && v == "dbc").unwrap();
+        let overridden = opts.iter().position(|(k, v)| k == "username" && v == "override_user").unwrap();
+        assert!(friendly < overridden, "advanced override must come after the friendly default");
+    }

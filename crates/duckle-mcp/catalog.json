@@ -1,6 +1,6 @@
 {
   "version": "1",
-  "componentCount": 357,
+  "componentCount": 359,
   "components": [
     {
       "id": "src.csv",
@@ -2132,7 +2132,7 @@
                 "kind": "expression",
                 "rows": 5,
                 "placeholder": "SELECT * FROM duckle_src.main.orders WHERE status = $1",
-                "description": "Used when Read mode is Custom SQL. Reference the attached source as duckle_src."
+                "description": "Used when Read mode is Custom SQL. Reference the attached source as duckle_src. Note: a custom query is materialized through a parquet file, so predicate / projection pushdown into the source does not apply - put any filtering in this SQL rather than relying on a downstream Filter to limit the scan."
               }
             ]
           },
@@ -3865,6 +3865,153 @@
       }
     },
     {
+      "id": "src.teradata",
+      "label": "Teradata",
+      "kind": "source",
+      "availability": "available",
+      "summary": "Read from Teradata through its ADBC driver (Teradata-branded wrapper over the ADBC reader). Point at a Teradata ADBC driver shared library; friendly host / user / password / database fields map onto ADBC options. Whole-table read or custom SQL.",
+      "ports": {
+        "inputs": [],
+        "outputs": [
+          {
+            "id": "main",
+            "label": "main",
+            "type": "main"
+          },
+          {
+            "id": "reject",
+            "label": "reject",
+            "type": "reject",
+            "optional": true
+          }
+        ]
+      },
+      "manifest": {
+        "id": "src.teradata",
+        "kind": "source",
+        "label": "Teradata",
+        "description": "Read from Teradata through its ADBC driver (Teradata-branded wrapper over the ADBC reader). Point at a Teradata ADBC driver shared library; friendly host / user / password / database fields map onto ADBC options. Whole-table read or custom SQL.",
+        "schemaSource": "autodetect",
+        "sections": [
+          {
+            "label": "Connection",
+            "fields": [
+              {
+                "key": "connectionRef",
+                "label": "Saved connection",
+                "kind": "connection-ref",
+                "description": "Pick a connection from the Connections folder to auto-fill the fields below."
+              },
+              {
+                "key": "host",
+                "label": "Host",
+                "kind": "text",
+                "required": true,
+                "placeholder": "localhost"
+              },
+              {
+                "key": "port",
+                "label": "Port",
+                "kind": "integer",
+                "defaultValue": 0
+              },
+              {
+                "key": "database",
+                "label": "Database",
+                "kind": "text",
+                "required": true,
+                "placeholder": "mydb"
+              },
+              {
+                "key": "username",
+                "label": "Username",
+                "kind": "text"
+              },
+              {
+                "key": "password",
+                "label": "Password",
+                "kind": "text",
+                "placeholder": "••••••••"
+              }
+            ]
+          },
+          {
+            "label": "Query",
+            "fields": [
+              {
+                "key": "mode",
+                "label": "Read mode",
+                "kind": "select",
+                "defaultValue": "table",
+                "options": [
+                  {
+                    "label": "Whole table",
+                    "value": "table"
+                  },
+                  {
+                    "label": "Custom SQL",
+                    "value": "sql"
+                  },
+                  {
+                    "label": "Incremental (by column)",
+                    "value": "incremental"
+                  }
+                ]
+              },
+              {
+                "key": "schemaName",
+                "label": "Schema",
+                "kind": "text",
+                "placeholder": "public"
+              },
+              {
+                "key": "tableName",
+                "label": "Table",
+                "kind": "text",
+                "placeholder": "orders"
+              },
+              {
+                "key": "sql",
+                "label": "SQL query",
+                "kind": "expression",
+                "rows": 5,
+                "placeholder": "SELECT * FROM orders WHERE status = $1"
+              },
+              {
+                "key": "incrementalColumn",
+                "label": "Incremental column",
+                "kind": "text",
+                "placeholder": "updated_at"
+              },
+              {
+                "key": "fetchSize",
+                "label": "Fetch size",
+                "kind": "integer",
+                "defaultValue": 1000,
+                "description": "Rows fetched per round-trip."
+              }
+            ]
+          }
+        ],
+        "ports": {
+          "inputs": [],
+          "outputs": [
+            {
+              "id": "main",
+              "label": "main",
+              "type": "main"
+            },
+            {
+              "id": "reject",
+              "label": "reject",
+              "type": "reject",
+              "optional": true
+            }
+          ]
+        }
+      }
+    },
+    {
       "id": "src.jdbc",
       "label": "Generic JDBC",
       "kind": "source",
@@ -4718,7 +4865,7 @@
                 "kind": "expression",
                 "rows": 5,
                 "placeholder": "SELECT * FROM duckle_src.main.orders WHERE status = $1",
-                "description": "Used when Read mode is Custom SQL. Reference the attached source as duckle_src."
+                "description": "Used when Read mode is Custom SQL. Reference the attached source as duckle_src. Note: a custom query is materialized through a parquet file, so predicate / projection pushdown into the source does not apply - put any filtering in this SQL rather than relying on a downstream Filter to limit the scan."
               }
             ]
           }
@@ -4834,7 +4981,7 @@
                 "kind": "expression",
                 "rows": 5,
                 "placeholder": "SELECT * FROM duckle_src.main.orders WHERE status = $1",
-                "description": "Used when Read mode is Custom SQL. Reference the attached source as duckle_src."
+                "description": "Used when Read mode is Custom SQL. Reference the attached source as duckle_src. Note: a custom query is materialized through a parquet file, so predicate / projection pushdown into the source does not apply - put any filtering in this SQL rather than relying on a downstream Filter to limit the scan."
               }
             ]
           }
@@ -24245,12 +24392,6 @@
             "id": "main",
             "label": "main",
             "type": "main"
-          },
-          {
-            "id": "reject",
-            "label": "reject",
-            "type": "reject",
-            "optional": true
           }
         ],
         "outputs": []
@@ -24434,12 +24575,6 @@
               "id": "main",
               "label": "main",
               "type": "main"
-            },
-            {
-              "id": "reject",
-              "label": "reject",
-              "type": "reject",
-              "optional": true
             }
           ],
           "outputs": []
@@ -24458,12 +24593,6 @@
             "id": "main",
             "label": "main",
             "type": "main"
-          },
-          {
-            "id": "reject",
-            "label": "reject",
-            "type": "reject",
-            "optional": true
           }
         ],
         "outputs": []
@@ -24647,12 +24776,6 @@
               "id": "main",
               "label": "main",
               "type": "main"
-            },
-            {
-              "id": "reject",
-              "label": "reject",
-              "type": "reject",
-              "optional": true
             }
           ],
           "outputs": []
@@ -24671,12 +24794,6 @@
             "id": "main",
             "label": "main",
             "type": "main"
-          },
-          {
-            "id": "reject",
-            "label": "reject",
-            "type": "reject",
-            "optional": true
           }
         ],
         "outputs": []
@@ -24826,12 +24943,6 @@
               "id": "main",
               "label": "main",
               "type": "main"
-            },
-            {
-              "id": "reject",
-              "label": "reject",
-              "type": "reject",
-              "optional": true
             }
           ],
           "outputs": []
@@ -24850,12 +24961,6 @@
             "id": "main",
             "label": "main",
             "type": "main"
-          },
-          {
-            "id": "reject",
-            "label": "reject",
-            "type": "reject",
-            "optional": true
           }
         ],
         "outputs": []
@@ -25005,12 +25110,6 @@
               "id": "main",
               "label": "main",
               "type": "main"
-            },
-            {
-              "id": "reject",
-              "label": "reject",
-              "type": "reject",
-              "optional": true
             }
           ],
           "outputs": []
@@ -25029,12 +25128,6 @@
             "id": "main",
             "label": "main",
             "type": "main"
-          },
-          {
-            "id": "reject",
-            "label": "reject",
-            "type": "reject",
-            "optional": true
           }
         ],
         "outputs": []
@@ -25158,12 +25251,6 @@
               "id": "main",
               "label": "main",
               "type": "main"
-            },
-            {
-              "id": "reject",
-              "label": "reject",
-              "type": "reject",
-              "optional": true
             }
           ],
           "outputs": []
@@ -25182,12 +25269,6 @@
             "id": "main",
             "label": "main",
             "type": "main"
-          },
-          {
-            "id": "reject",
-            "label": "reject",
-            "type": "reject",
-            "optional": true
           }
         ],
         "outputs": []
@@ -25306,12 +25387,6 @@
               "id": "main",
               "label": "main",
               "type": "main"
-            },
-            {
-              "id": "reject",
-              "label": "reject",
-              "type": "reject",
-              "optional": true
             }
           ],
           "outputs": []
@@ -25330,12 +25405,6 @@
             "id": "main",
             "label": "main",
             "type": "main"
-          },
-          {
-            "id": "reject",
-            "label": "reject",
-            "type": "reject",
-            "optional": true
           }
         ],
         "outputs": []
@@ -25472,12 +25541,6 @@
               "id": "main",
               "label": "main",
               "type": "main"
-            },
-            {
-              "id": "reject",
-              "label": "reject",
-              "type": "reject",
-              "optional": true
             }
           ],
           "outputs": []
@@ -25496,12 +25559,6 @@
             "id": "main",
             "label": "main",
             "type": "main"
-          },
-          {
-            "id": "reject",
-            "label": "reject",
-            "type": "reject",
-            "optional": true
           }
         ],
         "outputs": []
@@ -25545,12 +25602,6 @@
               "id": "main",
               "label": "main",
               "type": "main"
-            },
-            {
-              "id": "reject",
-              "label": "reject",
-              "type": "reject",
-              "optional": true
             }
           ],
           "outputs": []
@@ -25569,12 +25620,6 @@
             "id": "main",
             "label": "main",
             "type": "main"
-          },
-          {
-            "id": "reject",
-            "label": "reject",
-            "type": "reject",
-            "optional": true
           }
         ],
         "outputs": []
@@ -25682,12 +25727,6 @@
               "id": "main",
               "label": "main",
               "type": "main"
-            },
-            {
-              "id": "reject",
-              "label": "reject",
-              "type": "reject",
-              "optional": true
             }
           ],
           "outputs": []
@@ -25706,12 +25745,6 @@
             "id": "main",
             "label": "main",
             "type": "main"
-          },
-          {
-            "id": "reject",
-            "label": "reject",
-            "type": "reject",
-            "optional": true
           }
         ],
         "outputs": []
@@ -25819,12 +25852,6 @@
               "id": "main",
               "label": "main",
               "type": "main"
-            },
-            {
-              "id": "reject",
-              "label": "reject",
-              "type": "reject",
-              "optional": true
             }
           ],
           "outputs": []
@@ -25843,12 +25870,6 @@
             "id": "main",
             "label": "main",
             "type": "main"
-          },
-          {
-            "id": "reject",
-            "label": "reject",
-            "type": "reject",
-            "optional": true
           }
         ],
         "outputs": []
@@ -25956,12 +25977,6 @@
               "id": "main",
               "label": "main",
               "type": "main"
-            },
-            {
-              "id": "reject",
-              "label": "reject",
-              "type": "reject",
-              "optional": true
             }
           ],
           "outputs": []
@@ -25980,12 +25995,6 @@
             "id": "main",
             "label": "main",
             "type": "main"
-          },
-          {
-            "id": "reject",
-            "label": "reject",
-            "type": "reject",
-            "optional": true
           }
         ],
         "outputs": []
@@ -26093,12 +26102,6 @@
               "id": "main",
               "label": "main",
               "type": "main"
-            },
-            {
-              "id": "reject",
-              "label": "reject",
-              "type": "reject",
-              "optional": true
             }
           ],
           "outputs": []
@@ -26117,12 +26120,6 @@
             "id": "main",
             "label": "main",
             "type": "main"
-          },
-          {
-            "id": "reject",
-            "label": "reject",
-            "type": "reject",
-            "optional": true
           }
         ],
         "outputs": []
@@ -26230,12 +26227,6 @@
               "id": "main",
               "label": "main",
               "type": "main"
-            },
-            {
-              "id": "reject",
-              "label": "reject",
-              "type": "reject",
-              "optional": true
             }
           ],
           "outputs": []
@@ -26254,12 +26245,6 @@
             "id": "main",
             "label": "main",
             "type": "main"
-          },
-          {
-            "id": "reject",
-            "label": "reject",
-            "type": "reject",
-            "optional": true
           }
         ],
         "outputs": []
@@ -26335,12 +26320,6 @@
               "id": "main",
               "label": "main",
               "type": "main"
-            },
-            {
-              "id": "reject",
-              "label": "reject",
-              "type": "reject",
-              "optional": true
             }
           ],
           "outputs": []
@@ -26359,12 +26338,6 @@
             "id": "main",
             "label": "main",
             "type": "main"
-          },
-          {
-            "id": "reject",
-            "label": "reject",
-            "type": "reject",
-            "optional": true
           }
         ],
         "outputs": []
@@ -26494,12 +26467,6 @@
               "id": "main",
               "label": "main",
               "type": "main"
-            },
-            {
-              "id": "reject",
-              "label": "reject",
-              "type": "reject",
-              "optional": true
             }
           ],
           "outputs": []
@@ -26518,12 +26485,6 @@
             "id": "main",
             "label": "main",
             "type": "main"
-          },
-          {
-            "id": "reject",
-            "label": "reject",
-            "type": "reject",
-            "optional": true
           }
         ],
         "outputs": []
@@ -26555,12 +26516,6 @@
               "id": "main",
               "label": "main",
               "type": "main"
-            },
-            {
-              "id": "reject",
-              "label": "reject",
-              "type": "reject",
-              "optional": true
             }
           ],
           "outputs": []
@@ -26579,12 +26534,6 @@
             "id": "main",
             "label": "main",
             "type": "main"
-          },
-          {
-            "id": "reject",
-            "label": "reject",
-            "type": "reject",
-            "optional": true
           }
         ],
         "outputs": []
@@ -26668,12 +26617,6 @@
               "id": "main",
               "label": "main",
               "type": "main"
-            },
-            {
-              "id": "reject",
-              "label": "reject",
-              "type": "reject",
-              "optional": true
             }
           ],
           "outputs": []
@@ -26692,12 +26635,6 @@
             "id": "main",
             "label": "main",
             "type": "main"
-          },
-          {
-            "id": "reject",
-            "label": "reject",
-            "type": "reject",
-            "optional": true
           }
         ],
         "outputs": []
@@ -26857,12 +26794,6 @@
               "id": "main",
               "label": "main",
               "type": "main"
-            },
-            {
-              "id": "reject",
-              "label": "reject",
-              "type": "reject",
-              "optional": true
             }
           ],
           "outputs": []
@@ -26881,12 +26812,6 @@
             "id": "main",
             "label": "main",
             "type": "main"
-          },
-          {
-            "id": "reject",
-            "label": "reject",
-            "type": "reject",
-            "optional": true
           }
         ],
         "outputs": []
@@ -27046,12 +26971,6 @@
               "id": "main",
               "label": "main",
               "type": "main"
-            },
-            {
-              "id": "reject",
-              "label": "reject",
-              "type": "reject",
-              "optional": true
             }
           ],
           "outputs": []
@@ -27070,12 +26989,6 @@
             "id": "main",
             "label": "main",
             "type": "main"
-          },
-          {
-            "id": "reject",
-            "label": "reject",
-            "type": "reject",
-            "optional": true
           }
         ],
         "outputs": []
@@ -27235,12 +27148,6 @@
               "id": "main",
               "label": "main",
               "type": "main"
-            },
-            {
-              "id": "reject",
-              "label": "reject",
-              "type": "reject",
-              "optional": true
             }
           ],
           "outputs": []
@@ -27259,12 +27166,6 @@
             "id": "main",
             "label": "main",
             "type": "main"
-          },
-          {
-            "id": "reject",
-            "label": "reject",
-            "type": "reject",
-            "optional": true
           }
         ],
         "outputs": []
@@ -27424,12 +27325,6 @@
               "id": "main",
               "label": "main",
               "type": "main"
-            },
-            {
-              "id": "reject",
-              "label": "reject",
-              "type": "reject",
-              "optional": true
             }
           ],
           "outputs": []
@@ -27448,12 +27343,6 @@
             "id": "main",
             "label": "main",
             "type": "main"
-          },
-          {
-            "id": "reject",
-            "label": "reject",
-            "type": "reject",
-            "optional": true
           }
         ],
         "outputs": []
@@ -27586,12 +27475,6 @@
               "id": "main",
               "label": "main",
               "type": "main"
-            },
-            {
-              "id": "reject",
-              "label": "reject",
-              "type": "reject",
-              "optional": true
             }
           ],
           "outputs": []
@@ -27610,12 +27493,6 @@
             "id": "main",
             "label": "main",
             "type": "main"
-          },
-          {
-            "id": "reject",
-            "label": "reject",
-            "type": "reject",
-            "optional": true
           }
         ],
         "outputs": []
@@ -27732,12 +27609,180 @@
               "id": "main",
               "label": "main",
               "type": "main"
-            },
+            }
+          ],
+          "outputs": []
+        }
+      }
+    },
+    {
+      "id": "snk.teradata",
+      "label": "Teradata",
+      "kind": "sink",
+      "availability": "available",
+      "summary": "Write to Teradata through its ADBC driver using bulk ingest (Teradata-branded wrapper over the ADBC ingest sink). Point at a Teradata ADBC driver shared library. Append creates the table if missing then appends; Overwrite replaces it.",
+      "ports": {
+        "inputs": [
+          {
+            "id": "main",
+            "label": "main",
+            "type": "main"
+          }
+        ],
+        "outputs": []
+      },
+      "manifest": {
+        "id": "snk.teradata",
+        "kind": "sink",
+        "label": "Teradata",
+        "description": "Write to Teradata through its ADBC driver using bulk ingest (Teradata-branded wrapper over the ADBC ingest sink). Point at a Teradata ADBC driver shared library. Append creates the table if missing then appends; Overwrite replaces it.",
+        "schemaSource": "upstream",
+        "sections": [
+          {
+            "label": "Connection",
+            "fields": [
+              {
+                "key": "connectionRef",
+                "label": "Saved connection",
+                "kind": "connection-ref",
+                "description": "Pick a connection from the Connections folder to auto-fill the fields below."
+              },
+              {
+                "key": "host",
+                "label": "Host",
+                "kind": "text",
+                "required": true,
+                "placeholder": "localhost"
+              },
+              {
+                "key": "port",
+                "label": "Port",
+                "kind": "integer",
+                "defaultValue": 0
+              },
+              {
+                "key": "database",
+                "label": "Database",
+                "kind": "text",
+                "required": true,
+                "placeholder": "mydb"
+              },
+              {
+                "key": "username",
+                "label": "Username",
+                "kind": "text"
+              },
+              {
+                "key": "password",
+                "label": "Password",
+                "kind": "text",
+                "placeholder": "••••••••"
+              }
+            ]
+          },
+          {
+            "label": "Destination",
+            "fields": [
+              {
+                "key": "schemaName",
+                "label": "Schema",
+                "kind": "text",
+                "placeholder": "public"
+              },
+              {
+                "key": "tableName",
+                "label": "Table",
+                "kind": "text",
+                "required": true,
+                "placeholder": "orders"
+              },
+              {
+                "key": "mode",
+                "label": "Write mode",
+                "kind": "select",
+                "defaultValue": "overwrite",
+                "options": [
+                  {
+                    "label": "Create or replace",
+                    "value": "overwrite"
+                  },
+                  {
+                    "label": "Append (insert)",
+                    "value": "append"
+                  },
+                  {
+                    "label": "Upsert (insert on conflict / on duplicate key)",
+                    "value": "upsert"
+                  },
+                  {
+                    "label": "Truncate + insert",
+                    "value": "truncate"
+                  }
+                ]
+              },
+              {
+                "key": "conflictColumns",
+                "label": "Conflict columns",
+                "kind": "columns",
+                "description": "Used in upsert mode: Postgres / Cockroach use these as ON CONFLICT keys; MySQL / MariaDB rely on the target table's existing UNIQUE / PRIMARY KEY index; DuckDB / SQLite match on these for a set-based delete + re-insert."
+              },
+              {
+                "key": "deleteColumn",
+                "label": "Delete flag column (optional)",
+                "kind": "text",
+                "placeholder": "_change_type",
+                "description": "Upsert only: rows whose value in this column equals the Delete value are removed from the target by key instead of upserted. Wire a CDC Diff / DuckLake CDC change-type column here to propagate deletes."
+              },
+              {
+                "key": "deleteValue",
+                "label": "Delete flag value",
+                "kind": "text",
+                "defaultValue": "delete",
+                "description": "The value in the delete flag column that marks a row for deletion (default \"delete\")."
+              },
+              {
+                "key": "validateBeforeInsert",
+                "label": "Validate before insert (dead-letter bad rows)",
+                "kind": "bool",
+                "defaultValue": false,
+                "description": "Before writing, split off rows whose values do not match the declared column types. Valid rows are inserted; rejected rows are written to the dead-letter file with a __rejected_at stamp. Requires a declared schema on this node."
+              },
+              {
+                "key": "deadLetterPath",
+                "label": "Dead-letter file",
+                "kind": "text",
+                "placeholder": "rejected.parquet",
+                "description": "Where rejected rows go when Validate before insert is on. Required when it is enabled."
+              },
+              {
+                "key": "deadLetterFormat",
+                "label": "Dead-letter format",
+                "kind": "select",
+                "defaultValue": "parquet",
+                "options": [
+                  {
+                    "label": "Parquet",
+                    "value": "parquet"
+                  },
+                  {
+                    "label": "CSV",
+                    "value": "csv"
+                  },
+                  {
+                    "label": "JSON",
+                    "value": "json"
+                  }
+                ]
+              }
+            ]
+          }
+        ],
+        "ports": {
+          "inputs": [
             {
-              "id": "reject",
-              "label": "reject",
-              "type": "reject",
-              "optional": true
+              "id": "main",
+              "label": "main",
+              "type": "main"
             }
           ],
           "outputs": []
@@ -27756,12 +27801,6 @@
             "id": "main",
             "label": "main",
             "type": "main"
-          },
-          {
-            "id": "reject",
-            "label": "reject",
-            "type": "reject",
-            "optional": true
           }
         ],
         "outputs": []
@@ -27898,12 +27937,6 @@
               "id": "main",
               "label": "main",
               "type": "main"
-            },
-            {
-              "id": "reject",
-              "label": "reject",
-              "type": "reject",
-              "optional": true
             }
           ],
           "outputs": []
@@ -27922,12 +27955,6 @@
             "id": "main",
             "label": "main",
             "type": "main"
-          },
-          {
-            "id": "reject",
-            "label": "reject",
-            "type": "reject",
-            "optional": true
           }
         ],
         "outputs": []
@@ -28063,12 +28090,6 @@
               "id": "main",
               "label": "main",
               "type": "main"
-            },
-            {
-              "id": "reject",
-              "label": "reject",
-              "type": "reject",
-              "optional": true
             }
           ],
           "outputs": []
@@ -28087,12 +28108,6 @@
             "id": "main",
             "label": "main",
             "type": "main"
-          },
-          {
-            "id": "reject",
-            "label": "reject",
-            "type": "reject",
-            "optional": true
           }
         ],
         "outputs": []
@@ -28153,12 +28168,6 @@
               "id": "main",
               "label": "main",
               "type": "main"
-            },
-            {
-              "id": "reject",
-              "label": "reject",
-              "type": "reject",
-              "optional": true
             }
           ],
           "outputs": []
@@ -28177,12 +28186,6 @@
             "id": "main",
             "label": "main",
             "type": "main"
-          },
-          {
-            "id": "reject",
-            "label": "reject",
-            "type": "reject",
-            "optional": true
           }
         ],
         "outputs": []
@@ -28339,12 +28342,6 @@
               "id": "main",
               "label": "main",
               "type": "main"
-            },
-            {
-              "id": "reject",
-              "label": "reject",
-              "type": "reject",
-              "optional": true
             }
           ],
           "outputs": []
@@ -28363,12 +28360,6 @@
             "id": "main",
             "label": "main",
             "type": "main"
-          },
-          {
-            "id": "reject",
-            "label": "reject",
-            "type": "reject",
-            "optional": true
           }
         ],
         "outputs": []
@@ -28453,12 +28444,6 @@
               "id": "main",
               "label": "main",
               "type": "main"
-            },
-            {
-              "id": "reject",
-              "label": "reject",
-              "type": "reject",
-              "optional": true
             }
           ],
           "outputs": []
@@ -28477,12 +28462,6 @@
             "id": "main",
             "label": "main",
             "type": "main"
-          },
-          {
-            "id": "reject",
-            "label": "reject",
-            "type": "reject",
-            "optional": true
           }
         ],
         "outputs": []
@@ -28565,12 +28544,6 @@
               "id": "main",
               "label": "main",
               "type": "main"
-            },
-            {
-              "id": "reject",
-              "label": "reject",
-              "type": "reject",
-              "optional": true
             }
           ],
           "outputs": []
@@ -28589,12 +28562,6 @@
             "id": "main",
             "label": "main",
             "type": "main"
-          },
-          {
-            "id": "reject",
-            "label": "reject",
-            "type": "reject",
-            "optional": true
           }
         ],
         "outputs": []
@@ -28761,12 +28728,6 @@
               "id": "main",
               "label": "main",
               "type": "main"
-            },
-            {
-              "id": "reject",
-              "label": "reject",
-              "type": "reject",
-              "optional": true
             }
           ],
           "outputs": []
@@ -28785,12 +28746,6 @@
             "id": "main",
             "label": "main",
             "type": "main"
-          },
-          {
-            "id": "reject",
-            "label": "reject",
-            "type": "reject",
-            "optional": true
           }
         ],
         "outputs": []
@@ -28941,12 +28896,6 @@
               "id": "main",
               "label": "main",
               "type": "main"
-            },
-            {
-              "id": "reject",
-              "label": "reject",
-              "type": "reject",
-              "optional": true
             }
           ],
           "outputs": []
@@ -28965,12 +28914,6 @@
             "id": "main",
             "label": "main",
             "type": "main"
-          },
-          {
-            "id": "reject",
-            "label": "reject",
-            "type": "reject",
-            "optional": true
           }
         ],
         "outputs": []
@@ -29055,12 +28998,6 @@
               "id": "main",
               "label": "main",
               "type": "main"
-            },
-            {
-              "id": "reject",
-              "label": "reject",
-              "type": "reject",
-              "optional": true
             }
           ],
           "outputs": []
@@ -29079,12 +29016,6 @@
             "id": "main",
             "label": "main",
             "type": "main"
-          },
-          {
-            "id": "reject",
-            "label": "reject",
-            "type": "reject",
-            "optional": true
           }
         ],
         "outputs": []
@@ -29195,12 +29126,6 @@
               "id": "main",
               "label": "main",
               "type": "main"
-            },
-            {
-              "id": "reject",
-              "label": "reject",
-              "type": "reject",
-              "optional": true
             }
           ],
           "outputs": []
@@ -29219,12 +29144,6 @@
             "id": "main",
             "label": "main",
             "type": "main"
-          },
-          {
-            "id": "reject",
-            "label": "reject",
-            "type": "reject",
-            "optional": true
           }
         ],
         "outputs": []
@@ -29348,12 +29267,6 @@
               "id": "main",
               "label": "main",
               "type": "main"
-            },
-            {
-              "id": "reject",
-              "label": "reject",
-              "type": "reject",
-              "optional": true
             }
           ],
           "outputs": []
@@ -29372,12 +29285,6 @@
             "id": "main",
             "label": "main",
             "type": "main"
-          },
-          {
-            "id": "reject",
-            "label": "reject",
-            "type": "reject",
-            "optional": true
           }
         ],
         "outputs": []
@@ -29544,12 +29451,6 @@
               "id": "main",
               "label": "main",
               "type": "main"
-            },
-            {
-              "id": "reject",
-              "label": "reject",
-              "type": "reject",
-              "optional": true
             }
           ],
           "outputs": []
@@ -29568,12 +29469,6 @@
             "id": "main",
             "label": "main",
             "type": "main"
-          },
-          {
-            "id": "reject",
-            "label": "reject",
-            "type": "reject",
-            "optional": true
           }
         ],
         "outputs": []
@@ -29767,12 +29662,6 @@
               "id": "main",
               "label": "main",
               "type": "main"
-            },
-            {
-              "id": "reject",
-              "label": "reject",
-              "type": "reject",
-              "optional": true
             }
           ],
           "outputs": []
@@ -29791,12 +29680,6 @@
             "id": "main",
             "label": "main",
             "type": "main"
-          },
-          {
-            "id": "reject",
-            "label": "reject",
-            "type": "reject",
-            "optional": true
           }
         ],
         "outputs": []
@@ -29990,12 +29873,6 @@
               "id": "main",
               "label": "main",
               "type": "main"
-            },
-            {
-              "id": "reject",
-              "label": "reject",
-              "type": "reject",
-              "optional": true
             }
           ],
           "outputs": []
@@ -30014,12 +29891,6 @@
             "id": "main",
             "label": "main",
             "type": "main"
-          },
-          {
-            "id": "reject",
-            "label": "reject",
-            "type": "reject",
-            "optional": true
           }
         ],
         "outputs": []
@@ -30213,12 +30084,6 @@
               "id": "main",
               "label": "main",
               "type": "main"
-            },
-            {
-              "id": "reject",
-              "label": "reject",
-              "type": "reject",
-              "optional": true
             }
           ],
           "outputs": []
@@ -30237,12 +30102,6 @@
             "id": "main",
             "label": "main",
             "type": "main"
-          },
-          {
-            "id": "reject",
-            "label": "reject",
-            "type": "reject",
-            "optional": true
           }
         ],
         "outputs": []
@@ -30436,12 +30295,6 @@
               "id": "main",
               "label": "main",
               "type": "main"
-            },
-            {
-              "id": "reject",
-              "label": "reject",
-              "type": "reject",
-              "optional": true
             }
           ],
           "outputs": []
@@ -30460,12 +30313,6 @@
             "id": "main",
             "label": "main",
             "type": "main"
-          },
-          {
-            "id": "reject",
-            "label": "reject",
-            "type": "reject",
-            "optional": true
           }
         ],
         "outputs": []
@@ -30659,12 +30506,6 @@
               "id": "main",
               "label": "main",
               "type": "main"
-            },
-            {
-              "id": "reject",
-              "label": "reject",
-              "type": "reject",
-              "optional": true
             }
           ],
           "outputs": []
@@ -30683,12 +30524,6 @@
             "id": "main",
             "label": "main",
             "type": "main"
-          },
-          {
-            "id": "reject",
-            "label": "reject",
-            "type": "reject",
-            "optional": true
           }
         ],
         "outputs": []
@@ -30882,12 +30717,6 @@
               "id": "main",
               "label": "main",
               "type": "main"
-            },
-            {
-              "id": "reject",
-              "label": "reject",
-              "type": "reject",
-              "optional": true
             }
           ],
           "outputs": []
@@ -30906,12 +30735,6 @@
             "id": "main",
             "label": "main",
             "type": "main"
-          },
-          {
-            "id": "reject",
-            "label": "reject",
-            "type": "reject",
-            "optional": true
           }
         ],
         "outputs": []
@@ -30997,12 +30820,6 @@
               "id": "main",
               "label": "main",
               "type": "main"
-            },
-            {
-              "id": "reject",
-              "label": "reject",
-              "type": "reject",
-              "optional": true
             }
           ],
           "outputs": []
@@ -31021,12 +30838,6 @@
             "id": "main",
             "label": "main",
             "type": "main"
-          },
-          {
-            "id": "reject",
-            "label": "reject",
-            "type": "reject",
-            "optional": true
           }
         ],
         "outputs": []
@@ -31112,12 +30923,6 @@
               "id": "main",
               "label": "main",
               "type": "main"
-            },
-            {
-              "id": "reject",
-              "label": "reject",
-              "type": "reject",
-              "optional": true
             }
           ],
           "outputs": []
@@ -31136,12 +30941,6 @@
             "id": "main",
             "label": "main",
             "type": "main"
-          },
-          {
-            "id": "reject",
-            "label": "reject",
-            "type": "reject",
-            "optional": true
           }
         ],
         "outputs": []
@@ -31227,12 +31026,6 @@
               "id": "main",
               "label": "main",
               "type": "main"
-            },
-            {
-              "id": "reject",
-              "label": "reject",
-              "type": "reject",
-              "optional": true
             }
           ],
           "outputs": []
@@ -31251,12 +31044,6 @@
             "id": "main",
             "label": "main",
             "type": "main"
-          },
-          {
-            "id": "reject",
-            "label": "reject",
-            "type": "reject",
-            "optional": true
           }
         ],
         "outputs": []
@@ -31342,12 +31129,6 @@
               "id": "main",
               "label": "main",
               "type": "main"
-            },
-            {
-              "id": "reject",
-              "label": "reject",
-              "type": "reject",
-              "optional": true
             }
           ],
           "outputs": []
@@ -31366,12 +31147,6 @@
             "id": "main",
             "label": "main",
             "type": "main"
-          },
-          {
-            "id": "reject",
-            "label": "reject",
-            "type": "reject",
-            "optional": true
           }
         ],
         "outputs": []
@@ -31457,12 +31232,6 @@
               "id": "main",
               "label": "main",
               "type": "main"
-            },
-            {
-              "id": "reject",
-              "label": "reject",
-              "type": "reject",
-              "optional": true
             }
           ],
           "outputs": []
@@ -31481,12 +31250,6 @@
             "id": "main",
             "label": "main",
             "type": "main"
-          },
-          {
-            "id": "reject",
-            "label": "reject",
-            "type": "reject",
-            "optional": true
           }
         ],
         "outputs": []
@@ -31572,12 +31335,6 @@
               "id": "main",
               "label": "main",
               "type": "main"
-            },
-            {
-              "id": "reject",
-              "label": "reject",
-              "type": "reject",
-              "optional": true
             }
           ],
           "outputs": []
@@ -31596,12 +31353,6 @@
             "id": "main",
             "label": "main",
             "type": "main"
-          },
-          {
-            "id": "reject",
-            "label": "reject",
-            "type": "reject",
-            "optional": true
           }
         ],
         "outputs": []
@@ -31687,12 +31438,6 @@
               "id": "main",
               "label": "main",
               "type": "main"
-            },
-            {
-              "id": "reject",
-              "label": "reject",
-              "type": "reject",
-              "optional": true
             }
           ],
           "outputs": []
@@ -31711,12 +31456,6 @@
             "id": "main",
             "label": "main",
             "type": "main"
-          },
-          {
-            "id": "reject",
-            "label": "reject",
-            "type": "reject",
-            "optional": true
           }
         ],
         "outputs": []
@@ -31825,12 +31564,6 @@
               "id": "main",
               "label": "main",
               "type": "main"
-            },
-            {
-              "id": "reject",
-              "label": "reject",
-              "type": "reject",
-              "optional": true
             }
           ],
           "outputs": []
@@ -31849,12 +31582,6 @@
             "id": "main",
             "label": "main",
             "type": "main"
-          },
-          {
-            "id": "reject",
-            "label": "reject",
-            "type": "reject",
-            "optional": true
           }
         ],
         "outputs": []
@@ -31963,12 +31690,6 @@
               "id": "main",
               "label": "main",
               "type": "main"
-            },
-            {
-              "id": "reject",
-              "label": "reject",
-              "type": "reject",
-              "optional": true
             }
           ],
           "outputs": []
@@ -31987,12 +31708,6 @@
             "id": "main",
             "label": "main",
             "type": "main"
-          },
-          {
-            "id": "reject",
-            "label": "reject",
-            "type": "reject",
-            "optional": true
           }
         ],
         "outputs": []
@@ -32101,12 +31816,6 @@
               "id": "main",
               "label": "main",
               "type": "main"
-            },
-            {
-              "id": "reject",
-              "label": "reject",
-              "type": "reject",
-              "optional": true
             }
           ],
           "outputs": []
@@ -32125,12 +31834,6 @@
             "id": "main",
             "label": "main",
             "type": "main"
-          },
-          {
-            "id": "reject",
-            "label": "reject",
-            "type": "reject",
-            "optional": true
           }
         ],
         "outputs": []
@@ -32239,12 +31942,6 @@
               "id": "main",
               "label": "main",
               "type": "main"
-            },
-            {
-              "id": "reject",
-              "label": "reject",
-              "type": "reject",
-              "optional": true
             }
           ],
           "outputs": []
@@ -32263,12 +31960,6 @@
             "id": "main",
             "label": "main",
             "type": "main"
-          },
-          {
-            "id": "reject",
-            "label": "reject",
-            "type": "reject",
-            "optional": true
           }
         ],
         "outputs": []
@@ -32363,12 +32054,6 @@
               "id": "main",
               "label": "main",
               "type": "main"
-            },
-            {
-              "id": "reject",
-              "label": "reject",
-              "type": "reject",
-              "optional": true
             }
           ],
           "outputs": []
@@ -32387,12 +32072,6 @@
             "id": "main",
             "label": "main",
             "type": "main"
-          },
-          {
-            "id": "reject",
-            "label": "reject",
-            "type": "reject",
-            "optional": true
           }
         ],
         "outputs": []
@@ -32452,12 +32131,6 @@
               "id": "main",
               "label": "main",
               "type": "main"
-            },
-            {
-              "id": "reject",
-              "label": "reject",
-              "type": "reject",
-              "optional": true
             }
           ],
           "outputs": []
@@ -32476,12 +32149,6 @@
             "id": "main",
             "label": "main",
             "type": "main"
-          },
-          {
-            "id": "reject",
-            "label": "reject",
-            "type": "reject",
-            "optional": true
           }
         ],
         "outputs": []
@@ -32541,12 +32208,6 @@
               "id": "main",
               "label": "main",
               "type": "main"
-            },
-            {
-              "id": "reject",
-              "label": "reject",
-              "type": "reject",
-              "optional": true
             }
           ],
           "outputs": []
@@ -32565,12 +32226,6 @@
             "id": "main",
             "label": "main",
             "type": "main"
-          },
-          {
-            "id": "reject",
-            "label": "reject",
-            "type": "reject",
-            "optional": true
           }
         ],
         "outputs": []
@@ -32652,12 +32307,6 @@
               "id": "main",
               "label": "main",
               "type": "main"
-            },
-            {
-              "id": "reject",
-              "label": "reject",
-              "type": "reject",
-              "optional": true
             }
           ],
           "outputs": []
@@ -32676,12 +32325,6 @@
             "id": "main",
             "label": "main",
             "type": "main"
-          },
-          {
-            "id": "reject",
-            "label": "reject",
-            "type": "reject",
-            "optional": true
           }
         ],
         "outputs": []
@@ -32736,12 +32379,6 @@
               "id": "main",
               "label": "main",
               "type": "main"
-            },
-            {
-              "id": "reject",
-              "label": "reject",
-              "type": "reject",
-              "optional": true
             }
           ],
           "outputs": []
@@ -32760,12 +32397,6 @@
             "id": "main",
             "label": "main",
             "type": "main"
-          },
-          {
-            "id": "reject",
-            "label": "reject",
-            "type": "reject",
-            "optional": true
           }
         ],
         "outputs": []
@@ -32820,12 +32451,6 @@
               "id": "main",
               "label": "main",
               "type": "main"
-            },
-            {
-              "id": "reject",
-              "label": "reject",
-              "type": "reject",
-              "optional": true
             }
           ],
           "outputs": []
@@ -32844,12 +32469,6 @@
             "id": "main",
             "label": "main",
             "type": "main"
-          },
-          {
-            "id": "reject",
-            "label": "reject",
-            "type": "reject",
-            "optional": true
           }
         ],
         "outputs": []
@@ -32958,12 +32577,6 @@
               "id": "main",
               "label": "main",
               "type": "main"
-            },
-            {
-              "id": "reject",
-              "label": "reject",
-              "type": "reject",
-              "optional": true
             }
           ],
           "outputs": []
@@ -32982,12 +32595,6 @@
             "id": "main",
             "label": "main",
             "type": "main"
-          },
-          {
-            "id": "reject",
-            "label": "reject",
-            "type": "reject",
-            "optional": true
           }
         ],
         "outputs": []
@@ -33037,12 +32644,6 @@
               "id": "main",
               "label": "main",
               "type": "main"
-            },
-            {
-              "id": "reject",
-              "label": "reject",
-              "type": "reject",
-              "optional": true
             }
           ],
           "outputs": []
@@ -33061,12 +32662,6 @@
             "id": "main",
             "label": "main",
             "type": "main"
-          },
-          {
-            "id": "reject",
-            "label": "reject",
-            "type": "reject",
-            "optional": true
           }
         ],
         "outputs": []
@@ -33121,12 +32716,6 @@
               "id": "main",
               "label": "main",
               "type": "main"
-            },
-            {
-              "id": "reject",
-              "label": "reject",
-              "type": "reject",
-              "optional": true
             }
           ],
           "outputs": []
@@ -33145,12 +32734,6 @@
             "id": "main",
             "label": "main",
             "type": "main"
-          },
-          {
-            "id": "reject",
-            "label": "reject",
-            "type": "reject",
-            "optional": true
           }
         ],
         "outputs": []
@@ -33198,12 +32781,6 @@
               "id": "main",
               "label": "main",
               "type": "main"
-            },
-            {
-              "id": "reject",
-              "label": "reject",
-              "type": "reject",
-              "optional": true
             }
           ],
           "outputs": []
@@ -33222,12 +32799,6 @@
             "id": "main",
             "label": "main",
             "type": "main"
-          },
-          {
-            "id": "reject",
-            "label": "reject",
-            "type": "reject",
-            "optional": true
           }
         ],
         "outputs": []
@@ -33352,12 +32923,6 @@
               "id": "main",
               "label": "main",
               "type": "main"
-            },
-            {
-              "id": "reject",
-              "label": "reject",
-              "type": "reject",
-              "optional": true
             }
           ],
           "outputs": []
@@ -33376,12 +32941,6 @@
             "id": "main",
             "label": "main",
             "type": "main"
-          },
-          {
-            "id": "reject",
-            "label": "reject",
-            "type": "reject",
-            "optional": true
           }
         ],
         "outputs": []
@@ -33436,12 +32995,6 @@
               "id": "main",
               "label": "main",
               "type": "main"
-            },
-            {
-              "id": "reject",
-              "label": "reject",
-              "type": "reject",
-              "optional": true
             }
           ],
           "outputs": []
@@ -33460,12 +33013,6 @@
             "id": "main",
             "label": "main",
             "type": "main"
-          },
-          {
-            "id": "reject",
-            "label": "reject",
-            "type": "reject",
-            "optional": true
           }
         ],
         "outputs": []
@@ -33536,12 +33083,6 @@
               "id": "main",
               "label": "main",
               "type": "main"
-            },
-            {
-              "id": "reject",
-              "label": "reject",
-              "type": "reject",
-              "optional": true
             }
           ],
           "outputs": []

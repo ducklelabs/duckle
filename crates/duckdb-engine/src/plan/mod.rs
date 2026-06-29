@@ -140,6 +140,7 @@ pub enum RuntimeSpec {
     OracleSink(OracleSinkSpec),
     OracleSource(OracleSourceSpec),
     AdbcSource(AdbcSourceSpec),
+    AdbcSink(AdbcSinkSpec),
     AttachParquetSource(AttachParquetSourceSpec),
     /// materialize = "duckdb"/"duckdbfile": persist the stage into a DuckDB file.
     MaterializeDuckDb(MaterializeDuckDbSpec),
@@ -807,6 +808,48 @@ fn delete_value_from(props: &JsonValue) -> String {
         .unwrap_or_else(|| "delete".into())
 }
 
+/// Parse ADBC database options from a node's `options` array (key/value pairs)
+/// plus the optional bare `uri` convenience key. Shared by src.adbc-style
+/// wrappers and the ADBC ingest sink.
+fn adbc_db_options(props: &JsonValue) -> Vec<(String, String)> {
+    let mut options: Vec<(String, String)> = Vec::new();
+    if let Some(arr) = props.get("options").and_then(JsonValue::as_array) {
+        for kv in arr {
+            let k = kv.get("key").and_then(|v| v.as_str()).unwrap_or("").trim();
+            let v = kv.get("value").and_then(|v| v.as_str()).unwrap_or("");
+            if !k.is_empty() {
+                options.push((k.to_string(), v.to_string()));
+            }
+        }
+    }
+    if let Some(uri) = string_prop(props, "uri").filter(|s| !s.is_empty()) {
+        options.push(("uri".to_string(), uri));
+    }
+    options
+}
+
+/// Map the Teradata wrapper's friendly connection fields onto common ADBC
+/// database option keys, then layer the advanced `options`/`uri` on top so an
+/// explicit option always overrides a friendly default.
+fn teradata_adbc_options(props: &JsonValue) -> Vec<(String, String)> {
+    let mut options: Vec<(String, String)> = Vec::new();
+    for (key, prop) in [
+        ("host", "host"),
+        ("username", "user"),
+        ("password", "password"),
+        ("database", "database"),
+    ] {
+        if let Some(v) = string_prop(props, prop).filter(|s| !s.is_empty()) {
+            options.push((key.to_string(), v));
+        }
+    }
+    if let Some(p) = props.get("port").and_then(|v| v.as_u64()).filter(|n| *n > 0) {
+        options.push(("port".to_string(), p.to_string()));
+    }
+    options.extend(adbc_db_options(props));
+    options
+}
+
 /// Sanitize a node id into a SQL-identifier-safe alias suffix (#76 per-source
 /// aliases). Non-alphanumeric chars become `_`; the `duckle_src_` prefix the
 /// caller prepends guarantees it never starts with a digit.
@@ -897,6 +940,7 @@ fn build_stage(
     let mut oracle_sink: Option<OracleSinkSpec> = None;
     let mut oracle_source: Option<OracleSourceSpec> = None;
     let mut adbc_source: Option<AdbcSourceSpec> = None;
+    let mut adbc_sink: Option<AdbcSinkSpec> = None;
     let mut attach_parquet_source: Option<AttachParquetSourceSpec> = None;
     let mut materialize_duckdb: Option<MaterializeDuckDbSpec> = None;
     let mut redis_sink: Option<RedisSinkSpec> = None;
@@ -1786,6 +1830,51 @@ fn build_stage(
             },
         });
         (String::new(), StageKind::Sink, Some(from_view.to_string()))
+    } else if component_id == "snk.adbc" || component_id == "snk.teradata" {
+        // Generic ADBC ingest sink + the branded Teradata wrapper. COPYs the
+        // upstream view to Parquet and bulk-loads it through the driver's ADBC
+        // ingest API. ADBC bulk ingest is create/append/replace only, so upsert
+        // is rejected rather than silently downgraded to append. MUST come
+        // before the starts_with("snk.") catch-all below, which routes to
+        // build_sink_sql (which has no ADBC ingest path).
+        let from_view = inputs.main().ok_or_else(|| missing_input(node, "main"))?;
+        let driver = string_prop(&props, "driver")
+            .or_else(|| string_prop(&props, "driverPath"))
+            .filter(|s| !s.is_empty())
+            .ok_or_else(|| EngineError::Config(format!("{}: driver (path or name) required", component_id)))?;
+        let table = string_prop(&props, "tableName")
+            .or_else(|| string_prop(&props, "table"))
+            .filter(|s| !s.is_empty())
+            .ok_or_else(|| EngineError::Config(format!("{}: tableName required", component_id)))?;
+        let write_mode = string_prop(&props, "writeMode")
+            .or_else(|| string_prop(&props, "mode"));
+        if write_mode.as_deref() == Some("upsert") {
+            return Err(EngineError::Config(format!(
+                "{}: upsert is not supported for ADBC ingest; use writeMode append or overwrite",
+                component_id
+            )));
+        }
+        let mode = match write_mode.as_deref() {
+            Some("overwrite") | Some("replace") => "overwrite",
+            _ => "append",
+        }
+        .to_string();
+        let options = if component_id == "snk.teradata" {
+            teradata_adbc_options(&props)
+        } else {
+            adbc_db_options(&props)
+        };
+        adbc_sink = Some(AdbcSinkSpec {
+            from_view: from_view.to_string(),
+            driver,
+            entrypoint: string_prop(&props, "entrypoint").filter(|s| !s.is_empty()),
+            options,
+            table,
+            schema: string_prop(&props, "schema").filter(|s| !s.is_empty()),
+            catalog: string_prop(&props, "catalog").filter(|s| !s.is_empty()),
+            mode,
+        });
+        (String::new(), StageKind::Sink, Some(from_view.to_string()))
     } else if component_id.starts_with("snk.") {
         let from_view = inputs
             .main()
@@ -2240,6 +2329,38 @@ fn build_stage(
             driver,
             entrypoint: string_prop(&props, "entrypoint").filter(|s| !s.is_empty()),
             options,
+            query,
+            single_consumer,
+        });
+        (String::new(), StageKind::View, None)
+    } else if component_id == "src.teradata" {
+        // Teradata source: a branded wrapper over the ADBC reader (there is no
+        // DuckDB Teradata extension or native Rust driver). The user supplies a
+        // Teradata ADBC driver; friendly host/user/password/database fields map
+        // onto ADBC database options, with the advanced `options` overriding.
+        let driver = string_prop(&props, "driver")
+            .or_else(|| string_prop(&props, "driverPath"))
+            .filter(|s| !s.is_empty())
+            .ok_or_else(|| EngineError::Config(format!("{}: driver (path or name of the Teradata ADBC driver) required", component_id)))?;
+        let query = string_prop(&props, "query")
+            .filter(|s| !s.trim().is_empty())
+            .or_else(|| {
+                string_prop(&props, "tableName")
+                    .or_else(|| string_prop(&props, "table"))
+                    .filter(|s| !s.is_empty())
+                    .map(|t| format!("SELECT * FROM {}", t))
+            })
+            .ok_or_else(|| EngineError::Config(format!("{}: query or tableName required", component_id)))?;
+        let single_consumer = consumer_count
+            .get(&output_table_ref(&node.id, None))
+            .copied()
+            .unwrap_or(0)
+            <= 1;
+        adbc_source = Some(AdbcSourceSpec {
+            node_id: node.id.clone(),
+            driver,
+            entrypoint: string_prop(&props, "entrypoint").filter(|s| !s.is_empty()),
+            options: teradata_adbc_options(&props),
             query,
             single_consumer,
         });
@@ -3860,6 +3981,7 @@ fn build_stage(
         .or_else(|| oracle_sink.map(RuntimeSpec::OracleSink))
         .or_else(|| oracle_source.map(RuntimeSpec::OracleSource))
         .or_else(|| adbc_source.map(RuntimeSpec::AdbcSource))
+        .or_else(|| adbc_sink.map(RuntimeSpec::AdbcSink))
         .or_else(|| attach_parquet_source.map(RuntimeSpec::AttachParquetSource))
         .or_else(|| materialize_duckdb.map(RuntimeSpec::MaterializeDuckDb))
         .or_else(|| redis_sink.map(RuntimeSpec::RedisSink))

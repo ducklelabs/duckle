@@ -1017,6 +1017,7 @@ impl DuckdbEngine {
                     Some(RuntimeSpec::OracleSink(spec)) => self.run_oracle_sink(&db_path, spec),
                     Some(RuntimeSpec::OracleSource(spec)) => self.run_oracle_source(&db_path, spec),
                     Some(RuntimeSpec::AdbcSource(spec)) => self.run_adbc_source(&db_path, spec),
+                    Some(RuntimeSpec::AdbcSink(spec)) => self.run_adbc_sink(&db_path, spec),
                     Some(RuntimeSpec::AttachParquetSource(spec)) => {
                         self.run_attach_parquet_source(&db_path, spec)
                     }

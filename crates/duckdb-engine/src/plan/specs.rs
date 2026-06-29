@@ -177,6 +177,29 @@ pub struct AdbcSourceSpec {
     pub single_consumer: bool,
 }
 
+/// snk.adbc / snk.teradata: write the upstream view into a target table through
+/// a prebuilt ADBC driver loaded at runtime. The executor COPYs the upstream to
+/// a Parquet temp file and bulk-ingests it via the ADBC bind_stream + ingest
+/// API (no per-row round-trips, no in-process DuckDB write).
+#[derive(Debug, Clone)]
+pub struct AdbcSinkSpec {
+    pub from_view: String,
+    /// Path to the driver shared library (preferred) or a bare driver name.
+    pub driver: String,
+    /// Custom init entrypoint; defaults to AdbcDriverInit when None.
+    pub entrypoint: Option<String>,
+    /// ADBC database options (uri, username, password, driver-specific keys).
+    pub options: Vec<(String, String)>,
+    /// Target table to ingest into.
+    pub table: String,
+    /// Optional target schema (ADBC TargetDbSchema ingest option).
+    pub schema: Option<String>,
+    /// Optional target catalog (ADBC TargetCatalog ingest option).
+    pub catalog: Option<String>,
+    /// "append" (create-if-missing then append) or "overwrite" (replace).
+    pub mode: String,
+}
+
 /// Single-consumer network-DB source (postgres / mysql / mariadb / cockroach /
 /// redshift) read via DuckDB's ATTACH extensions. Instead of inserting the
 /// rows into an on-disk run-db TABLE, the executor COPYs the already-typed
