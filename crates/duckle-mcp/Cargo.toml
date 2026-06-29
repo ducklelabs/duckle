@@ -19,3 +19,9 @@ path = "src/main.rs"
 duckle-duckdb-engine = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+
+# Teradata (ODBC via odbc-api) is enabled everywhere except macOS, whose
+# cross-arch ODBC driver manager is awkward to link in the release build. On
+# macOS the engine falls back to a clear "compiled without teradata" error.
+[target.'cfg(not(target_os = "macos"))'.dependencies]
+duckle-duckdb-engine = { workspace = true, features = ["teradata"] }

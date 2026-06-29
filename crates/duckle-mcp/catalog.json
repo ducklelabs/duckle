@@ -3869,7 +3869,7 @@
       "label": "Teradata",
       "kind": "source",
       "availability": "available",
-      "summary": "Read from Teradata through its ADBC driver (Teradata-branded wrapper over the ADBC reader). Point at a Teradata ADBC driver shared library; friendly host / user / password / database fields map onto ADBC options. Whole-table read or custom SQL.",
+      "summary": "Read from Teradata through its free ODBC driver (no DuckDB Teradata extension exists). Install the Teradata ODBC driver, then connect with friendly host / user / password / database fields, a DSN, or a full ODBC connection string. Whole-table read or custom SQL; types preserved.",
       "ports": {
         "inputs": [],
         "outputs": [
@@ -3890,7 +3890,7 @@
         "id": "src.teradata",
         "kind": "source",
         "label": "Teradata",
-        "description": "Read from Teradata through its ADBC driver (Teradata-branded wrapper over the ADBC reader). Point at a Teradata ADBC driver shared library; friendly host / user / password / database fields map onto ADBC options. Whole-table read or custom SQL.",
+        "description": "Read from Teradata through its free ODBC driver (no DuckDB Teradata extension exists). Install the Teradata ODBC driver, then connect with friendly host / user / password / database fields, a DSN, or a full ODBC connection string. Whole-table read or custom SQL; types preserved.",
         "schemaSource": "autodetect",
         "sections": [
           {
@@ -27620,7 +27620,7 @@
       "label": "Teradata",
       "kind": "sink",
       "availability": "available",
-      "summary": "Write to Teradata through its ADBC driver using bulk ingest (Teradata-branded wrapper over the ADBC ingest sink). Point at a Teradata ADBC driver shared library. Append creates the table if missing then appends; Overwrite replaces it.",
+      "summary": "Write to Teradata through its free ODBC driver. Install the Teradata ODBC driver, then connect with friendly fields, a DSN, or a full ODBC connection string. Append creates the table if missing then appends; Overwrite clears it first. No upsert.",
       "ports": {
         "inputs": [
           {
@@ -27635,7 +27635,7 @@
         "id": "snk.teradata",
         "kind": "sink",
         "label": "Teradata",
-        "description": "Write to Teradata through its ADBC driver using bulk ingest (Teradata-branded wrapper over the ADBC ingest sink). Point at a Teradata ADBC driver shared library. Append creates the table if missing then appends; Overwrite replaces it.",
+        "description": "Write to Teradata through its free ODBC driver. Install the Teradata ODBC driver, then connect with friendly fields, a DSN, or a full ODBC connection string. Append creates the table if missing then appends; Overwrite clears it first. No upsert.",
         "schemaSource": "upstream",
         "sections": [
           {

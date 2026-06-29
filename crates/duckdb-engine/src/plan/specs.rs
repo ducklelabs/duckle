@@ -177,10 +177,10 @@ pub struct AdbcSourceSpec {
     pub single_consumer: bool,
 }
 
-/// snk.adbc / snk.teradata: write the upstream view into a target table through
-/// a prebuilt ADBC driver loaded at runtime. The executor COPYs the upstream to
-/// a Parquet temp file and bulk-ingests it via the ADBC bind_stream + ingest
-/// API (no per-row round-trips, no in-process DuckDB write).
+/// snk.adbc: write the upstream view into a target table through a prebuilt
+/// ADBC driver loaded at runtime. The executor COPYs the upstream to a Parquet
+/// temp file and bulk-ingests it via the ADBC bind_stream + ingest API (no
+/// per-row round-trips, no in-process DuckDB write).
 #[derive(Debug, Clone)]
 pub struct AdbcSinkSpec {
     pub from_view: String,
@@ -197,6 +197,40 @@ pub struct AdbcSinkSpec {
     /// Optional target catalog (ADBC TargetCatalog ingest option).
     pub catalog: Option<String>,
     /// "append" (create-if-missing then append) or "overwrite" (replace).
+    pub mode: String,
+}
+
+/// src.teradata: read from Teradata over its free ODBC driver (there is no
+/// DuckDB Teradata extension and no native Rust driver). The executor connects
+/// through the user's installed Teradata ODBC driver, runs the query, and
+/// materializes the result with per-column typed casts (read all text, then
+/// TRY_CAST each column to its DuckDB-equivalent type) so numbers / decimals /
+/// dates / timestamps keep their types.
+#[derive(Debug, Clone)]
+pub struct TeradataSourceSpec {
+    pub node_id: String,
+    /// Full ODBC connection string (built from the friendly fields, a DSN, or
+    /// supplied verbatim). Carries the password, so it is never logged.
+    pub conn_str: String,
+    pub query: String,
+    /// Rows fetched per ODBC batch.
+    pub batch_rows: usize,
+}
+
+/// snk.teradata: write the upstream view into a Teradata table over ODBC. The
+/// executor reads the upstream rows and INSERTs them through the Teradata ODBC
+/// driver (one INSERT per row, the dialect-safe form; large loads should use
+/// Teradata's bulk utilities). Append creates the table if missing; overwrite
+/// clears it first. No upsert (rejected at plan time).
+#[derive(Debug, Clone)]
+pub struct TeradataSinkSpec {
+    pub from_view: String,
+    /// Full ODBC connection string. Carries the password, so it is never logged.
+    pub conn_str: String,
+    /// Optional target database the table lives in (qualifies the table name).
+    pub database: Option<String>,
+    pub table: String,
+    /// "append" (create-if-missing then append) or "overwrite" (clear first).
     pub mode: String,
 }
 

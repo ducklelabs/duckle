@@ -75,3 +75,9 @@ custom-protocol = ["tauri/custom-protocol"]
 # env). NEVER enabled for releases - keeps the update source un-overridable in
 # shipped binaries.
 update-selftest = []
+
+# Teradata (ODBC via odbc-api) is enabled everywhere except macOS, whose
+# cross-arch ODBC driver manager is awkward to link in the release build. On
+# macOS the engine falls back to a clear "compiled without teradata" error.
+[target.'cfg(not(target_os = "macos"))'.dependencies]
+duckle-duckdb-engine = { workspace = true, features = ["teradata"] }

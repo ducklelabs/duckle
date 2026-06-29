@@ -1018,6 +1018,12 @@ impl DuckdbEngine {
                     Some(RuntimeSpec::OracleSource(spec)) => self.run_oracle_source(&db_path, spec),
                     Some(RuntimeSpec::AdbcSource(spec)) => self.run_adbc_source(&db_path, spec),
                     Some(RuntimeSpec::AdbcSink(spec)) => self.run_adbc_sink(&db_path, spec),
+                    Some(RuntimeSpec::TeradataSource(spec)) => {
+                        self.run_teradata_source(&db_path, spec)
+                    }
+                    Some(RuntimeSpec::TeradataSink(spec)) => {
+                        self.run_teradata_sink(&db_path, spec)
+                    }
                     Some(RuntimeSpec::AttachParquetSource(spec)) => {
                         self.run_attach_parquet_source(&db_path, spec)
                     }
@@ -3050,6 +3056,35 @@ fn duckdb_type_to_snowflake(t: &str) -> String {
     .to_string()
 }
 
+/// Map a DuckDB column type to the closest Teradata type, for auto-creating a
+/// sink table that doesn't exist yet. Best-effort, mirroring the Oracle / SQL
+/// Server mappers; text falls back to VARCHAR(4000).
+#[cfg(feature = "teradata")]
+fn duckdb_type_to_teradata(t: &str) -> String {
+    let up = t.trim().to_ascii_uppercase();
+    if up.starts_with("DECIMAL") || up.starts_with("NUMERIC") {
+        // DECIMAL(p,s) carries over; Teradata caps precision at 38.
+        return up.replacen("NUMERIC", "DECIMAL", 1);
+    }
+    match up.as_str() {
+        "BOOLEAN" | "BOOL" | "TINYINT" | "UTINYINT" => "BYTEINT",
+        "SMALLINT" | "INT2" | "USMALLINT" => "SMALLINT",
+        "INTEGER" | "INT" | "INT4" | "UINTEGER" => "INTEGER",
+        "BIGINT" | "INT8" | "UBIGINT" => "BIGINT",
+        "HUGEINT" | "UHUGEINT" => "DECIMAL(38,0)",
+        "REAL" | "FLOAT" | "FLOAT4" | "DOUBLE" | "FLOAT8" => "FLOAT",
+        "DATE" => "DATE",
+        "TIME" => "TIME(6)",
+        "TIMESTAMP" | "DATETIME" | "TIMESTAMP_NS" | "TIMESTAMP_MS" | "TIMESTAMP_S" => {
+            "TIMESTAMP(6)"
+        }
+        "TIMESTAMP WITH TIME ZONE" | "TIMESTAMPTZ" => "TIMESTAMP(6) WITH TIME ZONE",
+        "BLOB" | "BYTEA" | "BINARY" | "VARBINARY" => "BLOB",
+        _ => "VARCHAR(4000)",
+    }
+    .to_string()
+}
+
 /// (name, DuckDB type) pairs for a view/table, via DuckDB DESCRIBE. Used
 /// by driver sinks to auto-create a target table with sensible types.
 fn describe_columns(engine: &DuckdbEngine, db: &Path, view: &str) -> Vec<(String, String)> {
@@ -3075,6 +3110,7 @@ enum Dialect {
     Oracle,
     SqlServer,
     Cassandra,
+    Teradata,
 }
 
 /// Render a JSON cell value as a SQL literal for `dialect`, using the
@@ -3103,7 +3139,10 @@ fn sql_literal(v: &JsonValue, target_type: Option<&str>, dialect: Dialect) -> St
             // Oracle has no boolean literal in INSERT before 23c; SQL Server
             // BIT takes 1/0. Cassandra CQL and Snowflake/Databricks accept
             // real booleans (CQL is lowercase).
-            Dialect::Oracle | Dialect::SqlServer => if *b { "1" } else { "0" }.into(),
+            // Teradata has no boolean literal either; BYTEINT takes 1/0.
+            Dialect::Oracle | Dialect::SqlServer | Dialect::Teradata => {
+                if *b { "1" } else { "0" }.into()
+            }
             Dialect::Cassandra => if *b { "true" } else { "false" }.into(),
             Dialect::JsonNative => if *b { "TRUE" } else { "FALSE" }.into(),
         },
@@ -3134,6 +3173,23 @@ fn sql_literal(v: &JsonValue, target_type: Option<&str>, dialect: Dialect) -> St
                             "TO_TIMESTAMP({}, 'YYYY-MM-DD HH24:MI:SS.FF6')",
                             quote(s)
                         );
+                    }
+                }
+            }
+            // Teradata accepts ANSI typed literals for temporal columns; a bare
+            // quoted string is not implicitly cast to DATE/TIMESTAMP in an
+            // INSERT. Key off the target column type, never the value shape.
+            if dialect == Dialect::Teradata {
+                if let Some(t) = target_type {
+                    let norm = t.trim().to_ascii_uppercase();
+                    if norm == "DATE" {
+                        return format!("DATE {}", quote(s));
+                    }
+                    if norm == "TIME" {
+                        return format!("TIME {}", quote(s));
+                    }
+                    if norm.starts_with("TIMESTAMP") || norm == "DATETIME" {
+                        return format!("TIMESTAMP {}", quote(s));
                     }
                 }
             }

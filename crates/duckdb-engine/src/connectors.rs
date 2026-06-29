@@ -1801,6 +1801,220 @@ impl DuckdbEngine {
         ))
     }
 
+    /// Teradata source over the Teradata ODBC driver. Connects with the
+    /// supplied ODBC connection string, runs the query, and streams the result
+    /// into one NDJSON file as text, then materializes it with per-column typed
+    /// casts (read all VARCHAR, then TRY_CAST each column to its DuckDB type) so
+    /// numbers / decimals / dates / timestamps keep their types - the same
+    /// typed-finalize the Snowflake source uses. (#122)
+    #[cfg(feature = "teradata")]
+    pub(crate) fn run_teradata_source(
+        &self,
+        db: &Path,
+        spec: &plan::TeradataSourceSpec,
+    ) -> Result<String, EngineError> {
+        use odbc_api::buffers::TextRowSet;
+        use odbc_api::{ColumnDescription, ConnectionOptions, Cursor, Environment, ResultSetMetadata};
+
+        let env = Environment::new()
+            .map_err(|e| EngineError::Query(format!("teradata: ODBC environment: {}", e)))?;
+        let conn = env
+            .connect_with_connection_string(&spec.conn_str, ConnectionOptions::default())
+            .map_err(|e| EngineError::Query(format!("teradata: connect failed: {}", e)))?;
+        let mut cursor = conn
+            .execute(&spec.query, (), None)
+            .map_err(|e| EngineError::Query(format!("teradata: query failed: {}", e)))?
+            .ok_or_else(|| {
+                EngineError::Query("teradata: the query returned no result set".into())
+            })?;
+
+        // Column metadata: build the index-aligned name list, the read_json
+        // columns map (everything VARCHAR), and the typed projection.
+        let ncols = cursor
+            .num_result_cols()
+            .map_err(|e| EngineError::Query(format!("teradata: column count: {}", e)))?
+            as u16;
+        let mut names: Vec<String> = Vec::with_capacity(ncols as usize);
+        let mut columns_spec_parts: Vec<String> = Vec::with_capacity(ncols as usize);
+        let mut select_parts: Vec<String> = Vec::with_capacity(ncols as usize);
+        let mut used_names: std::collections::HashSet<String> = std::collections::HashSet::new();
+        let mut cd = ColumnDescription::default();
+        for i in 1..=ncols {
+            cursor
+                .describe_col(i, &mut cd)
+                .map_err(|e| EngineError::Query(format!("teradata: describe column {}: {}", i, e)))?;
+            let raw = cd.name_to_string().unwrap_or_else(|_| format!("col{}", i));
+            let name = unique_column_name(&raw, &mut used_names);
+            let ident = plan::quote_ident(&name);
+            columns_spec_parts.push(format!("'{}': 'VARCHAR'", name.replace('\'', "''")));
+            match odbc_type_to_duckdb(&cd.data_type) {
+                Some(ty) => select_parts.push(format!(
+                    "TRY_CAST(NULLIF({i}, '') AS {ty}) AS {i}",
+                    i = ident,
+                    ty = ty
+                )),
+                None => select_parts.push(format!("{i} AS {i}", i = ident)),
+            }
+            names.push(name);
+        }
+        let columns_spec = columns_spec_parts.join(", ");
+        let select_list = select_parts.join(", ");
+
+        // Fetch in batches as text, writing each row to the NDJSON file. ODBC
+        // text rendering keeps the source's textual form; the typed finalize
+        // casts each column afterwards.
+        let mut writer = JsonLinesWriter::open(&spec.node_id)?;
+        let batch = spec.batch_rows.max(1);
+        let buffers = TextRowSet::for_cursor(batch, &mut cursor, Some(65536))
+            .map_err(|e| EngineError::Query(format!("teradata: alloc buffers: {}", e)))?;
+        let mut rows_cursor = cursor
+            .bind_buffer(buffers)
+            .map_err(|e| EngineError::Query(format!("teradata: bind buffers: {}", e)))?;
+        let mut count = 0usize;
+        while let Some(view) = rows_cursor
+            .fetch()
+            .map_err(|e| EngineError::Query(format!("teradata: fetch: {}", e)))?
+        {
+            self.check_cancelled()?;
+            for r in 0..view.num_rows() {
+                let mut obj = serde_json::Map::with_capacity(names.len());
+                for (c, name) in names.iter().enumerate() {
+                    let v = match view.at(c, r) {
+                        Some(bytes) => {
+                            JsonValue::String(String::from_utf8_lossy(bytes).into_owned())
+                        }
+                        None => JsonValue::Null,
+                    };
+                    obj.insert(name.clone(), v);
+                }
+                writer.write_row(&JsonValue::Object(obj))?;
+                count += 1;
+            }
+        }
+        drop(rows_cursor);
+        drop(conn);
+        writer.finalize_typed(self.binary(), db, &spec.node_id, &columns_spec, &select_list)?;
+        Ok(format!(
+            "teradata: materialized {} rows into {}",
+            count, spec.node_id
+        ))
+    }
+
+    #[cfg(not(feature = "teradata"))]
+    pub(crate) fn run_teradata_source(
+        &self,
+        _db: &Path,
+        _spec: &plan::TeradataSourceSpec,
+    ) -> Result<String, EngineError> {
+        Err(EngineError::Config(
+            "teradata: this build was compiled without the `teradata` (ODBC) feature".into(),
+        ))
+    }
+
+    /// Teradata sink over the Teradata ODBC driver. Reads the upstream view and
+    /// INSERTs each row through ODBC. Append creates the table if it is missing;
+    /// overwrite clears it first. Teradata's VALUES clause is single-row, so
+    /// rows are inserted one statement at a time (large loads should use
+    /// Teradata's bulk utilities). No upsert. (#122)
+    #[cfg(feature = "teradata")]
+    pub(crate) fn run_teradata_sink(
+        &self,
+        db: &Path,
+        spec: &plan::TeradataSinkSpec,
+    ) -> Result<String, EngineError> {
+        use odbc_api::{ConnectionOptions, Environment};
+
+        let select = format!("SELECT * FROM {}", plan::quote_ident(&spec.from_view));
+        let rows = self.run_rows(Some(db), &select)?;
+        if rows.is_empty() {
+            return Ok(format!("teradata: 0 rows to insert into {}", spec.table));
+        }
+        let cols: Vec<String> = match rows[0].as_object() {
+            Some(o) => o.keys().cloned().collect(),
+            None => {
+                return Err(EngineError::Query(
+                    "teradata: upstream rows aren't JSON objects".into(),
+                ));
+            }
+        };
+        let col_types: std::collections::HashMap<String, String> =
+            describe_columns(self, db, &spec.from_view).into_iter().collect();
+        // Teradata delimited identifiers use double quotes (doubled to escape).
+        let q = |s: &str| format!("\"{}\"", s.replace('"', "\"\""));
+        let qualified = match &spec.database {
+            Some(d) => format!("{}.{}", q(d), q(&spec.table)),
+            None => q(&spec.table),
+        };
+        let col_defs = cols
+            .iter()
+            .map(|c| {
+                let ty = duckdb_type_to_teradata(
+                    col_types.get(c).map(|s| s.as_str()).unwrap_or("VARCHAR"),
+                );
+                format!("{} {}", q(c), ty)
+            })
+            .collect::<Vec<_>>()
+            .join(", ");
+        let cols_list = cols.iter().map(|c| q(c)).collect::<Vec<_>>().join(", ");
+        let create_sql = format!("CREATE TABLE {} ({})", qualified, col_defs);
+
+        let env = Environment::new()
+            .map_err(|e| EngineError::Query(format!("teradata: ODBC environment: {}", e)))?;
+        let conn = env
+            .connect_with_connection_string(&spec.conn_str, ConnectionOptions::default())
+            .map_err(|e| EngineError::Query(format!("teradata: connect failed: {}", e)))?;
+        // Teradata has no CREATE TABLE IF NOT EXISTS, so create and tolerate the
+        // "table already exists" error (3803).
+        if let Err(e) = conn.execute(&create_sql, (), None) {
+            let msg = e.to_string();
+            if !(msg.contains("3803") || msg.to_lowercase().contains("already exists")) {
+                return Err(EngineError::Query(format!("teradata: create table: {}", msg)));
+            }
+        }
+        if spec.mode == "overwrite" {
+            conn.execute(&format!("DELETE FROM {}", qualified), (), None)
+                .map_err(|e| EngineError::Query(format!("teradata: clear table: {}", e)))?;
+        }
+        let mut total = 0usize;
+        for row in &rows {
+            self.check_cancelled()?;
+            let obj = row.as_object();
+            let vals: Vec<String> = cols
+                .iter()
+                .map(|c| {
+                    let v = obj.and_then(|o| o.get(c)).unwrap_or(&JsonValue::Null);
+                    sql_literal(v, col_types.get(c).map(|s| s.as_str()), Dialect::Teradata)
+                })
+                .collect();
+            let stmt = format!(
+                "INSERT INTO {} ({}) VALUES ({})",
+                qualified,
+                cols_list,
+                vals.join(", ")
+            );
+            conn.execute(&stmt, (), None)
+                .map_err(|e| EngineError::Query(format!("teradata: insert: {}", e)))?;
+            total += 1;
+        }
+        Ok(format!(
+            "teradata: {} {} rows into {}",
+            if spec.mode == "overwrite" { "overwrote with" } else { "inserted" },
+            total,
+            spec.table
+        ))
+    }
+
+    #[cfg(not(feature = "teradata"))]
+    pub(crate) fn run_teradata_sink(
+        &self,
+        _db: &Path,
+        _spec: &plan::TeradataSinkSpec,
+    ) -> Result<String, EngineError> {
+        Err(EngineError::Config(
+            "teradata: this build was compiled without the `teradata` (ODBC) feature".into(),
+        ))
+    }
+
     /// Redis SET sink via the sync redis client. For each upstream row,
     /// SET <keyColumn> <valueColumn|json(row)> [EX <ttl>]. Pipelined in
     /// chunks of batch_size to amortize the round-trip cost.
@@ -8309,6 +8523,33 @@ fn tail_chars(s: &str, max: usize) -> &str {
     let skip = count - max;
     let (idx, _) = s.char_indices().nth(skip).unwrap_or((0, ' '));
     &s[idx..]
+}
+
+/// Map an ODBC column data type to the DuckDB type the Teradata source should
+/// TRY_CAST it to. `None` means "leave it as VARCHAR" (no cast) - for char /
+/// binary / unknown types whose ODBC text rendering is already what we want.
+/// Decimals keep their precision/scale (clamped to DuckDB's max of 38).
+#[cfg(feature = "teradata")]
+fn odbc_type_to_duckdb(dt: &odbc_api::DataType) -> Option<String> {
+    use odbc_api::DataType as D;
+    match dt {
+        D::TinyInt => Some("TINYINT".into()),
+        D::SmallInt => Some("SMALLINT".into()),
+        D::Integer => Some("INTEGER".into()),
+        D::BigInt => Some("BIGINT".into()),
+        D::Real => Some("REAL".into()),
+        D::Float { .. } | D::Double => Some("DOUBLE".into()),
+        D::Decimal { precision, scale } | D::Numeric { precision, scale } => {
+            let p = (*precision).clamp(1, 38);
+            let s = ((*scale).max(0) as usize).min(p);
+            Some(format!("DECIMAL({},{})", p, s))
+        }
+        D::Bit => Some("BOOLEAN".into()),
+        D::Date => Some("DATE".into()),
+        D::Time { .. } => Some("TIME".into()),
+        D::Timestamp { .. } => Some("TIMESTAMP".into()),
+        _ => None,
+    }
 }
 
 /// Return a column name not already present in `used`, suffixing repeats as

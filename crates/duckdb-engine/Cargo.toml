@@ -69,6 +69,13 @@ scylla = "0.13"
 # the library path when they actually connect. Default-on so the
 # shipped binary supports Oracle out of the box.
 oracle = { version = "0.6", optional = true }
+# Teradata support. Teradata ships a free ODBC driver (there is no DuckDB
+# Teradata extension and no native Rust driver), so src.teradata / snk.teradata
+# talk to it through ODBC via odbc-api. odbc-api links the system ODBC driver
+# manager at build time (odbc32 on Windows - always present; unixODBC on
+# Linux/macOS). Off by default so a plain engine build/test needs no ODBC; the
+# shipped binaries (desktop, runner, mcp) turn it on.
+odbc-api = { version = "28", optional = true }
 # Redis sync client. Tokio-async is optional and off; we use the blocking
 # Connection / Pipeline API to fit the per-stage CLI shell-out model.
 # Small dep (~300kb).
@@ -169,6 +176,9 @@ prost = "0.13"
 [features]
 default = ["oracle"]
 oracle = ["dep:oracle"]
+# Teradata via ODBC (odbc-api). Off by default so a plain engine build/test
+# needs no ODBC driver manager; the shipped binaries enable it.
+teradata = ["dep:odbc-api"]
 
 # Issue #4 repro harness: connects to a live Oracle, replays
 # run_oracle_source faithfully, and times each phase. Gated so a

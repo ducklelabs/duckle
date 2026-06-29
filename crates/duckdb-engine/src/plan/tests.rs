@@ -3523,32 +3523,39 @@
     }
 
     #[test]
-    fn teradata_adbc_options_friendly_then_advanced_override() {
+    fn teradata_conn_string_friendly_dsn_and_raw() {
         use serde_json::json;
-        // The Teradata wrapper maps friendly host/user/password/database/port
-        // onto ADBC database option keys, then layers the advanced `options`
-        // array and `uri` on top so an explicit option overrides a friendly
-        // default (a last-wins driver applies the override).
-        let props = json!({
+        // Friendly fields build a DRIVER=/DBCNAME= ODBC string with UID/PWD/
+        // DATABASE and a UTF-8 charset; the default driver name is used when
+        // none is given.
+        let friendly = teradata_conn_string(&json!({
             "host": "tera.example.com",
             "user": "dbc",
             "password": "secret",
-            "database": "sales",
-            "port": 1025,
-            "uri": "teradata://tera.example.com/sales",
-            "options": [
-                {"key": "username", "value": "override_user"},
-                {"key": "logmech", "value": "LDAP"}
-            ]
-        });
-        let opts = teradata_adbc_options(&props);
-        assert!(opts.contains(&("host".into(), "tera.example.com".into())));
-        assert!(opts.contains(&("password".into(), "secret".into())));
-        assert!(opts.contains(&("database".into(), "sales".into())));
-        assert!(opts.contains(&("port".into(), "1025".into())));
-        assert!(opts.contains(&("logmech".into(), "LDAP".into())));
-        assert!(opts.contains(&("uri".into(), "teradata://tera.example.com/sales".into())));
-        let friendly = opts.iter().position(|(k, v)| k == "username" && v == "dbc").unwrap();
-        let overridden = opts.iter().position(|(k, v)| k == "username" && v == "override_user").unwrap();
-        assert!(friendly < overridden, "advanced override must come after the friendly default");
+            "database": "sales"
+        }))
+        .unwrap();
+        assert!(friendly.contains("DRIVER={Teradata Database ODBC Driver 17.20}"));
+        assert!(friendly.contains("DBCNAME=tera.example.com"));
+        assert!(friendly.contains("UID=dbc"));
+        assert!(friendly.contains("PWD=secret"));
+        assert!(friendly.contains("DATABASE=sales"));
+        assert!(friendly.contains("CharacterSet=UTF8"));
+
+        // A DSN takes the place of DRIVER/DBCNAME but still layers credentials.
+        let dsn = teradata_conn_string(&json!({"dsn": "TeradataProd", "user": "dbc"})).unwrap();
+        assert!(dsn.contains("DSN=TeradataProd"));
+        assert!(dsn.contains("UID=dbc"));
+        assert!(!dsn.contains("DRIVER="));
+
+        // An explicit connectionString wins verbatim.
+        let raw = teradata_conn_string(&json!({
+            "connectionString": "DSN=Custom;UID=x;PWD=y",
+            "host": "ignored"
+        }))
+        .unwrap();
+        assert_eq!(raw, "DSN=Custom;UID=x;PWD=y");
+
+        // No host / dsn / connectionString is a config error.
+        assert!(teradata_conn_string(&json!({"user": "dbc"})).is_err());
     }
