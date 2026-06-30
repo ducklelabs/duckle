@@ -41,7 +41,7 @@
 **Get started**
 
 - [What is Duckle?](#what-is-duckle)
-- [What's new in v0.5.2](#whats-new-in-v052)
+- [What's new in v0.5.3](#whats-new-in-v053)
 - [Quickstart (60 s)](#quickstart-60-seconds)
 - [Download / Install](#download--install)
 - [Build from source](#build-from-source)
@@ -121,21 +121,27 @@ Three things make Duckle different from the heavyweights and the toy ETL tools:
 
 ---
 
-## What's new in v0.5.2
+## What's new in v0.5.3
 
-Vector and next-generation columnar formats, a native Python UDF, query pushdown across every SQL source, one-click VPS deploy, and new workspace settings.
+A trust and review layer for your pipelines, column lineage end to end, new enterprise connectors, and a faster editor loop.
 
-- **LanceDB source + sink (#111).** Read and write Lance datasets and tables - a local directory, LanceDB Cloud (`db://`), or `s3://` / `gs://` / `az://` object stores - through a bundled sidecar, with the official LanceDB icon on the canvas.
-- **Vortex source + sink (#111).** Read and write the Vortex columnar file format (`.vortex`), a next-generation format built for fast random access. Same bundled sidecar, bridged through Parquet.
-- **Python UDF (`code.python`).** A per-row transform powered by a real Python 3 interpreter - the full language plus any installed packages. Define a `process(row)` function that returns the output row (return `None` to drop it); rows cross as JSON, so no Python runtime lives in the engine. Point it at any interpreter with `DUCKLE_PYTHON_BIN`.
-- **Query pushdown across all relational sources.** Push a free-form `SELECT` down to the source database so filtering, joins and aggregation run where the data lives, and only the result comes back - now consistent across every relational source and exposed as a `query` field on BigQuery and Redshift. MongoDB gains aggregation-pipeline source queries (#106).
-- **One-click VPS deploy via Coolify (#31).** Self-host the web editor on Hetzner / Hostinger / OVH (or any [Coolify](https://coolify.io) box) in one click: add a Docker Compose resource from [`docker-compose.coolify.yml`](docker-compose.coolify.yml) and Deploy. Coolify assigns a domain with automatic HTTPS and your data persists in a managed volume. The web image now has desktop parity - the LanceDB/Vortex sidecar and Python are bundled. See [docs/deploy-coolify.md](docs/deploy-coolify.md).
-- **Workspace settings.** A per-workspace engine memory cap (#102), a global context file that auto-loads `${...}` variables from one shared source across all pipelines, and a toggle to hide the Dives button from the top bar.
-- **Refreshed guided tour.** Now spotlights Dives and the column-lineage viewer with broader palette coverage (350+ components: vector DBs, data-quality / governance, AI, and code UDFs), and re-shows the new spotlights to anyone who dismissed the earlier tour.
+- **Signed, reproducible run manifests (`.ducklock`).** A run records a signed manifest that pins source input hashes, the per-node outcome, and the resolved column lineage - so any run is verifiable and reproducible after the fact.
+- **Schema-drift detection + a Trust score.** Duckle flags when an upstream source's columns or types change since the last signed run, and surfaces a trust score in both the desktop and web editor with a live drift toggle. `duckle review` gates a change as review-ready and fails on drift.
+- **`duckle review` + data branches.** Review a pipeline change from the CLI - including a live data diff (`--data`) - and branch a DuckDB database file so you can test changes in isolation.
+- **Pre-flight data contracts.** Declare expectations a source must meet and have them checked before the run touches anything.
+- **Column lineage, end to end.** Trace any output column back through transforms and sinks to the source columns it came from, with a downstream impact view for change-impact analysis.
+- **Teradata source + sink (#122).** Read and write Teradata over ODBC (Windows / Linux).
+- **MinIO / Cloudflare R2 / Backblaze B2 sinks + S3 endpoint config (#116).** Write to any S3-compatible object store via endpoint + URL-style settings.
+- **Live preview.** Toggle live preview, then selecting or editing a node runs the pipeline up to it and fills its Preview tab - no full Run needed.
+- **Run parameters (#127).** Value a pipeline's `${...}` variables per run, prompted in the editor and from the web dashboard.
+- **Workspace initialisation + sample pipelines.** A brand-new workspace is seeded with runnable sample pipelines and their generated data, and first-run setup provisions dbt Fusion alongside DuckDB.
+- **Custom SQL on DuckLake / attached sources (#117).** Free-form SQL now resolves against an attached catalog's own schemas.
+- **MCP review tools.** New tools any LLM can call: `diff_pipelines`, `pipeline_impact` (blast radius), `suggest_contracts`, `trust_report`, `pipeline_lineage` and `verify_pipeline`.
+- **`duckle run` headless subcommand (#124).**
 
-Fixes: #102 (properties-panel node id no longer clipped by the collapse toggle), #108 (web dashboard shows pipeline names instead of internal ids), #109 (Regex Extract supports named capture groups).
+Fixes: schema-qualified DuckLake CDC and auto-created file-DB sink directories; a 15-fix connector correctness + streaming pass; the web API now returns 404 (not a null 200) for unknown commands (#119); window controls stay reachable on narrow screens; plus the usual polish.
 
-Full notes: see the [v0.5.2 release](https://github.com/ducklelabs/duckle/releases/tag/v0.5.2).
+Full notes: see the [v0.5.3 release](https://github.com/ducklelabs/duckle/releases/tag/v0.5.3).
 
 ---
 
@@ -239,7 +245,7 @@ Duckle is not a CSV tool with extras. It reads a broad set of formats and source
 | **Network relational DBs** | SQL Server (TDS), Oracle (Instant Client at runtime), ClickHouse (HTTP API) | Available |
 | **Network relational DBs** | IBM DB2, generic JDBC | Planned |
 | **Object storage** | Amazon S3, Google Cloud Storage, Azure Blob, HTTP(S), MinIO, Cloudflare R2, Backblaze B2 | Available (live CI for MinIO) |
-| **Cloud warehouses** | MotherDuck, Snowflake (SQL API + PAT/JWT), BigQuery, Redshift (postgres ATTACH), Databricks SQL (Statement Execution + chunk follow), Azure Synapse (TDS), **DuckDB Quack** (May 2026 remote protocol - HTTP on :9494, SECRET-based token auth) | Available |
+| **Cloud warehouses** | MotherDuck, Snowflake (SQL API + PAT/JWT), BigQuery, Redshift (postgres ATTACH), Databricks SQL (Statement Execution + chunk follow), Azure Synapse (TDS), **Teradata** (ODBC, Windows / Linux), **DuckDB Quack** (May 2026 remote protocol - HTTP on :9494, SECRET-based token auth) | Available |
 | **Streaming** | Apache Kafka / Redpanda (pure-Rust `rskafka`), NATS JetStream, GCP Pub/Sub (REST + auto-ack), RabbitMQ (`lapin` AMQP), AWS Kinesis (HTTP + SigV4 - no AWS SDK) | Available |
 | **Streaming** | Pulsar, Event Hubs, multi-shard Kinesis | Planned |
 | **APIs and SaaS (REST)** | Salesforce, HubSpot, Pipedrive, Zendesk, Intercom, Stripe, QuickBooks, Xero, Shopify, Notion, Airtable, Asana, Trello, ClickUp, Monday.com, GitHub, GitLab, Linear, Jira, Slack, Discord, Telegram, Twilio, Mailchimp, SendGrid, Segment - thin pre-configured wrappers over `src.rest` / `src.graphql`. `src.rest` takes a configurable API-key auth header name and offset pagination that stops on a body `total_count` | Available |
@@ -324,7 +330,7 @@ Validators split their input: passing rows continue on the main port, failures r
 | **Network relational DBs** | SQL Server / Azure Synapse (TDS, multi-row VALUES batched; auto-creates the table if absent; **upsert** via MERGE), Oracle (Instant Client; INSERT ALL, batched per statement; auto-creates the table if absent; **upsert** via MERGE), ClickHouse (HTTP JSONEachRow; upsert by pointing at a ReplacingMergeTree target table) - every MERGE sink supports **CDC delete propagation** (a delete-flag column removes matched rows) | Available (SQL Server + Oracle + MySQL upsert and delete propagation verified live in Docker) |
 | **Network relational DBs** | IBM DB2, generic JDBC | Planned |
 | **Object storage** | S3, GCS, Azure Blob via DuckDB `httpfs` (MinIO / R2 / B2 via endpoint) | Available |
-| **Cloud warehouses** | MotherDuck, Snowflake (PAT or JWT RS256; **upsert** + delete propagation via MERGE), BigQuery, Redshift, Databricks SQL (**upsert** + delete propagation via MERGE), Azure Synapse, **DuckDB Quack** (concurrent writers to remote DuckDB via the May 2026 protocol) | Available (Snowflake MERGE verified live against the SQL-API emulator) |
+| **Cloud warehouses** | MotherDuck, Snowflake (PAT or JWT RS256; **upsert** + delete propagation via MERGE), BigQuery, Redshift, Databricks SQL (**upsert** + delete propagation via MERGE), Azure Synapse, **Teradata** (ODBC), **DuckDB Quack** (concurrent writers to remote DuckDB via the May 2026 protocol) | Available (Snowflake MERGE verified live against the SQL-API emulator) |
 | **HTTP APIs** | REST (POST/PUT/PATCH batched JSON-array; configurable API-key auth header name), Webhook (one POST per row), GraphQL mutations | Available |
 | **Email (SMTP)** | Per-row SMTP send via pure-Rust `lettre` + rustls. Plain text v1; HTML + attachments follow. | Available |
 | **NoSQL** | MongoDB (insert_many batched; **upsert** via replace_one on a key, plus delete propagation via delete_one), Cassandra / ScyllaDB (CQL), Elasticsearch / OpenSearch (`_bulk` NDJSON), Redis (pipelined SET) | Available |
@@ -428,7 +434,7 @@ When the installer downloads the DuckDB CLI it also pre-fetches the extensions D
 
 ## Download / Install
 
-Pick the binary for your OS from the [latest release](https://github.com/ducklelabs/duckle/releases/tag/v0.5.2):
+Pick the binary for your OS from the [latest release](https://github.com/ducklelabs/duckle/releases/tag/v0.5.3):
 
 | OS | Asset | How to run |
 |---|---|---|

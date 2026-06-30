@@ -105,7 +105,7 @@ exposing it publicly:
 ## Updating
 
 - **Pin a version** by replacing `:latest` with a release tag in the compose,
-  e.g. `image: ghcr.io/slothflowlabs/duckle-web:v0.5.2`, then Redeploy.
+  e.g. `image: ghcr.io/slothflowlabs/duckle-web:v0.5.3`, then Redeploy.
 - **Stay on latest** by clicking **Redeploy** (or enabling Coolify's automatic
   updates) to pull the newest image. Your `duckle-workspace` volume is kept.
 

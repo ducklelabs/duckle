@@ -19,7 +19,7 @@
 #     exposing it to the public internet.
 #   - Local-first: your data + pipelines live in the `duckle-workspace` volume on
 #     your own server. Nothing is sent to any Duckle-hosted service.
-#   - To pin a version, replace `:latest` with a release tag, e.g. `:v0.5.2`.
+#   - To pin a version, replace `:latest` with a release tag, e.g. `:v0.5.3`.
 
 services:
   duckle:
