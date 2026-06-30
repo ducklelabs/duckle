@@ -3,8 +3,8 @@ import { openExternal } from './tauri-io';
 
 /**
  * After ~30s of use, a small bottom-right card invites the user to review Duckle
- * on SourceForge. Three choices:
- *   - Review          -> opens the SourceForge reviews page, never asks again
+ * on G2. Three choices:
+ *   - Review          -> opens the G2 review page, never asks again
  *   - Remind me later -> hides for this session, asks again on the next launch
  *   - No thanks       -> never asks again
  *
@@ -16,7 +16,8 @@ import { openExternal } from './tauri-io';
  * Preview: set localStorage 'duckle.previewReviewPrompt' = '1' to force it on
  * immediately (for UI review without waiting / clearing state).
  */
-const REVIEW_URL = 'https://sourceforge.net/projects/duckle/reviews/';
+const REVIEW_URL =
+    'https://www.g2.com/contributor/duckle-review-collection-f6b8caf5-1e07-4156-a98a-3025d47e64a3';
 const STATE_KEY = 'duckle.reviewPrompt'; // localStorage: 'done' | 'dismissed'
 const SNOOZE_KEY = 'duckle.reviewPrompt.snooze'; // sessionStorage: '1'
 const DELAY_MS = 30_000;
@@ -66,7 +67,7 @@ export function ReviewPrompt() {
             </button>
             <div className="review-prompt-title">Enjoying Duckle?</div>
             <div className="review-prompt-body">
-                If Duckle's been useful, a quick review on SourceForge really helps others find it.
+                If Duckle's been useful, a quick review on G2 really helps others find it.
             </div>
             <div className="review-prompt-actions">
                 <button type="button" className="review-prompt-cta" onClick={review}>

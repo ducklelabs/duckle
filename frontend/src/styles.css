@@ -7911,7 +7911,7 @@ html[dir='rtl'] .topbar-lang {
 .acct-btn-primary:hover { background: var(--btn-primary-bg-strong, var(--accent)); }
 .acct-btn-primary:disabled { opacity: .5; cursor: not-allowed; }
 
-/* Review prompt (SourceForge) - bottom-right nudge after ~30s of use */
+/* Review prompt (G2) - bottom-right nudge after ~30s of use */
 .review-prompt {
     position: fixed;
     right: 18px;
