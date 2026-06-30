@@ -23,7 +23,7 @@
     },
     {
       "id": "fe",
-      "type": "control",
+      "type": "transform",
       "position": { "x": 480, "y": 0 },
       "data": {
         "label": "Per segment",

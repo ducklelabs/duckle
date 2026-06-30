@@ -1,7 +1,9 @@
 {
+  "name": "CSV filter to Parquet",
   "nodes": [
     {
       "id": "s1",
+      "type": "source",
       "position": { "x": 0, "y": 0 },
       "data": {
         "label": "Orders CSV",
@@ -14,7 +16,8 @@
     },
     {
       "id": "f1",
-      "position": { "x": 200, "y": 0 },
+      "type": "transform",
+      "position": { "x": 260, "y": 0 },
       "data": {
         "label": "Paid only",
         "componentId": "xf.filter",
@@ -23,7 +26,8 @@
     },
     {
       "id": "k1",
-      "position": { "x": 400, "y": 0 },
+      "type": "sink",
+      "position": { "x": 520, "y": 0 },
       "data": {
         "label": "Parquet out",
         "componentId": "snk.parquet",
@@ -32,7 +36,7 @@
     }
   ],
   "edges": [
-    { "id": "e1", "source": "s1", "target": "f1", "data": { "connectionType": "main" } },
-    { "id": "e2", "source": "f1", "target": "k1", "data": { "connectionType": "main" } }
+    { "id": "e1", "source": "s1", "target": "f1", "sourceHandle": "main", "targetHandle": "main", "data": { "connectionType": "main" } },
+    { "id": "e2", "source": "f1", "target": "k1", "sourceHandle": "main", "targetHandle": "main", "data": { "connectionType": "main" } }
   ]
 }

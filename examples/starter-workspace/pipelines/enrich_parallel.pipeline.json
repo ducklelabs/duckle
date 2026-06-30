@@ -73,7 +73,7 @@
     },
     {
       "id": "par",
-      "type": "control",
+      "type": "transform",
       "position": { "x": 980, "y": 0 },
       "data": {
         "label": "Parallel write",
