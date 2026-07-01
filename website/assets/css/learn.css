@@ -56,14 +56,15 @@ img { max-width: 100%; }
   padding: clamp(80px, 11vh, 120px) clamp(24px, 6vw, 96px) clamp(96px, 14vh, 140px);
   opacity: 0; visibility: hidden; pointer-events: none; transition: opacity .45s ease, visibility .45s; }
 .scene.active { opacity: 1; visibility: visible; pointer-events: auto; }
+.scene.fitted { align-items: start; }   /* scenes that must scale down are pinned to the top so they never reach the controls */
 .scene-inner { width: 100%; max-width: 1180px; display: flex; flex-direction: column;
-  transform-origin: center center; transition: transform .45s var(--ease); }
+  transform-origin: center center; transition: transform .4s var(--ease); }
 .scene.center .scene-inner { align-items: center; text-align: center; }
 
 /* Primary content reveal is CSS-transition based (robust: ends visible even
    if the animation engine is throttled). GSAP adds decorative extras on top. */
-html.anim .scene [data-e] { opacity: 0; transform: translateY(26px) scale(.985); filter: blur(5px); transition: opacity .6s var(--ease), transform .6s var(--ease), filter .6s var(--ease); }
-html.anim .scene.revealed [data-e] { opacity: 1; transform: none; filter: none; }
+html.anim .scene [data-e] { opacity: 0; transform: translateY(14px); transition: opacity .4s var(--ease), transform .4s var(--ease); }
+html.anim .scene.revealed [data-e] { opacity: 1; transform: none; }
 
 /* ---- typography ---- */
 .eyebrow { display: inline-flex; align-items: center; gap: 12px; font-family: var(--mono); font-size: .74rem; font-weight: 500; letter-spacing: .2em; text-transform: uppercase; color: var(--text-3); margin: 0 0 20px; }
@@ -138,14 +139,20 @@ ul.beats li::before { counter-increment: bt; content: counter(bt, decimal-leadin
 .famhead h2 { margin: 2px 0 0; font-size: clamp(1.8rem, 4vw, 3.2rem); font-weight: 800; letter-spacing: -.02em; }
 
 /* ---- component grid ---- */
-.cgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(232px, 1fr)); gap: 12px; width: 100%; }
-.ccard { border: 1px solid var(--border); border-radius: 12px; background: var(--surface); padding: 13px 15px; position: relative; overflow: hidden; transition: transform .16s var(--ease), border-color .16s, box-shadow .2s; }
-.ccard:hover { transform: translateY(-3px); border-color: color-mix(in srgb, var(--kc, var(--orange)) 55%, var(--border)); box-shadow: 0 12px 30px rgba(0,0,0,.4); }
+.cgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 12px; width: 100%; grid-auto-rows: 1fr; }
+.ccard { border: 1px solid var(--border); border-radius: 14px; background: var(--surface); padding: 14px; position: relative; overflow: hidden; display: flex; gap: 12px; align-items: flex-start; transition: transform .16s var(--ease), border-color .16s, box-shadow .2s; }
+.ccard:hover { transform: translateY(-3px); border-color: color-mix(in srgb, var(--kc, var(--orange)) 55%, var(--border)); box-shadow: 0 14px 34px rgba(0,0,0,.45); }
 .ccard::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 3px; background: var(--kc, var(--orange)); opacity: .9; }
-.ccard .cid { font-family: var(--mono); font-size: .82rem; font-weight: 600; color: var(--text); display: flex; align-items: center; gap: 7px; }
-.ccard .cid .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--green); }
-.ccard .cid .dot.p { background: var(--text-3); } .ccard .cid .dot.v { background: var(--violet); }
-.ccard .csum { font-size: .82rem; color: var(--text-3); margin-top: 4px; line-height: 1.4; }
+.ccard .clogo { flex: 0 0 auto; width: 38px; height: 38px; border-radius: 10px; position: relative; display: grid; place-items: center; overflow: hidden; background: color-mix(in srgb, var(--kc, var(--orange)) 13%, #0c0f14); border: 1px solid color-mix(in srgb, var(--kc, var(--orange)) 22%, transparent); }
+.ccard .clogo svg.fam { width: 19px; height: 19px; color: var(--kc, var(--orange)); opacity: .92; }
+.ccard .clogo img { position: absolute; inset: 7px; width: 24px; height: 24px; object-fit: contain; }
+.ccard .cbody { min-width: 0; flex: 1 1 auto; }
+.ccard .cname { font-size: .9rem; font-weight: 700; color: var(--text); letter-spacing: -.01em; line-height: 1.18; display: flex; align-items: center; gap: 7px; flex-wrap: wrap; }
+.ccard .cname .cav { font-family: var(--mono); font-size: .56rem; font-weight: 600; letter-spacing: .05em; text-transform: uppercase; padding: 1px 5px; border-radius: 5px; color: var(--text-3); border: 1px solid var(--border); }
+.ccard .cname .cav.p { color: #ffb454; border-color: color-mix(in srgb, #ffb454 42%, transparent); }
+.ccard .cname .cav.v { color: var(--violet); border-color: color-mix(in srgb, var(--violet) 42%, transparent); }
+.ccard .cid { font-family: var(--mono); font-size: .71rem; margin-top: 2px; color: color-mix(in srgb, var(--kc, var(--orange)) 72%, var(--text-2)); }
+.ccard .csum { font-size: .79rem; color: var(--text-3); margin-top: 6px; line-height: 1.42; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
 .cgrid-cap { display: flex; align-items: baseline; justify-content: space-between; margin: 16px 2px 0; font-family: var(--mono); font-size: .76rem; color: var(--text-3); }
 .cgrid-cap .pg { color: var(--text-2); }
 

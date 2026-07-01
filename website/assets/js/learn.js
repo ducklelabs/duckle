@@ -22,6 +22,46 @@
     code:     { label: "Code",       color: "var(--k-code)",      verb: "drop to code",      n: 7,   ic: '<path d="M8 8l-4 4 4 4M16 8l4 4-4 4"/>' }
   };
 
+  /* -------- brand logos, keyed by component base name (same set as the site marquee) --------
+     value: "slug" -> simpleicons ; "slug/tint" -> tinted ; "/path" -> local asset ; "http..." -> url
+     Wrong slugs fall back to the family glyph via the <img> onerror handler, so this can be generous. */
+  var BRAND = {
+    postgres: "postgresql", pgvector: "postgresql", mysql: "mysql", mariadb: "mariadb",
+    sqlserver: "https://cdn.jsdelivr.net/gh/devicons/devicon/icons/microsoftsqlserver/microsoftsqlserver-plain.svg",
+    synapse: "https://cdn.jsdelivr.net/gh/devicons/devicon/icons/microsoftsqlserver/microsoftsqlserver-plain.svg",
+    oracle: "/assets/img/connectors/oracle.svg", db2: "ibm", sqlite: "sqlite/2aa1f6",
+    duckdb: "duckdb", mongodb: "mongodb", cassandra: "apachecassandra", scylla: "scylladb",
+    redis: "redis", clickhouse: "clickhouse", cockroach: "cockroachlabs", elastic: "elasticsearch",
+    opensearch: "opensearch", couchdb: "apachecouchdb", snowflake: "snowflake", bigquery: "googlebigquery",
+    redshift: "/assets/img/connectors/aws-redshift.svg", databricks: "databricks", teradata: "teradata",
+    adbc: "apachearrow", gizmosql: "apachearrow", quack: "duckdb", motherduck: "duckdb",
+    excel: "https://cdn.jsdelivr.net/gh/devicons/devicon/icons/microsoftexcel/microsoftexcel-original.svg",
+    "excel-online": "https://cdn.jsdelivr.net/gh/devicons/devicon/icons/microsoftexcel/microsoftexcel-original.svg",
+    parquet: "apacheparquet", avro: "apache", orc: "apache", iceberg: "apacheiceberg", delta: "databricks",
+    ducklake: "/assets/img/eco/ducklake.svg", spatial: "openstreetmap", yaml: "yaml", toml: "toml",
+    s3: "/assets/img/connectors/aws-s3.svg", gcs: "googlecloud", pubsub: "googlecloud",
+    azureblob: "/assets/img/connectors/microsoft-azure.svg", eventhubs: "/assets/img/connectors/microsoft-azure.svg",
+    minio: "minio", r2: "cloudflare", b2: "backblaze", kinesis: "amazonwebservices/f89b1c", dynamodb: "amazondynamodb",
+    kafka: "apachekafka/f5f5f5", redpanda: "redpanda", pulsar: "apachepulsar", nats: "natsdotio", rabbit: "rabbitmq",
+    rest: "", graphql: "graphql", salesforce: "/assets/img/connectors/salesforce.svg", hubspot: "hubspot",
+    pipedrive: "pipedrive", zendesk: "zendesk", intercom: "intercom", stripe: "stripe", quickbooks: "quickbooks",
+    xero: "xero", shopify: "shopify", notion: "notion/f5f5f5", airtable: "airtable", asana: "asana", trello: "trello",
+    clickup: "clickup", monday: "mondaydotcom", gsheets: "googlesheets", github: "github/f5f5f5", gitlab: "gitlab",
+    git: "git/f05032", linear: "linear", jira: "jira", mailchimp: "mailchimp", segment: "segment", slack: "/assets/img/connectors/slack.svg",
+    discord: "discord", telegram: "telegram", twilio: "/assets/img/connectors/twilio.svg", email: "maildotru",
+    pinecone: "pinecone", qdrant: "qdrant", weaviate: "weaviate", milvus: "milvus", lancedb: "apachearrow",
+    python: "python", rust: "rust", javascript: "javascript", shell: "gnubash", wasm: "webassembly", dbt: "dbt"
+  };
+  function brandFor(id) {
+    var base = String(id).replace(/^[a-z]+\./, "").replace(/\..*$/, "");
+    if (!(base in BRAND)) return null;
+    var v = BRAND[base];
+    if (!v) return null;
+    if (v.charAt(0) === "/") return "." + v;
+    if (v.indexOf("://") > -1) return v;
+    return "https://cdn.simpleicons.org/" + v;
+  }
+
   /* -------- expand grid markers into scenes from the catalog -------- */
   function expandGrids() {
     var cat = window.CATALOG || {};
@@ -38,10 +78,16 @@
         sec.className = "scene";
         sec.setAttribute("data-chapter", meta.label);
         var cards = slice.map(function (it) {
-          var av = it[3] === "p" ? "p" : it[3] === "v" ? "v" : "";
-          return '<div class="ccard" data-e style="--kc:' + meta.color + '">' +
-            '<div class="cid"><span class="dot ' + av + '"></span>' + esc(it[0]) + '</div>' +
-            '<div class="csum">' + esc(it[2] || it[1]) + '</div></div>';
+          var av = it[3];
+          var badge = av === "p" ? '<span class="cav p">Soon</span>' : av === "v" ? '<span class="cav v">Preview</span>' : "";
+          var tag = (window.CARDS && window.CARDS[it[0]]) || it[2] || it[1];
+          var brand = brandFor(it[0]);
+          var logo = '<span class="clogo"><svg class="fam" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">' + (meta.ic || "") + '</svg>' +
+            (brand ? '<img src="' + brand + '" alt="" loading="lazy" onerror="this.remove()">' : "") + '</span>';
+          return '<div class="ccard" data-e style="--kc:' + meta.color + '">' + logo +
+            '<div class="cbody"><div class="cname">' + esc(it[1]) + badge + '</div>' +
+            '<div class="cid">' + esc(it[0]) + '</div>' +
+            '<div class="csum">' + esc(tag) + '</div></div></div>';
         }).join("");
         sec.innerHTML = '<div class="scene-inner">' +
           '<div class="famhead"><span class="ic" style="background:' + meta.color + '">' +
@@ -153,12 +199,17 @@
     if (!scene) return;
     var inner = scene.querySelector(".scene-inner"); if (!inner) return;
     inner.style.transform = "none";                    // reset to measure natural height
+    scene.classList.remove("fitted");
     var cs = window.getComputedStyle(scene);
-    var avail = scene.clientHeight - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom);
+    var avail = scene.clientHeight - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom) - 10; // headroom for late reflow
     var h = inner.offsetHeight;
     if (h > avail && h > 0) {
       var scale = Math.max(0.5, avail / h);
+      inner.style.transformOrigin = "top center";      // shrink from the top so scaled content never reaches the controls
       inner.style.transform = "scale(" + scale.toFixed(3) + ")";
+      scene.classList.add("fitted");
+    } else {
+      inner.style.transformOrigin = "center center";
     }
   }
   function fitActive() { if (scenes[cur]) fitScene(scenes[cur]); }
@@ -185,6 +236,8 @@
     updateHud();
     fitScene(sc);
     requestAnimationFrame(function () { fitScene(sc); });   // re-measure once layout settles
+    setTimeout(function () { if (scenes[cur] === sc) fitScene(sc); }, 90);   // fonts/images settle
+    setTimeout(function () { if (scenes[cur] === sc) fitScene(sc); }, 320);
     playEnter(sc);
   }
 
