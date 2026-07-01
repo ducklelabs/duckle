@@ -82,8 +82,12 @@
           var badge = av === "p" ? '<span class="cav p">Soon</span>' : av === "v" ? '<span class="cav v">Preview</span>' : "";
           var tag = (window.CARDS && window.CARDS[it[0]]) || it[2] || it[1];
           var brand = brandFor(it[0]);
-          var logo = '<span class="clogo"><svg class="fam" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">' + (meta.ic || "") + '</svg>' +
-            (brand ? '<img src="' + brand + '" alt="" loading="lazy" onerror="this.remove()">' : "") + '</span>';
+          // Family glyph is the visible base. A brand logo (transparent PNG/SVG) loads on top; on
+          // success we hide the glyph (so the two never overlap), on failure we drop the logo and
+          // keep the glyph. This avoids overlap AND empty tiles while the logo is still loading.
+          var glyph = '<svg class="fam" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">' + (meta.ic || "") + '</svg>';
+          var img = brand ? '<img src="' + brand + '" alt="" loading="lazy" onload="var g=this.parentNode.querySelector(&quot;.fam&quot;);if(g)g.style.display=&quot;none&quot;;" onerror="this.remove();">' : "";
+          var logo = '<span class="clogo">' + glyph + img + '</span>';
           return '<div class="ccard" data-e style="--kc:' + meta.color + '">' + logo +
             '<div class="cbody"><div class="cname">' + esc(it[1]) + badge + '</div>' +
             '<div class="cid">' + esc(it[0]) + '</div>' +
